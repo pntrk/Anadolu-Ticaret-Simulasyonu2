@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anadolu Ticaret Simülasyonu - İndirme Merkezi</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        body {
+            background-color: #f3f4f6;
+            color: #1f2937;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+        .logo-placeholder {
+            width: 80px;
+            height: 80px;
+            background: #4f46e5;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 20px;
+            margin: 0 auto 24px;
+        }
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 12px;
+        }
+        p.subtitle {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 32px;
+            line-height: 1.5;
+        }
+        .file-section {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .file-info {
+            flex: 1;
+        }
+        .file-title {
+            font-weight: 600;
+            color: #111827;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .file-meta {
+            color: #6b7280;
+            font-size: 13px;
+        }
+        .download-btn {
+            background: #4f46e5;
+            color: white;
+            border: none;
+            cursor: pointer;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: background 0.2s, opacity 0.2s;
+            display: inline-block;
+            text-align: center;
+            min-width: 140px;
+        }
+        .download-btn:hover {
+            background: #4338ca;
+        }
+        .download-btn.aab-btn {
+            background: #059669;
+        }
+        .download-btn.aab-btn:hover {
+            background: #047857;
+        }
+        .info-box {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 24px;
+            text-align: left;
+            font-size: 13px;
+            color: #1e40af;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo-placeholder">AT</div>
+        <h1>Anadolu Ticaret Simülasyonu</h1>
+        <p class="subtitle">Google Play Console ve cihaz testleriniz için doğrudan yüksek hızlı indirme paneli. Tarayıcınız üzerinden doğrudan %100 orijinal ve tam boyutlu paketleri indirebilirsiniz.</p>
+        
+        <div class="file-section">
+            <div class="file-info">
+                <div class="file-title">Google Play Dağıtım Paketi (AAB)</div>
+                <div class="file-meta">Dosya: Anadolu_Ticaret_Simulasyonu_LATEST.aab<br>Boyut: {aab_size}</div>
+            </div>
+            <button id="aab-btn" onclick="downloadFile('/Anadolu_Ticaret_Simulasyonu_LATEST.aab', 'Anadolu_Ticaret_Simulasyonu_LATEST.aab', 'aab-btn')" class="download-btn aab-btn">AAB İndir</button>
+        </div>
+
+        <div class="file-section">
+            <div class="file-info">
+                <div class="file-title">Test ve Kurulum Paketi (APK)</div>
+                <div class="file-meta">Dosya: {latest_apk}<br>Boyut: {apk_size}</div>
+            </div>
+            <button id="apk-btn" onclick="downloadFile('/{latest_apk}', '{latest_apk}', 'apk-btn')" class="download-btn">APK İndir</button>
+        </div>
+
+        <div class="info-box">
+            <strong>Bilgilendirme:</strong> AI Studio arayüzündeki dosya senkronizasyon protokolü (IDE) binary dosyaları tam aktaramadığı için 0 KB sorunu yaşanmaktadır. Burası doğrudan sunucunun diskindeki gerçek dosyayı indiren HTTP servisidir. İndirdiğiniz AAB dosyasını doğrudan Google Play Console v1.25 sürümünüze yükleyebilirsiniz.
+        </div>
+    </div>
+
+    <script>
+        async function downloadFile(url, filename, btnId) {
+            const btn = document.getElementById(btnId);
+            const originalText = btn.innerText;
+            btn.innerText = "İndiriliyor... %0";
+            btn.style.pointerEvents = "none";
+            btn.style.opacity = "0.7";
+            
+            try {
+                const response = await fetch(url, { credentials: 'same-origin' });
+                if (!response.ok) throw new Error("Sunucu hatası: " + response.status);
+                
+                const contentLength = response.headers.get('content-length');
+                if (!contentLength) {
+                    const blob = await response.blob();
+                    triggerDownload(blob, filename);
+                    btn.innerText = originalText;
+                    btn.style.pointerEvents = "auto";
+                    btn.style.opacity = "1";
+                    return;
+                }
+                
+                const total = parseInt(contentLength, 10);
+                let loaded = 0;
+                
+                const reader = response.body.getReader();
+                const chunks = [];
+                
+                while(true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    loaded += value.length;
+                    const percent = Math.round((loaded / total) * 100);
+                    btn.innerText = `İndiriliyor... %${percent}`;
+                }
+                
+                const blob = new Blob(chunks, { type: 'application/octet-stream' });
+                triggerDownload(blob, filename);
+                
+                btn.innerText = "Tamamlandı!";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.pointerEvents = "auto";
+                    btn.style.opacity = "1";
+                }, 3000);
+                
+            } catch (error) {
+                alert("İndirme başarısız: " + error.message);
+                btn.innerText = "Hata Oluştu!";
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.style.pointerEvents = "auto";
+                    btn.style.opacity = "1";
+                }, 3000);
+            }
+        }
+
+        function triggerDownload(blob, filename) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>

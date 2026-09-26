@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Anadolu Ticaret Simülasyonu</string>
+    <string name="game_services_project_id">988366584024</string><string name="google_app_id" translatable="false">1:123456789012:android:abcdef1234567890</string>
+
+    <!-- Product Display Names -->
+    <string name="product_wheat">Buğday</string>
+    <string name="product_sugar_beet">Şeker Pancarı</string>
+    <string name="product_corn">Mısır &amp; Tahıl</string>
+    <string name="product_fruit">Yöresel Meyveler</string>
+    <string name="product_olive">Zeytin</string>
+    <string name="product_cotton">Pamuk</string>
+    <string name="product_tea">Çay</string>
+    <string name="product_sunflower">Ayçiçeği</string>
+    <string name="product_milk">Süt ve Hayvancılık</string>
+    <string name="product_fish">Su Ürünleri &amp; Balık</string>
+    <string name="product_rubber_latex">Doğal Kauçuk</string>
+    <string name="product_iron">Demir Cevheri</string>
+    <string name="product_copper">Bakır</string>
+    <string name="product_silicon">Silisyum</string>
+    <string name="product_aluminum">Alüminyum</string>
+    <string name="product_coal">Kömür</string>
+    <string name="product_clay">Kil ve Kum</string>
+    <string name="product_limestone">Kireçtaşı</string>
+    <string name="product_lithium">Lityum Cevheri</string>
+    <string name="product_gold_ore">Ham Altın</string>
+    <string name="product_timber">Kereste Odunu</string>
+    <string name="product_chemicals">Kimyasal Hammadde</string>
+    <string name="product_crude_oil">Ham Petrol</string>
+    <string name="product_natural_gas">Doğalgaz</string>
+    <string name="product_hazelnut">Fındık</string>
+    <string name="product_marble">Ham Mermer Blok</string>
+    <string name="product_titanium">Titanyum Cevheri</string>
+    <string name="product_cocoa_bean">Kakao Çekirdeği</string>
+    <string name="product_livestock">Canlı Hayvan / Büyükbaş</string>
+    <string name="product_bauxite_titanium">Boksit &amp; Titanyum Cevheri</string>
+    <string name="product_graphite_ore">Grafit &amp; Nadir Element Ocağı</string>
+
+    <string name="product_flour">Un</string>
+    <string name="product_cured_meat">Pastırma &amp; Sucuk</string>
+    <string name="product_glass">Cam</string>
+    <string name="product_sugar">Şeker</string>
+    <string name="product_olive_oil">Zeytinyağı</string>
+    <string name="product_steel">Çelik</string>
+    <string name="product_wire">Kablo</string>
+    <string name="product_fabric">İplik/Kumaş</string>
+    <string name="product_battery">Enerji/Lityum Akü</string>
+    <string name="product_cheese">Peynir ve Süt</string>
+    <string name="product_plastic">Plastik</string>
+    <string name="product_wood_plank">İşlenmiş Kereste</string>
+    <string name="product_brick">Tuğla</string>
+    <string name="product_organic_fertilizer">Organik Gübre</string>
+    <string name="product_sunflower_oil">Ayçiçek Yağı</string>
+    <string name="product_cement">Çimento</string>
+    <string name="product_refined_fuel">İşlenmiş Akaryakıt</string>
+    <string name="product_tire">Otomotiv Lastiği</string>
+    <string name="product_packaging">Endüstriyel Ambalaj</string>
+    <string name="product_aluminum_ingot">İşlenmiş Alüminyum</string>
+    <string name="product_animal_feed">Yem &amp; Karma Nişasta</string>
+    <string name="product_packaged_tea">İşlenmiş Paket Çay</string>
+    <string name="product_processed_fish">Konserve &amp; Dondurulmuş Balık</string>
+    <string name="product_refined_gold">İşlenmiş Külçe Altın</string>
+    <string name="product_liquefied_gas">Sıvılaştırılmış Gaz (LPG/LNG)</string>
+    <string name="product_hazelnut_paste">Fındık Ezmesi &amp; Krema</string>
+    <string name="product_marble_slab">İşlenmiş Mermer Plaka</string>
+    <string name="product_titanium_ingot">Külçe Titanyum</string>
+    <string name="product_pcb_substrate">Devre Kartı Altyapısı (PCB)</string>
+    <string name="product_synthetic_textile">Sentetik Elyaf / İplik</string>
+    <string name="product_chocolate_paste">Çikolata Hamuru &amp; Kakao Yağı</string>
+    <string name="product_titanium_alloy">Alaşımlı Titanyum Levha</string>
+    <string name="product_carbon_fiber">Karbon Elyaf Kompozit</string>
+    <string name="product_semiconductor_wafer">Yarı İletken Silisyum Wafer</string>
+    <string name="product_fruit_juice">Meyve Suyu &amp; Konsantre</string>
+    <string name="product_leather">İşlenmiş Hakiki Deri</string>
+    <string name="product_bio_ethanol">Biyoetanol Biyo-Yakıt</string>
+    <string name="product_optical_fiber">Fiber Optik İletişim Kablosu</string>
+    <string name="product_graphene_sheet">Grafen Nano Tabaka</string>
+
+    <string name="product_chip">Mikroçip</string>
+    <string name="product_canned_food">Konserve / Hazır Gıda</string>
+    <string name="product_smartphone">Akıllı Telefon</string>
+    <string name="product_clothing">Hazır Giyim</string>
+    <string name="product_auto_part">Oto Parçası</string>
+    <string name="product_appliance">Beyaz Eşya</string>
+    <string name="product_furniture">Mobilya</string>
+    <string name="product_building_block">Yapı Malzemesi</string>
+    <string name="product_pharma">İlaç &amp; Kozmetik</string>
+    <string name="product_machinery">Ağır İş Makinesi</string>
+    <string name="product_solar_panel">Güneş Enerjisi Paneli</string>
+    <string name="product_jewelry">Mücevherat &amp; Sarrafiye</string>
+    <string name="product_gourmet_food">Lüks Şarküteri Paketleri</string>
+    <string name="product_petrochem">Petrokimya &amp; Madeni Yağ</string>
+    <string name="product_biotech_med">Medikal Cihaz &amp; Biyoteknoloji</string>
+    <string name="product_turbine_engine">Ağır Türbin &amp; Jeneratör</string>
+    <string name="product_industrial_container">Lojistik Konteyner Sistemi</string>
+    <string name="product_chocolate_confectionery">Lüks Çikolata &amp; Şekerleme</string>
+    <string name="product_marble_architecture">Mimari Mermer &amp; Kaplama</string>
+    <string name="product_confectionery_luxury">Lüks Butik Çikolata &amp; Şekerleme</string>
+    <string name="product_composite_structure">Havacılık Sınıfı Kompozit Panel</string>
+    <string name="product_robotics_arm">Endüstriyel Robot Kolu &amp; Otomasyon</string>
+    <string name="product_organic_beverage">Organik Meyve Suyu &amp; Nektar Kompleksi</string>
+    <string name="product_luxury_footwear">Lüks Deri Ayakkabı &amp; Aksesuar</string>
+    <string name="product_telecom_station">5G / 6G Şebeke Baz İstasyonu</string>
+    <string name="product_nano_battery">Ultra Hızlı Grafen Nano Akü</string>
+
+    <string name="product_ev">Elektrikli Araç (EV)</string>
+    <string name="product_uav">Tarım Uçağı / İHA</string>
+    <string name="product_satellite">Haberleşme &amp; Gözlem Uydusu</string>
+    <string name="product_cargo_ship">Konteyner Kargo Gemisi</string>
+    <string name="product_bullet_train">Yüksek Hızlı Tren (YHT)</string>
+    <string name="product_ai_datacenter">Yapay Zeka Sunucu Kompleksi</string>
+    <string name="product_defense_frigate">Askeri Savunma Fırkateyni</string>
+    <string name="product_hydrogen_plant">Yeşil Hidrojen Yakıt Hücresi</string>
+    <string name="product_smart_grid">Akıllı Şehir Şebeke Sistemi</string>
+    <string name="product_super_yacht">Lüks Süper Yat</string>
+    <string name="product_space_rocket">Uzay Roketi &amp; Mekik</string>
+    <string name="product_smart_skyscraper">Akıllı Mega Gökdelen</string>
+    <string name="product_fusion_reactor_core">Füzyon Reaktör Çekirdeği</string>
+    <string name="product_quantum_supercomputer">Kuantum Süper Bilgisayar</string>
+    <string name="product_autonomous_drone_swarm">Otonom İHA &amp; Ticari Drone Sürüsü</string>
+    <string name="product_hyperloop_capsule">Hyperloop Manyetik Kapsül &amp; Tren</string>
+    <string name="product_luxury_aircraft_interior">VIP Lüks Uçak &amp; Araç Kabin Donanımı</string>
+
+    <!-- Facility Names -->
+    <string name="facility_wheat_farm">Buğday Tarlası</string>
+    <string name="facility_sugar_beet_farm">Şeker Pancarı Tarlası</string>
+    <string name="facility_corn_farm">Mısır Tarlası</string>
+    <string name="facility_orchard">Meyve Bahçesi</string>
+    <string name="facility_olive_farm">Zeytinlik</string>
+    <string name="facility_cotton_farm">Pamuk Tarlası</string>
+    <string name="facility_tea_plantation">Çay Bahçesi</string>
+    <string name="facility_sunflower_farm">Ayçiçeği Tarlası</string>
+    <string name="facility_dairy_farm">Besihane &amp; Çiftlik</string>
+    <string name="facility_fishery">Alabalık Tesisleri</string>
+    <string name="facility_rubber_farm">Kauçuk Üretim Merkezi</string>
+    <string name="facility_iron_mine">Demir Madeni</string>
+    <string name="facility_copper_mine">Bakır Madeni</string>
+    <string name="facility_silicon_mine">Silisyum Madeni</string>
+    <string name="facility_aluminum_mine">Alüminyum Ocağı</string>
+    <string name="facility_coal_mine">Kömür Madeni</string>
+    <string name="facility_clay_pit">Kil Ocağı</string>
+    <string name="facility_limestone_quarry">Taş Ocağı</string>
+    <string name="facility_lithium_mine">Lityum Ocağı</string>
+    <string name="facility_gold_mine">Altın Madeni</string>
+    <string name="facility_timber_camp">Orman Sahası</string>
+    <string name="facility_chemical_plant">Kimya Tesisi</string>
+    <string name="facility_oil_well">Petrol Kuyusu</string>
+    <string name="facility_gas_well">Doğalgaz Kuyusu</string>
+    <string name="facility_hazelnut_farm">Fındık Bahçesi &amp; Çiftliği</string>
+    <string name="facility_marble_quarry">Mermer Ocağı</string>
+    <string name="facility_titanium_mine">Titanyum Madeni</string>
+    <string name="facility_cocoa_farm">Kakao Fidanlığı</string>
+    <string name="facility_livestock_ranch">Büyükbaş Hayvancılık Çiftliği</string>
+    <string name="facility_graphite_mine">Grafit ve Nadir Element Madeni</string>
+
+    <string name="facility_flour_mill">Un Değirmeni</string>
+    <string name="facility_meat_processor">Et Entegre Tesisi</string>
+    <string name="facility_glassworks">Cam Fabrikası</string>
+    <string name="facility_sugar_refinery">Şeker Fabrikası</string>
+    <string name="facility_olive_oil_factory">Zeytinyağı Fabrikası</string>
+    <string name="facility_steel_mill">Çelik Fabrikası</string>
+    <string name="facility_wire_factory">Kablo Fabrikası</string>
+    <string name="facility_textile_workshop">Tekstil Atölyesi</string>
+    <string name="facility_power_plant">Lityum Hücre Fabrikası</string>
+    <string name="facility_dairy_factory">Mandıra</string>
+    <string name="facility_plastic_factory">Plastik Fabrikası</string>
+    <string name="facility_sawmill">Kereste Atölyesi</string>
+    <string name="facility_brick_works">Tuğla Fabrikası</string>
+    <string name="facility_fertilizer_plant">Gübre Tesisi</string>
+    <string name="facility_oil_factory">Yağ Fabrikası</string>
+    <string name="facility_cement_factory">Çimento Fabrikası</string>
+    <string name="facility_petroleum_refinery">Petrol Rafinerisi</string>
+    <string name="facility_tire_factory">Lastik Fabrikası</string>
+    <string name="facility_paper_mill">Ambalaj &amp; Kağıt Fabrikası</string>
+    <string name="facility_aluminum_smelter">Alüminyum Dökümhanesi</string>
+    <string name="facility_feed_mill">Yem &amp; Nişasta Fabrikası</string>
+    <string name="facility_tea_factory">Çay İşleme Fabrikası</string>
+    <string name="facility_seafood_processor">Balık Entegre Tesisi</string>
+    <string name="facility_gold_refinery">Altın Rafinerisi</string>
+    <string name="facility_gas_processing_plant">Gaz İşleme Tesisi</string>
+    <string name="facility_hazelnut_processor">Fındık İşleme Entegre Tesisi</string>
+    <string name="facility_marble_factory">Mermer Kesim ve Cila Fabrikası</string>
+    <string name="facility_titanium_smelter">Titanyum Dökümhanesi</string>
+    <string name="facility_titanium_alloy_plant">Titanyum Alaşım Tesisi</string>
+    <string name="facility_pcb_works">PCB Elektronik Tesisleri</string>
+    <string name="facility_synthetic_mill">Sentetik İplik Fabrikası</string>
+    <string name="facility_chocolate_mill">Çikolata İşleme Öğütme Değirmeni</string>
+    <string name="facility_carbon_fiber_works">Karbon Dokuma Tesisi</string>
+    <string name="facility_semiconductor_foundry">Yarı İletken Foundry Tesisleri</string>
+    <string name="facility_confectionery_works">Butik Şekerleme Entegre Tesisi</string>
+    <string name="facility_composite_plant">Havacılık Kompozit Fabrikası</string>
+    <string name="facility_robotics_factory">Endüstriyel Robotik Otomasyon Fabrikası</string>
+    <string name="facility_juice_factory">Meyve Suyu &amp; İçecek Fabrikası</string>
+    <string name="facility_tannery">Deri Tabaklama Fabrikası</string>
+    <string name="facility_bio_refinery">Biyo-Rafineri Tesisi</string>
+    <string name="facility_fiber_optics_factory">Fiber Optik İletişim Fabrikası</string>
+    <string name="facility_graphene_lab">Grafen İleri Malzeme Fabrikası</string>
+
+    <string name="facility_chip_factory">Mikroçip Fabrikası</string>
+    <string name="facility_food_cannery">Konserve Fabrikası</string>
+    <string name="facility_smartphone_factory">Telefon Fabrikası</string>
+    <string name="facility_clothing_factory">Konfeksiyon Fabrikası</string>
+    <string name="facility_auto_factory">Otomotiv Fabrikası</string>
+    <string name="facility_appliance_factory">Beyaz Eşya Fabrikası</string>
+    <string name="facility_furniture_factory">Mobilya Fabrikası</string>
+    <string name="facility_construction_factory">Yapı Malzemesi Fab.</string>
+    <string name="facility_pharma_lab">Kimya Laboratuvarı</string>
+    <string name="facility_machinery_factory">İş Makinesi Fabrikası</string>
+    <string name="facility_solar_factory">Güneş Paneli Fabrikası</string>
+    <string name="facility_jewelry_workshop">Mücevher &amp; Sarraf Atölyesi</string>
+    <string name="facility_gourmet_factory">Gurme Gıda Tesisi</string>
+    <string name="facility_petrochem_complex">Petrokimya Entegre Kompleksi</string>
+    <string name="facility_medtech_factory">Medikal Teknoloji Fabrikası</string>
+    <string name="facility_turbine_works">Türbin &amp; Jeneratör Fabrikası</string>
+    <string name="facility_container_factory">Konteyner Üretim Tesisi</string>
+    <string name="facility_chocolate_factory">Çikolata ve Şekerleme Kompleksi</string>
+    <string name="facility_architectural_stone_works">Mimari Taş ve Mermer Tesisleri</string>
+    <string name="facility_beverage_factory">Organik İçecek Entegre Fabrikası</string>
+    <string name="facility_leather_goods_factory">Lüks Deri Ayakkabı &amp; Aksesuar Fabrikası</string>
+    <string name="facility_telecom_factory">Telekomünikasyon Sistemleri Fabrikası</string>
+    <string name="facility_nano_battery_factory">Grafen Nano Akü Fabrikası</string>
+
+    <string name="facility_ev_factory">EV Fabrikası</string>
+    <string name="facility_aerospace_factory">Havacılık Fabrikası</string>
+    <string name="facility_space_defense_factory">Uzay &amp; Uydu Kompleksi</string>
+    <string name="facility_shipyard">Konteyner Tersanesi</string>
+    <string name="facility_rail_works">Demiryolu &amp; YHT Tersanesi</string>
+    <string name="facility_datacenter_complex">Süperbilgisayar &amp; Veri M. Tesisi</string>
+    <string name="facility_naval_defense_shipyard">Askeri Savunma Tersanesi</string>
+    <string name="facility_hydrogen_refinery">Hidrojen Enerji Kompleksi</string>
+    <string name="facility_smart_city_hub">Akıllı Şebeke &amp; Enerji M.</string>
+    <string name="facility_luxury_shipyard">Lüks Yat Tersanesi</string>
+    <string name="facility_aerospace_launch_complex">Havacılık ve Uzay Fırlatma Kompleksi</string>
+    <string name="facility_mega_construction_hub">Akıllı İnşaat &amp; Mega Yapı Hub\'ı</string>
+    <string name="facility_fusion_energy_complex">Füzyon Enerji Kompleksi</string>
+    <string name="facility_quantum_tech_complex">Kuantum Teknoloji Kompleksi</string>
+    <string name="facility_drone_swarm_factory">Otonom Sistemler &amp; Drone Sürüsü Kompleksi</string>
+    <string name="facility_hyperloop_mega_factory">Hyperloop &amp; Manyetik Ulaşım Kompleksi</string>
+    <string name="facility_vip_interiors_complex">VIP Lüks İç Donanım Entegre Tesisleri</string>
+
+    <!-- Tech Tree Nodes -->
+    <string name="tech_green_energy_title">🌱 YEŞİL ENERJİ &amp; İKLİM</string>
+    <string name="tech_green_energy_subtitle">Tesis Elektrik &amp; Bakım Maliyeti İndirimi</string>
+
+    <string name="tech_aerospace_title">🚀 HAVACILIK &amp; UZAY SANAYİİ</string>
+    <string name="tech_aerospace_subtitle">Uzay ve Savunma Sanayi Üstünlüğü</string>
+
+    <string name="tech_quantum_ai_title">🧠 KUANTUM &amp; YAPAY ZEKA</string>
+    <string name="tech_quantum_ai_subtitle">Gelişmiş Piyasa Fiyat Tahmin &amp; Kar</string>
+
+    <string name="tech_heavy_industry_title">⚙️ AĞIR MAKİNE &amp; SAVUNMA</string>
+    <string name="tech_heavy_industry_subtitle">Ağır Sanayi Üretim ve Lojistik Gücü</string>
+
+    <string name="tech_biotech_med_title">🧬 BİYOTEKNOLOJİ &amp; İLAÇ</string>
+    <string name="tech_biotech_med_subtitle">Tarım, Gıda &amp; İlaç Ürünlerinde Verim</string>
+
+    <string name="tech_biotech_cloning_title">🧬 BİYOTEKNOLOJİ &amp; İLAÇ</string>
+    <string name="tech_biotech_cloning_subtitle">Tarım, Gıda &amp; İlaç Ürünlerinde Verim</string>
+
+    <string name="tech_consumer_goods_title">📱 İLERİ TÜKETİM &amp; ELEKTRONİK</string>
+    <string name="tech_consumer_goods_subtitle">Tüketim Ürünleri Pazar Avantajı</string>
+
+    <string name="tech_petrochem_title">🛢️ PETROKİMYA &amp; KOMPLEKS</string>
+    <string name="tech_petrochem_subtitle">Rafineri ve Kimya Verimliliği</string>
+
+    <string name="tech_quality_control_title">🔍 OTO-KALİTE KONTROL</string>
+    <string name="tech_quality_control_subtitle">Ürün Kalite Prim Artışı</string>
+
+    <string name="tech_logistics_title">🚚 OTO-LOJİSTİK YAZILIMI</string>
+    <string name="tech_logistics_subtitle">Üretim ve Sevkiyat Süre Kısaltması</string>
+
+    <string name="tech_automation_title">🤖 AKILLI OTOMASYON</string>
+    <string name="tech_automation_subtitle">Endüstri 4.0 Tesis Verimliliği</string>
+
+    <string name="tech_nanotech_title">⚛️ NANO-MALZEME ÜRETİMİ</string>
+    <string name="tech_nanotech_subtitle">Yüksek Kalite Ürün Kapasitesi</string>
+
+    <string name="tech_cyber_security_title">🛡️ SİBER GÜVENLİK</string>
+    <string name="tech_cyber_security_subtitle">Kurumsal Veri Koruma ve Şirket Değeri</string>
+
+    <string name="tech_global_finance_title">💱 GLOBAL FİNANS &amp; FOREX</string>
+    <string name="tech_global_finance_subtitle">Düşük Makas ve Yüksek Mevduat Getirisi</string>
+
+    <string name="tech_cultural_heritage_title">🏛️ KÜLTÜREL MİRAS &amp; PRESTİJ</string>
+    <string name="tech_cultural_heritage_subtitle">Müze Bilet Geliri ve Holding Prestiji Artışı</string>
+
+    <!-- Tech Tier Labels -->
+    <string name="tech_tier_4_mega">Tier 4 Mega Proje</string>
+    <string name="tech_tier_3_final">Tier 3 Nihai</string>
+    <string name="tech_tier_support">Altyapı</string>
+
+    <!-- R&D Center UI -->
+    <string name="rd_center_title">🔬 AR-GE MERKEZİ &amp; STRATEJİK ÜRETİM</string>
+    <string name="rd_center_subtitle">Eşzamanlı Ar-Ge (Maks 3 Yuva) &amp; Seviye 1-5 İlerleme</string>
+    <string name="rd_level_label">SEVİYE</string>
+    <string name="rd_active_slots">Aktif Araştırma Yuvaları</string>
+    <string name="rd_level_chain">Seviye Silsilesi: Lvl 1➔5</string>
+    <string name="rd_filters_category">TİER &amp; KATEGORİ FİLTRELERİ:</string>
+    <string name="rd_filters_sorting">MALİYET &amp; ÖNCELİK SIRALAMASI:</string>
+    <string name="filter_all">Tümü</string>
+    <string name="filter_tier_4_mega">🚀 Tier 4 Mega Projeler</string>
+    <string name="filter_tier_3_final">🌱 Tier 3 Nihai</string>
+    <string name="filter_support">⚙️ Altyapı &amp; Destek</string>
+    <string name="sort_tier_priority">⭐ Tier Önceliği</string>
+    <string name="sort_cost_low_high">💰 Maliyet (Düşük ➔ Yüksek)</string>
+    <string name="sort_cost_high_low">💎 Maliyet (Yüksek ➔ Düşük)</string>
+    <string name="sort_level_progress">📈 Seviye İlerlemesi</string>
+    <string name="rd_in_progress">⏳ DEVAM EDİYOR</string>
+    <string name="rd_max_level">MAKS Lvl 5</string>
+    <string name="rd_level_format">Seviye %1$d/5</string>
+    <string name="rd_unlocked_goods">🔓 Kilitleri Açılan Ürünler / Sektörler:</string>
+    <string name="rd_remaining_time">Kalan Süre</string>
+    <string name="btn_speed_up">HIZLANDIR</string>
+    <string name="rd_cost">Maliyet</string>
+    <string name="rd_req_level">Gereken Seviye</string>
+    <string name="rd_you">Siz</string>
+    <string name="rd_slots_full_warning">⚠️ Eşzamanlı Araştırma Sınırı Dolu (3/3)</string>
+    <string name="btn_research">ARAŞTIR</string>
+
+    <!-- Tabs & Inventory -->
+    <string name="tab_facilities">TESİSLER</string>
+    <string name="tab_inventory">DEPO &amp; ENVANTER</string>
+    <string name="inv_wealth_title">MAL VARLIĞI &amp; ENVANTER</string>
+    <string name="inv_cash">NAKİT</string>
+    <string name="inv_depot_value">DEPO DEĞERİ</string>
+    <string name="inv_total_wealth">TOPLAM SERVET (Net)</string>
+    <string name="inv_stock_title">DEPO STOKLARI</string>
+    <string name="inv_stock_value">STOK DEĞERİ</string>
+    <string name="inv_ton">Ton</string>
+    <string name="inv_auto_sell_on">OTO SATIŞ: AÇIK</string>
+    <string name="inv_auto_sell_off">OTO SATIŞ: DURDU</string>
+    <string name="inv_auto_sell_hire">OTO SATIŞ KİRALA</string>
+    <string name="inv_search_hint">Stoklarda ara...</string>
+    <string name="inv_sort_value">Değer</string>
+    <string name="inv_sort_qty">Miktar</string>
+    <string name="inv_sort_az">A-Z</string>
+    <!-- Borsa & Market -->
+    <string name="borsa_title">TÜRKİYE ÜRÜN BORSASI</string>
+    <string name="borsa_subtitle">Canlı Piyasa Fiyatları &amp; BIST</string>
+    <string name="borsa_tab_products">ÜRÜNLER</string>
+    <string name="borsa_tab_local_market">TÜRK BORSASI</string>
+    <string name="borsa_tab_global_market">DÜNYA BORSASI</string>
+    <string name="borsa_tab_sectors">HİSSE &amp; HALKA ARZ</string>
+    <string name="borsa_stock">Stok:</string>
+    <string name="borsa_buy">AL</string>
+    <string name="borsa_sell">SAT</string>
+    <string name="market_title">KÜRESEL B2B PAZARI</string>
+    <string name="market_subtitle">Gerçek Oyuncularla Canlı Ticaret</string>
+    <string name="market_tab_global">KÜRESEL İLANLAR</string>
+    <string name="market_tab_my_listings">BENİM İLANLARIM</string>
+    <string name="market_btn_new_listing">YENİ İLAN VER</string>
+    <string name="market_price_per_ton">Fiyat/Ton:</string>
+    <string name="market_quantity">Miktar:</string>
+    <string name="market_seller">Satıcı:</string>
+    <string name="trade_tax">Borsa Vergisi</string>
+
+    <!-- TopBar & Map -->
+    <string name="topbar_net_worth">NET VARLIK</string>
+    <string name="topbar_cash">Nakit</string>
+    <string name="topbar_gems">Elmas</string>
+    <string name="topbar_deposit">Mevduat</string>
+    <string name="topbar_debt">Borç</string>
+    <string name="topbar_location">Lokasyon</string>
+    <string name="topbar_level">SEV.</string>
+    <string name="topbar_vip">VIP</string>
+    <string name="topbar_notifications">BİLDİRİM MERKEZİ</string>
+    <string name="map_search_city">Tüm Şehirlerde Ara...</string>
+    <string name="map_btn_build">TESİS KUR</string>
+    <string name="map_btn_invest">YATIRIM YAP</string>
+    <string name="map_population">Nüfus:</string>
+    <string name="map_region">Bölge:</string>
+
+    <!-- Bank & Social -->
+    <string name="bank_title">MERKEZ BANKASI &amp; FİNANS</string>
+    <string name="bank_subtitle">Elmas, Kredi, Mevduat ve Hisse İşlemleri</string>
+    <string name="bank_tab_gold">ELMAS</string>
+    <string name="bank_tab_credit">KREDİ</string>
+    <string name="bank_tab_deposit">MEVDUAT</string>
+    <string name="bank_tab_vip">HİSSE</string>
+    <string name="bank_loan_title">KREDİ ÇEK &amp; ÖDE</string>
+    <string name="bank_deposit_title">VADELİ MEVDUAT HESABI</string>
+    <string name="social_title">ONLINE HOLDİNG LİGİ</string>
+    <string name="social_subtitle">Aylık Türkiye Holding Sıralaması</string>
+    <string name="social_tab_leaderboard">AYLIK HOLDİNG SIRALAMASI</string>
+    <string name="social_tab_guilds">TİCARET ODALARI</string>
+    <string name="social_tab_ipo">BİST &amp; HALKA ARZ</string>
+    <string name="social_btn_join">KATIL</string>
+    <string name="social_btn_invest">YATIRIM YAP</string>
+    <string name="social_net_worth">Net Varlık:</string>
+
+    <!-- Museum & Prestige Dialog -->
+    <string name="museum_passive_hourly_income_label">Saatlik Pasif Müze Geliri:</string>
+    <string name="museum_hourly_income_format">+₳%1$s / saat</string>
+    <string name="museum_profile_revenue_label">Sıralama Profil İnceleme Hasılatı:</string>
+    <string name="museum_profile_revenue_format">₳%1$s (%2$d Ziyaretçi)</string>
+    <string name="museum_prestige_lore">Müzenizdeki her eser holdinginize kalıcı prestij puanı kazandırır ve liderlik tablosundaki itibarınızı yükseltir.</string>
+    <string name="museum_curator_level_title">🏆 MÜZE KÜRATÖRLÜK SEVİYESİ</string>
+    <string name="museum_ticket_lore">Müzenizde sergilediğiniz tarihi Ahilik şaheserleri, Sıralama (Liderlik Tablosu) bölümünde diğer holding yöneticileri ve tüccarlar profilinizi inceleyip müzenizi gezdikçe ekstra bilet geliri kazandırır!</string>
+    <string name="museum_strategy_tip">İpucu: Ne kadar çok ve nadir eser toplarsanız, profilinize bakan her ziyaretçiden o kadar yüksek bilet primi tahsil edersiniz.</string>
+
+    <!-- BorsaScreen UI Strings -->
+    <string name="borsa_search_placeholder">Emtia Ara (örn. Buğday, Çelik...)</string>
+    <string name="borsa_filter_all_products">Tüm Ürünler (%1$d)</string>
+    <string name="borsa_filter_tier_1">🌾 Tier 1 (Ham)</string>
+    <string name="borsa_filter_tier_2">🏭 Tier 2 (İşlenmiş)</string>
+    <string name="borsa_filter_tier_3">📱 Tier 3 (Nihai)</string>
+    <string name="borsa_filter_tier_4">🚀 Tier 4 (Mega)</string>
+    <string name="borsa_filter_in_stock">📦 Stoktakiler</string>
+    <string name="borsa_no_products_found">Aramanıza uygun emtia bulunamadı.</string>
+    <string name="borsa_universal_banner">🌐 Evrensel Borsa: Tüm oyuncular eşzamanlı canlı borsa fiyatlarını görür. Lojistik ve taşıma fiyatları Borsa Petrol fiyatına endekslidir.</string>
+    <string name="borsa_crisis_bottleneck_tag">🚨 KRİZ DARBOĞAZI &amp; YÜKSEK ENFLASYON</string>
+    <string name="borsa_crisis_recession_tag">📉 KRİZ RESESYONU: NİHAİ MALI BORSASINDA DÜŞÜŞ</string>
+    <string name="borsa_oil_index_tag">⛽ DİNAMİK LOJİSTİK AKARYAKIT ENDEKSİ</string>
+    <string name="borsa_base_price_label">Taban Fiyat</string>
+    <string name="borsa_market_stock_label">Piyasa Stok</string>
+    <string name="borsa_ton_format">%1$d Ton</string>
+    <string name="borsa_24h_high">24s Zirve (High)</string>
+    <string name="borsa_24h_low">24s Dip (Low)</string>
+    <string name="borsa_balance_label">Bakiye:</string>
+    <string name="borsa_my_stock_label">Mevcut Stokunuz:</string>
+
+    <!-- AssetsScreen UI Strings -->
+    <string name="assets_header_title">SANAYİ VE ÜRETİM TESİSLERİ</string>
+    <string name="assets_header_subtitle">Üretim zincirini yönet ve tesisleri geliştir</string>
+    <string name="assets_supply_chain_btn">TEDARİK ZİNCİRİ</string>
+    <string name="assets_search_placeholder">Tesis veya ürün adı ara (örn. Fabrika, Çelik...)</string>
+    <string name="assets_filter_all_facilities">Tüm Tesisler</string>
+    <string name="assets_filter_tier_1">🌾 Tier 1 Ham Madde</string>
+    <string name="assets_filter_tier_2">🏭 Tier 2 İşlenmiş</string>
+    <string name="assets_filter_tier_3">📱 Tier 3 Teknoloji</string>
+    <string name="assets_unit_cost_label">Birim Üretim Maliyeti (Borsa Endeksli):</string>
+    <string name="assets_est_duration_label">Tahmini Üretim Süresi:</string>
+    <string name="assets_max_limit_label">Maksimum Üretim Limiti:</string>
+    <string name="assets_units_format">%1$d Adet</string>
+    <string name="assets_qty_input_label">Üretim Miktarı (Adet)</string>
+    <string name="assets_start_prod_btn">Üretimi Başlat</string>
+    <string name="assets_cancel_btn">İptal</string>
+    <string name="assets_total_investment_label">Toplam Tesis Yatırımı:</string>
+    <string name="assets_refund_rate_label">Geri İade Oranı:</string>
+    <string name="assets_refund_rate_val">%70 Nakit İade</string>
+    <string name="assets_refund_amount_label">Geri Alınacak Nakit:</string>
+    <string name="assets_sell_facility_btn">TESİSİ SAT (+%1$s)</string>
+    <string name="assets_cancel_caps_btn">VAZGEÇ</string>
+
+    <!-- CompanyManager Model Strings -->
+    <string name="mgr_treasury_title">Hazine ve Makroekonomi Müdürü</string>
+    <string name="mgr_treasury_desc">Hiyerarşi #1: Finans Lideri. Müdürlerin konsorsiyum operasyonları, borsa tedarikleri ve bakım masrafları için banka mevduatından nakit sağlar ve holding likiditesini finanse eder.</string>
+    <string name="mgr_contracts_title">Vadeli Sözleşme ve Tedarik Müdürü</string>
+    <string name="mgr_contracts_desc">Hiyerarşi #2: Tedarik Yetkilisi. Konsorsiyum üretimi ve teslimatı için gerekli malzemeleri pazardan en uygun fiyata otomatik bulur, bulamazsa borsa vadeli sözleşmesiyle tedarik eder.</string>
+    <string name="mgr_borsa_title">Borsa ve Yatırım Analisti</string>
+    <string name="mgr_borsa_desc">Hiyerarşi #3: Yatırım Yetkilisi. Konsorsiyum için gereken tedarik malzemesi depoda yoksa Tedarik Müdürü ile koordineli çalışarak borsadan spot alım yapar veya vadeli talep açar.</string>
+    <string name="mgr_logistics_title">Lojistik ve Pazar Satış Müdürü</string>
+    <string name="mgr_logistics_desc">Hiyerarşi #4: Lojistik ve Satış Müdürü. Konsorsiyum tedariki için ihtiyaç duyulan ürünleri depoda sevkiyata kadar rezerve edip korur; ihtiyaç fazlası ürünleri satarak nakit sağlar.</string>
+    <string name="mgr_hr_title">İnsan Kaynakları Müdürü</string>
+    <string name="mgr_hr_desc">Hiyerarşi #5: İK Lideri. Konsorsiyum ihtiyaçlarını gözetmeyen müdürleri tespit edip konsorsiyum önceliğine hizalar; terfi ve performans yönetimi ile tüm operasyonları koordine eder.</string>
+    <string name="mgr_rd_title">Araştırma ve Geliştirme Müdürü</string>
+    <string name="mgr_rd_desc">Hiyerarşi #5: Ar-Ge Müdürü. Öncelikle konsorsiyum projeleri ve endüstriyel üretim hatları için kritik olan teknolojik araştırmaları geliştirir.</string>
+    <string name="mgr_prod_title">Üretim ve Operasyon Müdürü</string>
+    <string name="mgr_prod_desc">Hiyerarşi #5: Operasyon Müdürü. Oyuncunun tesislerinde öncelikli olarak konsorsiyum mega projeleri ve teslimat yuvaları için gereken ürünleri otomatik olarak üretir.</string>
+    <string name="mgr_maintenance_title">Tesis Bakım Müdürü</string>
+    <string name="mgr_maintenance_desc">Hiyerarşi #5: Bakım Yetkilisi. Yıpranan tesisleri otomatik tespit edip onarır; üretimin ve konsorsiyum tedarikinin kesintiye uğramasını önler.</string>
+
+    <!-- GuildGroup Model Strings -->
+    <string name="guild_mega_kanal_anadolu_title">Kanal Anadolu Mega Projesi</string>
+    <string name="guild_mega_kanal_anadolu_perk">%20 Bütün Tesislerde Üretim Hızı Bonusu</string>
+    <string name="guild_mega_ai_datacenter_title">Yapay Zeka Süper Veri Merkezi</string>
+    <string name="guild_mega_ai_datacenter_perk">+%25 Teknoloji &amp; Mikroçip İhracat Satış Fiyatı</string>
+    <string name="guild_mega_nuclear_plant_title">Ege Nükleer Güç Santrali Kompleksi</string>
+    <string name="guild_mega_nuclear_plant_perk">%30 Bütün Tesislerde Vergi ve Elektrik İndirimi</string>
+    <string name="guild_bist_leader_title">BIST Lideri</string>
+    <string name="guild_tech_giant_title">Teknoloji Devi</string>
+    <string name="guild_energy_giant_title">Enerji Devi</string>
+    <string name="guild_player_holding_title">Oyuncu Holding Mega Yatırımı</string>
+    <string name="guild_bist_public_holding_title">BIST Halka Açık Holding</string>
+    <string name="guild_target_ai_microchip">Yapay Zeka Mikro İşlemcileri</string>
+
+    <!-- ConsortiumSupplierSlot Model Strings -->
+    <string name="supplier_slot_steel_composite">İşlenmiş Ağır Çelik Kompozit</string>
+    <string name="supplier_slot_turbine_engine">Ağır Türbin &amp; Jeneratör Seti</string>
+    <string name="supplier_slot_ai_microprocessors">Yapay Zeka Mikroçip İşlemcileri</string>
+    <string name="supplier_slot_aviation_fuel">Yüksek Saflıkta Havacılık &amp; Sanayi Akaryakıtı</string>
+    <string name="supplier_slot_mass_production_packaging">Seri Üretim &amp; Ambalaj Lojistik Modülü</string>
+</resources>

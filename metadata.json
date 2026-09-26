@@ -1,0 +1,6 @@
+{
+  "name": "Anadolu Ticaret Simülasyonu",
+  "description": "Türkiye haritası üzerinde şehirlerin özelliklerine göre tarım, ticaret ve lojistik üzerine kurulu rekabetçi bir ekonomik simülasyon oyunu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

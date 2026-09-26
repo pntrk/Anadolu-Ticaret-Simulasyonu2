@@ -1,0 +1,483 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Anatolia Trade Simulator</string>
+
+    <!-- Product Display Names -->
+    <string name="product_wheat">Wheat</string>
+    <string name="product_sugar_beet">Sugar Beet</string>
+    <string name="product_corn">Corn &amp; Grains</string>
+    <string name="product_fruit">Regional Fruits</string>
+    <string name="product_olive">Olives</string>
+    <string name="product_cotton">Cotton</string>
+    <string name="product_tea">Tea Leaves</string>
+    <string name="product_sunflower">Sunflower Seeds</string>
+    <string name="product_milk">Raw Milk &amp; Livestock</string>
+    <string name="product_fish">Seafood &amp; Fish</string>
+    <string name="product_rubber_latex">Natural Rubber Latex</string>
+    <string name="product_iron">Iron Ore</string>
+    <string name="product_copper">Copper Ore</string>
+    <string name="product_silicon">Silicon Ore</string>
+    <string name="product_aluminum">Aluminum Ore</string>
+    <string name="product_coal">Coal</string>
+    <string name="product_clay">Clay &amp; Sand</string>
+    <string name="product_limestone">Limestone</string>
+    <string name="product_lithium">Lithium Ore</string>
+    <string name="product_gold_ore">Raw Gold Ore</string>
+    <string name="product_timber">Raw Timber Wood</string>
+    <string name="product_chemicals">Raw Chemical Compounds</string>
+    <string name="product_crude_oil">Crude Oil</string>
+    <string name="product_natural_gas">Natural Gas</string>
+    <string name="product_hazelnut">Hazelnuts</string>
+    <string name="product_marble">Raw Marble Block</string>
+    <string name="product_titanium">Titanium Ore</string>
+    <string name="product_cocoa_bean">Cocoa Beans</string>
+    <string name="product_livestock">Livestock / Cattle</string>
+    <string name="product_bauxite_titanium">Bauxite &amp; Titanium Ore</string>
+    <string name="product_graphite_ore">Graphite &amp; Rare Earth Elements</string>
+
+    <string name="product_flour">Wheat Flour</string>
+    <string name="product_cured_meat">Cured Beef &amp; Charcuterie</string>
+    <string name="product_glass">Industrial Glass</string>
+    <string name="product_sugar">Refined Sugar</string>
+    <string name="product_olive_oil">Virgin Olive Oil</string>
+    <string name="product_steel">Refined Steel</string>
+    <string name="product_wire">Copper Cabling &amp; Wire</string>
+    <string name="product_fabric">Yarn &amp; Fabric</string>
+    <string name="product_battery">Energy / Lithium Battery</string>
+    <string name="product_cheese">Dairy &amp; Cheese</string>
+    <string name="product_plastic">Industrial Plastic</string>
+    <string name="product_wood_plank">Processed Lumber</string>
+    <string name="product_brick">Construction Bricks</string>
+    <string name="product_organic_fertilizer">Organic Fertilizer</string>
+    <string name="product_sunflower_oil">Sunflower Cooking Oil</string>
+    <string name="product_cement">Portland Cement</string>
+    <string name="product_refined_fuel">Refined Petroleum Fuel</string>
+    <string name="product_tire">Automotive Tires</string>
+    <string name="product_packaging">Industrial Packaging</string>
+    <string name="product_aluminum_ingot">Refined Aluminum Ingot</string>
+    <string name="product_animal_feed">Animal Feed &amp; Starch</string>
+    <string name="product_packaged_tea">Packaged Processed Tea</string>
+    <string name="product_processed_fish">Canned &amp; Frozen Fish</string>
+    <string name="product_refined_gold">Refined Gold Bullion</string>
+    <string name="product_liquefied_gas">Liquefied Gas (LPG/LNG)</string>
+    <string name="product_hazelnut_paste">Hazelnut Paste &amp; Cream</string>
+    <string name="product_marble_slab">Polished Marble Slab</string>
+    <string name="product_titanium_ingot">Titanium Ingot</string>
+    <string name="product_pcb_substrate">Printed Circuit Board (PCB)</string>
+    <string name="product_synthetic_textile">Synthetic Fiber &amp; Thread</string>
+    <string name="product_chocolate_paste">Chocolate Paste &amp; Cocoa Butter</string>
+    <string name="product_titanium_alloy">Titanium Alloy Sheet</string>
+    <string name="product_carbon_fiber">Carbon Fiber Composite</string>
+    <string name="product_semiconductor_wafer">Semiconductor Silicon Wafer</string>
+    <string name="product_fruit_juice">Fruit Juice &amp; Concentrate</string>
+    <string name="product_leather">Processed Genuine Leather</string>
+    <string name="product_bio_ethanol">Bioethanol Bio-Fuel</string>
+    <string name="product_optical_fiber">Fiber Optic Cable</string>
+    <string name="product_graphene_sheet">Graphene Nanosheet</string>
+
+    <string name="product_chip">Microchip</string>
+    <string name="product_canned_food">Canned Food &amp; Meals</string>
+    <string name="product_smartphone">Smartphone</string>
+    <string name="product_clothing">Apparel &amp; Garments</string>
+    <string name="product_auto_part">Automotive Parts</string>
+    <string name="product_appliance">Home Appliances</string>
+    <string name="product_furniture">Commercial Furniture</string>
+    <string name="product_building_block">Building Materials</string>
+    <string name="product_pharma">Pharmaceuticals &amp; Cosmetics</string>
+    <string name="product_machinery">Heavy Construction Machinery</string>
+    <string name="product_solar_panel">Solar Energy Panel</string>
+    <string name="product_jewelry">Jewelry &amp; Fine Metals</string>
+    <string name="product_gourmet_food">Gourmet Food Packages</string>
+    <string name="product_petrochem">Petrochemicals &amp; Lubricants</string>
+    <string name="product_biotech_med">Medical Devices &amp; Biotech</string>
+    <string name="product_turbine_engine">Heavy Turbine &amp; Generator</string>
+    <string name="product_industrial_container">Logistics Container Systems</string>
+    <string name="product_chocolate_confectionery">Luxury Chocolates &amp; Sweets</string>
+    <string name="product_marble_architecture">Architectural Marble Cladding</string>
+    <string name="product_confectionery_luxury">Artisanal Chocolates &amp; Sweets</string>
+    <string name="product_composite_structure">Aerospace Composite Panel</string>
+    <string name="product_robotics_arm">Industrial Robotic Arm</string>
+    <string name="product_organic_beverage">Organic Juice &amp; Nectar</string>
+    <string name="product_luxury_footwear">Luxury Leather Footwear</string>
+    <string name="product_telecom_station">5G / 6G Telecom Station</string>
+    <string name="product_nano_battery">Ultra-Fast Graphene Nano Battery</string>
+
+    <string name="product_ev">Electric Vehicle (EV)</string>
+    <string name="product_uav">Agricultural UAV / Drone</string>
+    <string name="product_satellite">Communications Satellite</string>
+    <string name="product_cargo_ship">Container Cargo Ship</string>
+    <string name="product_bullet_train">High-Speed Bullet Train</string>
+    <string name="product_ai_datacenter">AI Data Center Server Complex</string>
+    <string name="product_defense_frigate">Naval Defense Frigate</string>
+    <string name="product_hydrogen_plant">Green Hydrogen Fuel Cell</string>
+    <string name="product_smart_grid">Smart City Grid System</string>
+    <string name="product_super_yacht">Luxury Super Yacht</string>
+    <string name="product_space_rocket">Space Rocket &amp; Shuttle</string>
+    <string name="product_smart_skyscraper">Smart Mega Skyscraper</string>
+    <string name="product_fusion_reactor_core">Fusion Reactor Core</string>
+    <string name="product_quantum_supercomputer">Quantum Supercomputer</string>
+    <string name="product_autonomous_drone_swarm">Autonomous Commercial Drone Swarm</string>
+    <string name="product_hyperloop_capsule">Hyperloop Magnetic Capsule</string>
+    <string name="product_luxury_aircraft_interior">VIP Aircraft Interior Outfit</string>
+
+    <!-- Facility Names -->
+    <string name="facility_wheat_farm">Wheat Farm</string>
+    <string name="facility_sugar_beet_farm">Sugar Beet Field</string>
+    <string name="facility_corn_farm">Corn Farm</string>
+    <string name="facility_orchard">Fruit Orchard</string>
+    <string name="facility_olive_farm">Olive Grove</string>
+    <string name="facility_cotton_farm">Cotton Plantation</string>
+    <string name="facility_tea_plantation">Tea Plantation</string>
+    <string name="facility_sunflower_farm">Sunflower Field</string>
+    <string name="facility_dairy_farm">Dairy Farm &amp; Cattle</string>
+    <string name="facility_fishery">Trout &amp; Seafood Fishery</string>
+    <string name="facility_rubber_farm">Rubber Production Center</string>
+    <string name="facility_iron_mine">Iron Ore Mine</string>
+    <string name="facility_copper_mine">Copper Mine</string>
+    <string name="facility_silicon_mine">Silicon Mine</string>
+    <string name="facility_aluminum_mine">Aluminum Quarry</string>
+    <string name="facility_coal_mine">Coal Mine</string>
+    <string name="facility_clay_pit">Clay Pit</string>
+    <string name="facility_limestone_quarry">Limestone Quarry</string>
+    <string name="facility_lithium_mine">Lithium Mine</string>
+    <string name="facility_gold_mine">Gold Mine</string>
+    <string name="facility_timber_camp">Timber Camp</string>
+    <string name="facility_chemical_plant">Chemical Plant</string>
+    <string name="facility_oil_well">Oil Well</string>
+    <string name="facility_gas_well">Natural Gas Well</string>
+    <string name="facility_hazelnut_farm">Hazelnut Orchard</string>
+    <string name="facility_marble_quarry">Marble Quarry</string>
+    <string name="facility_titanium_mine">Titanium Mine</string>
+    <string name="facility_cocoa_farm">Cocoa Nursery</string>
+    <string name="facility_livestock_ranch">Cattle Ranch</string>
+    <string name="facility_graphite_mine">Graphite &amp; Rare Earth Mine</string>
+
+    <string name="facility_flour_mill">Flour Mill</string>
+    <string name="facility_meat_processor">Meat Processing Plant</string>
+    <string name="facility_glassworks">Glassworks Factory</string>
+    <string name="facility_sugar_refinery">Sugar Refinery</string>
+    <string name="facility_olive_oil_factory">Olive Oil Mill</string>
+    <string name="facility_steel_mill">Steel Mill</string>
+    <string name="facility_wire_factory">Cable Factory</string>
+    <string name="facility_textile_workshop">Textile Workshop</string>
+    <string name="facility_power_plant">Lithium Cell Plant</string>
+    <string name="facility_dairy_factory">Dairy Processing Plant</string>
+    <string name="facility_plastic_factory">Plastic Factory</string>
+    <string name="facility_sawmill">Sawmill</string>
+    <string name="facility_brick_works">Brickworks Plant</string>
+    <string name="facility_fertilizer_plant">Fertilizer Plant</string>
+    <string name="facility_oil_factory">Oil Refinery Mill</string>
+    <string name="facility_cement_factory">Cement Plant</string>
+    <string name="facility_petroleum_refinery">Petroleum Refinery</string>
+    <string name="facility_tire_factory">Tire Plant</string>
+    <string name="facility_paper_mill">Packaging &amp; Paper Mill</string>
+    <string name="facility_aluminum_smelter">Aluminum Smelter</string>
+    <string name="facility_feed_mill">Feed &amp; Starch Mill</string>
+    <string name="facility_tea_factory">Tea Processing Plant</string>
+    <string name="facility_seafood_processor">Seafood Processing Plant</string>
+    <string name="facility_gold_refinery">Gold Refinery</string>
+    <string name="facility_gas_processing_plant">Gas Processing Plant</string>
+    <string name="facility_hazelnut_processor">Hazelnut Integrated Plant</string>
+    <string name="facility_marble_factory">Marble Polishing Plant</string>
+    <string name="facility_titanium_smelter">Titanium Smelter</string>
+    <string name="facility_titanium_alloy_plant">Titanium Alloy Plant</string>
+    <string name="facility_pcb_works">PCB Electronics Plant</string>
+    <string name="facility_synthetic_mill">Synthetic Yarn Mill</string>
+    <string name="facility_chocolate_mill">Chocolate Grinding Mill</string>
+    <string name="facility_carbon_fiber_works">Carbon Weaving Facility</string>
+    <string name="facility_semiconductor_foundry">Semiconductor Foundry</string>
+    <string name="facility_confectionery_works">Confectionery Processing Plant</string>
+    <string name="facility_composite_plant">Aerospace Composite Plant</string>
+    <string name="facility_robotics_factory">Robotics Automation Plant</string>
+    <string name="facility_juice_factory">Juice &amp; Beverage Plant</string>
+    <string name="facility_tannery">Leather Tannery</string>
+    <string name="facility_bio_refinery">Bio-Refinery Plant</string>
+    <string name="facility_fiber_optics_factory">Fiber Optics Plant</string>
+    <string name="facility_graphene_lab">Graphene Advanced Materials Plant</string>
+
+    <string name="facility_chip_factory">Microchip Foundry</string>
+    <string name="facility_food_cannery">Food Cannery</string>
+    <string name="facility_smartphone_factory">Smartphone Plant</string>
+    <string name="facility_clothing_factory">Apparel Factory</string>
+    <string name="facility_auto_factory">Automotive Assembly Plant</string>
+    <string name="facility_appliance_factory">Appliance Factory</string>
+    <string name="facility_furniture_factory">Furniture Factory</string>
+    <string name="facility_construction_factory">Building Material Plant</string>
+    <string name="facility_pharma_lab">Pharma Chemical Lab</string>
+    <string name="facility_machinery_factory">Heavy Machinery Plant</string>
+    <string name="facility_solar_factory">Solar Panel Plant</string>
+    <string name="facility_jewelry_workshop">Jewelry Workshop</string>
+    <string name="facility_gourmet_factory">Gourmet Food Plant</string>
+    <string name="facility_petrochem_complex">Petrochemical Complex</string>
+    <string name="facility_medtech_factory">Medical Tech Plant</string>
+    <string name="facility_turbine_works">Turbine &amp; Generator Plant</string>
+    <string name="facility_container_factory">Container Manufacturing Facility</string>
+    <string name="facility_chocolate_factory">Chocolate &amp; Sweets Complex</string>
+    <string name="facility_architectural_stone_works">Architectural Stone Works</string>
+    <string name="facility_beverage_factory">Organic Beverage Facility</string>
+    <string name="facility_leather_goods_factory">Luxury Leather Goods Plant</string>
+    <string name="facility_telecom_factory">Telecom Systems Plant</string>
+    <string name="facility_nano_battery_factory">Graphene Nano Battery Plant</string>
+
+    <string name="facility_ev_factory">EV Gigafactory</string>
+    <string name="facility_aerospace_factory">Aerospace Assembly Plant</string>
+    <string name="facility_space_defense_factory">Space &amp; Satellite Complex</string>
+    <string name="facility_shipyard">Container Shipyard</string>
+    <string name="facility_rail_works">Rail &amp; Bullet Train Yard</string>
+    <string name="facility_datacenter_complex">Supercomputer Data Center Facility</string>
+    <string name="facility_naval_defense_shipyard">Naval Defense Shipyard</string>
+    <string name="facility_hydrogen_refinery">Hydrogen Energy Complex</string>
+    <string name="facility_smart_city_hub">Smart City Grid Center</string>
+    <string name="facility_luxury_shipyard">Luxury Yacht Shipyard</string>
+    <string name="facility_aerospace_launch_complex">Aerospace Launch Complex</string>
+    <string name="facility_mega_construction_hub">Smart Construction Hub</string>
+    <string name="facility_fusion_energy_complex">Fusion Energy Complex</string>
+    <string name="facility_quantum_tech_complex">Quantum Tech Complex</string>
+    <string name="facility_drone_swarm_factory">Autonomous Systems &amp; Drone Facility</string>
+    <string name="facility_hyperloop_mega_factory">Hyperloop Mega Factory</string>
+    <string name="facility_vip_interiors_complex">VIP Interiors Facility</string>
+
+    <!-- Tech Tree Nodes -->
+    <string name="tech_green_energy_title">🌱 GREEN ENERGY &amp; CLIMATE</string>
+    <string name="tech_green_energy_subtitle">Electricity &amp; Maintenance Cost Reduction</string>
+
+    <string name="tech_aerospace_title">🚀 AEROSPACE &amp; SPACE DEFENSE</string>
+    <string name="tech_aerospace_subtitle">Space &amp; Defense Industry Supremacy</string>
+
+    <string name="tech_quantum_ai_title">🧠 QUANTUM &amp; AI</string>
+    <string name="tech_quantum_ai_subtitle">Advanced Market Forecasting &amp; Profit</string>
+
+    <string name="tech_heavy_industry_title">⚙️ HEAVY MACHINERY &amp; DEFENSE</string>
+    <string name="tech_heavy_industry_subtitle">Heavy Industry Output &amp; Logistics Power</string>
+
+    <string name="tech_biotech_med_title">🧬 BIOTECH &amp; PHARMA</string>
+    <string name="tech_biotech_med_subtitle">Agricultural, Food &amp; Medical Yield</string>
+
+    <string name="tech_biotech_cloning_title">🧬 BIOTECH &amp; PHARMA</string>
+    <string name="tech_biotech_cloning_subtitle">Agricultural, Food &amp; Medical Yield</string>
+
+    <string name="tech_consumer_goods_title">📱 CONSUMER ELECTRONICS</string>
+    <string name="tech_consumer_goods_subtitle">Consumer Goods Market Advantage</string>
+
+    <string name="tech_petrochem_title">🛢️ PETROCHEMICALS &amp; COMPLEX</string>
+    <string name="tech_petrochem_subtitle">Refinery &amp; Chemical Efficiency</string>
+
+    <string name="tech_quality_control_title">🔍 AUTO-QUALITY CONTROL</string>
+    <string name="tech_quality_control_subtitle">Product Quality Premium Boost</string>
+
+    <string name="tech_logistics_title">🚚 AUTO-LOGISTICS SOFTWARE</string>
+    <string name="tech_logistics_subtitle">Production &amp; Dispatch Time Reduction</string>
+
+    <string name="tech_automation_title">🤖 SMART AUTOMATION</string>
+    <string name="tech_automation_subtitle">Industry 4.0 Plant Efficiency</string>
+
+    <string name="tech_nanotech_title">⚛️ NANO-MATERIAL PRODUCTION</string>
+    <string name="tech_nanotech_subtitle">High-Quality Product Capacity</string>
+
+    <string name="tech_cyber_security_title">🛡️ CYBER SECURITY</string>
+    <string name="tech_cyber_security_subtitle">Corporate Data Protection &amp; Valuation</string>
+
+    <string name="tech_global_finance_title">💱 GLOBAL FINANCE &amp; FOREX</string>
+    <string name="tech_global_finance_subtitle">Low Spreads &amp; Higher Deposit Yields</string>
+
+    <string name="tech_cultural_heritage_title">🏛️ CULTURAL HERITAGE &amp; PRESTIGE</string>
+    <string name="tech_cultural_heritage_subtitle">Museum Ticket Income &amp; Holding Prestige Boost</string>
+
+    <!-- Tech Tier Labels -->
+    <string name="tech_tier_4_mega">Tier 4 Mega Project</string>
+    <string name="tech_tier_3_final">Tier 3 Final</string>
+    <string name="tech_tier_support">Infrastructure</string>
+
+    <!-- R&D Center UI -->
+    <string name="rd_center_title">🔬 R&amp;D CENTER &amp; STRATEGIC PRODUCTION</string>
+    <string name="rd_center_subtitle">Concurrent R&amp;D (Max 3 Slots) &amp; Level 1-5 Progress</string>
+    <string name="rd_level_label">LEVEL</string>
+    <string name="rd_active_slots">Active Research Slots</string>
+    <string name="rd_level_chain">Level Progression: Lvl 1➔5</string>
+    <string name="rd_filters_category">TIER &amp; CATEGORY FILTERS:</string>
+    <string name="rd_filters_sorting">COST &amp; PRIORITY SORTING:</string>
+    <string name="filter_all">All</string>
+    <string name="filter_tier_4_mega">🚀 Tier 4 Mega Projects</string>
+    <string name="filter_tier_3_final">🌱 Tier 3 Final</string>
+    <string name="filter_support">⚙️ Infrastructure &amp; Support</string>
+    <string name="sort_tier_priority">⭐ Tier Priority</string>
+    <string name="sort_cost_low_high">💰 Cost (Low ➔ High)</string>
+    <string name="sort_cost_high_low">💎 Cost (High ➔ Low)</string>
+    <string name="sort_level_progress">📈 Level Progress</string>
+    <string name="rd_in_progress">⏳ IN PROGRESS</string>
+    <string name="rd_max_level">MAX Lvl 5</string>
+    <string name="rd_level_format">Level %1$d/5</string>
+    <string name="rd_unlocked_goods">🔓 Unlocked Products / Sectors:</string>
+    <string name="rd_remaining_time">Time Remaining</string>
+    <string name="btn_speed_up">SPEED UP</string>
+    <string name="rd_cost">Cost</string>
+    <string name="rd_req_level">Required Level</string>
+    <string name="rd_you">You</string>
+    <string name="rd_slots_full_warning">⚠️ Concurrent Research Limit Reached (3/3)</string>
+    <string name="btn_research">RESEARCH</string>
+
+    <!-- Tabs & Inventory -->
+    <string name="tab_facilities">FACILITIES</string>
+    <string name="tab_inventory">DEPOT &amp; INVENTORY</string>
+    <string name="inv_wealth_title">ASSETS &amp; INVENTORY</string>
+    <string name="inv_cash">CASH</string>
+    <string name="inv_depot_value">DEPOT VALUE</string>
+    <string name="inv_total_wealth">TOTAL NET WORTH</string>
+    <string name="inv_stock_title">DEPOT STOCK</string>
+    <string name="inv_stock_value">STOCK VALUE</string>
+    <string name="inv_ton">Tons</string>
+    <string name="inv_auto_sell_on">AUTO-SELL: ON</string>
+    <string name="inv_auto_sell_off">AUTO-SELL: STOPPED</string>
+    <string name="inv_auto_sell_hire">HIRE AUTO-SELL MANAGER</string>
+    <string name="inv_search_hint">Search inventory...</string>
+    <string name="inv_sort_value">Value</string>
+    <string name="inv_sort_qty">Quantity</string>
+    <string name="inv_sort_az">A-Z</string>
+
+    <!-- Borsa & Market -->
+    <string name="borsa_title">COMMODITY EXCHANGE</string>
+    <string name="borsa_subtitle">Live Market Prices &amp; BIST</string>
+    <string name="borsa_tab_products">COMMODITIES</string>
+    <string name="borsa_tab_local_market">LOCAL MARKET</string>
+    <string name="borsa_tab_global_market">GLOBAL MARKET</string>
+    <string name="borsa_tab_sectors">STOCKS &amp; IPO</string>
+    <string name="borsa_stock">Stock:</string>
+    <string name="borsa_buy">BUY</string>
+    <string name="borsa_sell">SELL</string>
+    <string name="market_title">GLOBAL B2B MARKETPLACE</string>
+    <string name="market_subtitle">Live Trading with Real Players</string>
+    <string name="market_tab_global">GLOBAL LISTINGS</string>
+    <string name="market_tab_my_listings">MY LISTINGS</string>
+    <string name="market_btn_new_listing">CREATE LISTING</string>
+    <string name="market_price_per_ton">Price/Ton:</string>
+    <string name="market_quantity">Quantity:</string>
+    <string name="market_seller">Seller:</string>
+    <string name="trade_tax">Exchange Duty</string>
+
+    <!-- TopBar & Map -->
+    <string name="topbar_net_worth">NET WORTH</string>
+    <string name="topbar_cash">Cash</string>
+    <string name="topbar_gems">Gems</string>
+    <string name="topbar_deposit">Deposit</string>
+    <string name="topbar_debt">Debt</string>
+    <string name="topbar_location">Location</string>
+    <string name="topbar_level">LVL.</string>
+    <string name="topbar_vip">VIP</string>
+    <string name="topbar_notifications">NOTIFICATION CENTER</string>
+    <string name="map_search_city">Search All Cities...</string>
+    <string name="map_btn_build">BUILD PLANT</string>
+    <string name="map_btn_invest">INVEST</string>
+    <string name="map_population">Population:</string>
+    <string name="map_region">Region:</string>
+
+    <!-- Bank & Social -->
+    <string name="bank_title">CENTRAL BANK &amp; FINANCE</string>
+    <string name="bank_subtitle">Gems, Credit, Deposits &amp; Equities</string>
+    <string name="bank_tab_gold">GEMS</string>
+    <string name="bank_tab_credit">CREDIT</string>
+    <string name="bank_tab_deposit">DEPOSITS</string>
+    <string name="bank_tab_vip">EQUITIES</string>
+    <string name="bank_loan_title">TAKE &amp; REPAY LOAN</string>
+    <string name="bank_deposit_title">FIXED TERM DEPOSIT ACCOUNT</string>
+    <string name="social_title">ONLINE CONGLOMERATE LEAGUE</string>
+    <string name="social_subtitle">Monthly Global Conglomerate Standings</string>
+    <string name="social_tab_leaderboard">MONTHLY STANDINGS</string>
+    <string name="social_tab_guilds">CHAMBERS OF COMMERCE</string>
+    <string name="social_tab_ipo">BIST &amp; PUBLIC OFFERINGS</string>
+    <string name="social_btn_join">JOIN</string>
+    <string name="social_btn_invest">INVEST</string>
+    <string name="social_net_worth">Net Worth:</string>
+
+    <!-- Museum & Prestige Dialog -->
+    <string name="museum_passive_hourly_income_label">Hourly Passive Museum Yield:</string>
+    <string name="museum_hourly_income_format">+₳%1$s / hr</string>
+    <string name="museum_profile_revenue_label">Leaderboard Inspection Revenue:</string>
+    <string name="museum_profile_revenue_format">₳%1$s (%2$d Visitors)</string>
+    <string name="museum_prestige_lore">Every artifact in your museum grants permanent prestige points to your conglomerate, boosting your standing on the global leaderboard.</string>
+    <string name="museum_curator_level_title">🏆 MUSEUM CURATORSHIP LEVEL</string>
+    <string name="museum_ticket_lore">Historical Guild masterpieces displayed in your museum earn extra ticket revenues whenever rival executives and merchants inspect your profile on the Leaderboard!</string>
+    <string name="museum_strategy_tip">Tip: The more rare artifacts you collect, the higher the ticket premium collected from profile visitors.</string>
+
+    <!-- BorsaScreen UI Strings -->
+    <string name="borsa_search_placeholder">Search Commodity (e.g. Wheat, Steel...)</string>
+    <string name="borsa_filter_all_products">All Commodities (%1$d)</string>
+    <string name="borsa_filter_tier_1">🌾 Tier 1 (Raw)</string>
+    <string name="borsa_filter_tier_2">🏭 Tier 2 (Processed)</string>
+    <string name="borsa_filter_tier_3">📱 Tier 3 (End-Product)</string>
+    <string name="borsa_filter_tier_4">🚀 Tier 4 (Mega)</string>
+    <string name="borsa_filter_in_stock">📦 In Stock</string>
+    <string name="borsa_no_products_found">No commodities found matching your search.</string>
+    <string name="borsa_universal_banner">🌐 Universal Exchange: Real-time commodity prices are synchronized live for all players. Transportation and logistics fees are pegged to Crude Oil futures.</string>
+    <string name="borsa_crisis_bottleneck_tag">🚨 CRISIS BOTTLENECK &amp; HIGH INFLATION</string>
+    <string name="borsa_crisis_recession_tag">📉 CRISIS RECESSION: DOWNTURN IN END-PRODUCT MARKETS</string>
+    <string name="borsa_oil_index_tag">⛽ DYNAMIC LOGISTICS FUEL INDEX</string>
+    <string name="borsa_base_price_label">Base Price</string>
+    <string name="borsa_market_stock_label">Market Supply</string>
+    <string name="borsa_ton_format">%1$d Tons</string>
+    <string name="borsa_24h_high">24h High</string>
+    <string name="borsa_24h_low">24h Low</string>
+    <string name="borsa_balance_label">Balance:</string>
+    <string name="borsa_my_stock_label">Your Current Stock:</string>
+
+    <!-- AssetsScreen UI Strings -->
+    <string name="assets_header_title">INDUSTRIAL &amp; MANUFACTURING FACILITIES</string>
+    <string name="assets_header_subtitle">Manage production pipelines and upgrade facilities</string>
+    <string name="assets_supply_chain_btn">SUPPLY CHAIN</string>
+    <string name="assets_search_placeholder">Search facility or commodity name (e.g., Plant, Steel...)</string>
+    <string name="assets_filter_all_facilities">All Facilities</string>
+    <string name="assets_filter_tier_1">🌾 Tier 1 Raw Materials</string>
+    <string name="assets_filter_tier_2">🏭 Tier 2 Processed</string>
+    <string name="assets_filter_tier_3">📱 Tier 3 Tech</string>
+    <string name="assets_unit_cost_label">Unit Production Cost (Exchange Pegged):</string>
+    <string name="assets_est_duration_label">Est. Production Duration:</string>
+    <string name="assets_max_limit_label">Max Production Batch Limit:</string>
+    <string name="assets_units_format">%1$d Units</string>
+    <string name="assets_qty_input_label">Production Quantity (Units)</string>
+    <string name="assets_start_prod_btn">Start Production</string>
+    <string name="assets_cancel_btn">Cancel</string>
+    <string name="assets_total_investment_label">Total Facility Capital:</string>
+    <string name="assets_refund_rate_label">Liquidation Rate:</string>
+    <string name="assets_refund_rate_val">70% Cash Refund</string>
+    <string name="assets_refund_amount_label">Cash Recoverable:</string>
+    <string name="assets_sell_facility_btn">LIQUIDATE FACILITY (+%1$s)</string>
+    <string name="assets_cancel_caps_btn">DISCARD</string>
+
+    <!-- CompanyManager Model Strings -->
+    <string name="mgr_treasury_title">Treasury &amp; Macroeconomics Director</string>
+    <string name="mgr_treasury_desc">Hierarchy #1: Chief Financial Officer. Finances all consortium operations, market procurements, and maintenance costs from bank deposits and manages holding liquidity.</string>
+    <string name="mgr_contracts_title">Forward Contracts &amp; Procurement Director</string>
+    <string name="mgr_contracts_desc">Hierarchy #2: Chief Procurement Officer. Sources required consortium materials at optimal prices or secures forward exchange contracts to guarantee supplies.</string>
+    <string name="mgr_borsa_title">Equities &amp; Investment Analyst</string>
+    <string name="mgr_borsa_desc">Hierarchy #3: Chief Investment Officer. Collaborates with Procurement to execute spot purchases or forward bids on the Commodity Exchange for missing consortium goods.</string>
+    <string name="mgr_logistics_title">Logistics &amp; Global Sales Director</string>
+    <string name="mgr_logistics_desc">Hierarchy #4: Chief Commercial Officer. Reserves required consortium supply items in inventory until dispatch; liquidates surplus stock on global markets to generate cash.</string>
+    <string name="mgr_hr_title">Human Resources Director</string>
+    <string name="mgr_hr_desc">Hierarchy #5: Chief Human Resources Officer. Aligns all department heads with Consortium-First priorities, auditing manager performance and promoting talent.</string>
+    <string name="mgr_rd_title">Research &amp; Development Director</string>
+    <string name="mgr_rd_desc">Hierarchy #5: Chief Technology Officer. Prioritizes deep-tech, automation, and industrial research projects required for consortium excellence and manufacturing output.</string>
+    <string name="mgr_prod_title">Production &amp; Operations Director</string>
+    <string name="mgr_prod_desc">Hierarchy #5: Chief Operating Officer. Automatically directs player factories to manufacture products prioritized by consortium mega projects and supply slots.</string>
+    <string name="mgr_maintenance_title">Plant Maintenance Director</string>
+    <string name="mgr_maintenance_desc">Hierarchy #5: Facilities Maintenance Lead. Automatically detects and overhauls worn plant machinery, preventing any disruptions to consortium production.</string>
+
+    <!-- GuildGroup Model Strings -->
+    <string name="guild_mega_kanal_anadolu_title">Anatolia Grand Canal Mega Project</string>
+    <string name="guild_mega_kanal_anadolu_perk">+20% Production Speed Bonus Across All Facilities</string>
+    <string name="guild_mega_ai_datacenter_title">AI Supercomputing Data Center</string>
+    <string name="guild_mega_ai_datacenter_perk">+25% Tech &amp; Microchip Export Revenue Premium</string>
+    <string name="guild_mega_nuclear_plant_title">Aegean Nuclear Power Complex</string>
+    <string name="guild_mega_nuclear_plant_perk">30% Tax &amp; Energy Tariff Discount Across All Operations</string>
+    <string name="guild_bist_leader_title">BIST Market Leader</string>
+    <string name="guild_tech_giant_title">Tech Giant</string>
+    <string name="guild_energy_giant_title">Energy Conglomerate</string>
+    <string name="guild_player_holding_title">Player Holding Mega Investment</string>
+    <string name="guild_bist_public_holding_title">BIST Publicly Traded Holding</string>
+    <string name="guild_target_ai_microchip">AI Microprocessors</string>
+
+    <!-- ConsortiumSupplierSlot Model Strings -->
+    <string name="supplier_slot_steel_composite">Processed Heavy Steel Composite</string>
+    <string name="supplier_slot_turbine_engine">Heavy Turbine &amp; Generator Assembly</string>
+    <string name="supplier_slot_ai_microprocessors">AI Microprocessor Chips</string>
+    <string name="supplier_slot_aviation_fuel">High-Purity Aviation &amp; Industrial Fuel</string>
+    <string name="supplier_slot_mass_production_packaging">Mass Production &amp; Logistics Packaging Module</string>
+</resources>
