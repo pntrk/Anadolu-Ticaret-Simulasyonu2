@@ -75,7 +75,8 @@ fun SupplyChainFlowScreen(
     initialProductId: String = "ev",
     onNavigateBack: () -> Unit = {},
     onNavigateToBuild: (String) -> Unit = {},
-    onNavigateToWarehouse: (String?) -> Unit = {}
+    onNavigateToWarehouse: (String?) -> Unit = {},
+    onNavigateToConsortium: () -> Unit = {}
 ) {
     val businesses by viewModel.businesses.collectAsStateWithLifecycle(emptyList())
     val inventory by viewModel.inventory.collectAsStateWithLifecycle(emptyList())
@@ -337,6 +338,7 @@ fun SupplyChainFlowScreen(
                         activeProductions = activeProductions,
                         onNodeClick = { selectedNodeForSheet = it },
                         onNavigateToBuild = onNavigateToBuild,
+                        onNavigateToConsortium = onNavigateToConsortium,
                         modifier = Modifier.width(285.dp)
                     )
 
@@ -552,6 +554,99 @@ fun SupplyChainFlowScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                         }
 
+                        // Eğer tesis henüz kurulmamışsa: Kurulum / Konsorsiyum Yönlendirmesi
+                        if (business == null) {
+                            if (node.product.tier == ProductTier.TIER_4) {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = Color(0xFF201608),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.5.dp, ThemeGold.copy(alpha = 0.8f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Groups,
+                                                contentDescription = null,
+                                                tint = ThemeGold,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Text(
+                                                text = tr("🏛️ Konsorsiyum Mega Tesisi", "🏛️ Consortium Mega Facility"),
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Black,
+                                                color = ThemeGold
+                                            )
+                                        }
+                                        Text(
+                                            text = tr(
+                                                "Tier 4 Mega Kompleksler tekil olarak doğrudan kurulamaz. Bu devasa tesisi inşa etmek için Konsorsiyum projesi başlatabilir veya mevcut bir konsorsiyuma ortak olabilirsiniz.",
+                                                "Tier 4 Mega Complexes cannot be built directly. To construct this massive facility, start a Consortium project or join an existing consortium."
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFE2E8F0),
+                                            fontSize = 11.5.sp,
+                                            lineHeight = 16.sp
+                                        )
+                                        AppButton(
+                                            onClick = {
+                                                selectedNodeForSheet = null
+                                                onNavigateToConsortium()
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(44.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = ThemeGold,
+                                                contentColor = Color(0xFF1E1400)
+                                            ),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.Handshake, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = tr("🏛️ Konsorsiyum Paneline Git", "🏛️ Go to Consortium Hub"),
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                AppButton(
+                                    onClick = {
+                                        selectedNodeForSheet = null
+                                        onNavigateToBuild(node.product.id)
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF2563EB),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Rounded.AddBusiness, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = tr("➕ Tesis Kur (${formatMoney(node.product.facilityCost)})", "➕ Build Facility (${formatMoney(node.product.facilityCost)})"),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+
                         // Aksiyon Butonları
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -627,6 +722,7 @@ private fun TierColumn(
     activeProductions: List<ActiveProduction>,
     onNodeClick: (SupplyChainNode) -> Unit,
     onNavigateToBuild: (String) -> Unit,
+    onNavigateToConsortium: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tierColor = when (tier) {
@@ -640,7 +736,7 @@ private fun TierColumn(
         ProductTier.TIER_1 -> tr("TIER 1 • HAM MADDE", "TIER 1 • RAW MATERIALS")
         ProductTier.TIER_2 -> tr("TIER 2 • İŞLENMİŞ ARA MAL", "TIER 2 • INTERMEDIATE")
         ProductTier.TIER_3 -> tr("TIER 3 • İLERİ BİLEŞEN", "TIER 3 • ADVANCED PARTS")
-        ProductTier.TIER_4 -> tr("TIER 4 • NİHAİ MONTAJ", "TIER 4 • FINAL ASSEMBLY")
+        ProductTier.TIER_4 -> tr("TIER 4 • NİHAİ MONTAJ (KONSORSİYUM)", "TIER 4 • FINAL ASSEMBLY (CONSORTIUM)")
     }
 
     val ownedCount = nodes.count { it.ownedBusiness != null }
@@ -700,10 +796,16 @@ private fun TierColumn(
                         onClick = { onNodeClick(node) }
                     )
                 } else {
-                    // Olmayan Tesis Kartı (Kesikli Gri Çizgili)
+                    // Olmayan Tesis Kartı (Tier 4 ise Konsorsiyum yönlendirmesi)
                     MissingFacilityCard(
                         node = node,
-                        onBuildClick = { onNavigateToBuild(node.product.id) }
+                        onBuildClick = {
+                            if (node.product.tier == ProductTier.TIER_4) {
+                                onNavigateToConsortium()
+                            } else {
+                                onNavigateToBuild(node.product.id)
+                            }
+                        }
                     )
                 }
             }
@@ -863,16 +965,20 @@ private fun MissingFacilityCard(
     onBuildClick: () -> Unit
 ) {
     val product = node.product
+    val isTier4 = product.tier == ProductTier.TIER_4
+
+    val borderColor = if (isTier4) ThemeGold else Color(0xFF64748B)
+    val bgColor = if (isTier4) Color(0x28261805) else Color(0x1F1E293B)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .dashedBorder(
                 strokeWidth = 1.5.dp,
-                color = Color(0xFF64748B),
+                color = borderColor,
                 cornerRadius = 12.dp
             )
-            .background(Color(0x1F1E293B), RoundedCornerShape(12.dp))
+            .background(bgColor, RoundedCornerShape(12.dp))
             .padding(12.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -883,13 +989,13 @@ private fun MissingFacilityCard(
                 Box(
                     modifier = Modifier
                         .size(34.dp)
-                        .background(Color(0xFF334155), CircleShape),
+                        .background(if (isTier4) Color(0xFF38270B) else Color(0xFF334155), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = product.icon,
+                        imageVector = if (isTier4) Icons.Rounded.Groups else product.icon,
                         contentDescription = null,
-                        tint = Color(0xFF94A3B8),
+                        tint = if (isTier4) ThemeGold else Color(0xFF94A3B8),
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -898,17 +1004,17 @@ private fun MissingFacilityCard(
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Tesis Yok: ${product.displayName}",
+                        text = if (isTier4) "🏛️ ${product.displayName}" else "Tesis Yok: ${product.displayName}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
-                        color = Color(0xFFE2E8F0),
+                        color = if (isTier4) ThemeGold else Color(0xFFE2E8F0),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = tr("Zincir Kesintili", "Supply Broken"),
+                        text = if (isTier4) tr("🏛️ Konsorsiyum Tesisi", "🏛️ Consortium Facility") else tr("Zincir Kesintili", "Supply Broken"),
                         fontSize = 10.sp,
-                        color = ThemeNegative,
+                        color = if (isTier4) ThemeGold.copy(alpha = 0.9f) else ThemeNegative,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -920,31 +1026,70 @@ private fun MissingFacilityCard(
                 )
             }
 
+            if (isTier4) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = tr(
+                        "Tier 4 tesisler devasa sermaye gerektirir ve doğrudan kurulamaz. Konsorsiyum Mega Projesi ile kurulur.",
+                        "Tier 4 facilities require massive capital and cannot be built directly. Built via Consortium Mega Projects."
+                    ),
+                    fontSize = 10.sp,
+                    color = Color(0xFFCBD5E1),
+                    lineHeight = 13.sp
+                )
+            }
+
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Büyük '➕ Tesis Kur' Butonu
-            AppButton(
-                onClick = onBuildClick,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2563EB).copy(alpha = 0.9f),
-                    contentColor = Color.White
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.AddCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = tr("➕ Tesis Kur", "➕ Build Facility"),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
+            // Buton: Tier 4 ise Konsorsiyum ile Kur, değilse Normal Tesis Kur
+            if (isTier4) {
+                AppButton(
+                    onClick = onBuildClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ThemeGold,
+                        contentColor = Color(0xFF1E1400)
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Handshake,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = tr("🏛️ Konsorsiyum ile Kur", "🏛️ Build with Consortium"),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp
+                    )
+                }
+            } else {
+                AppButton(
+                    onClick = onBuildClick,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(38.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2563EB).copy(alpha = 0.9f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AddCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = tr("➕ Tesis Kur", "➕ Build Facility"),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
     }

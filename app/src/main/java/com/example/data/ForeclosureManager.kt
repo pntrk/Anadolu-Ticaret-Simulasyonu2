@@ -37,6 +37,13 @@ object ForeclosureManager {
     val auctions: StateFlow<List<ForeclosureAuction>> = _auctions.asStateFlow()
     val auctionsState: StateFlow<List<ForeclosureAuction>> = _auctions.asStateFlow()
 
+    fun addAuction(auction: ForeclosureAuction) {
+        // Tier 4 tesisler (Mega Projeler) haczedilemez ve iflas masasında satışa sunulamaz
+        val prod = Product.values().find { it.facilityId == auction.facilityType || it.id == auction.facilityType }
+        if (prod?.tier == ProductTier.TIER_4) return
+        _auctions.value = _auctions.value + auction
+    }
+
     private val foreclosureReasons = listOf(
         "Banka Kredi Temerrüdü ve Haciz Kararı",
         "Vergi Borçları Nedeniyle Hazine Satışı",
@@ -61,7 +68,7 @@ object ForeclosureManager {
 
     /**
      * Eğer aktif ihale sayısı 3'ten azsa, Product listesinden ve BotTycoonManager'daki
-     * botlardan rastgele 2-3 adet icralık tesis oluşturur.
+     * botlardan rastgele 2-3 adet icralık tesis oluşturur (Tier 4 hariç).
      * buyoutPrice = Product.facilityCost * level * 0.45
      */
     fun generateBotAuctions() {
@@ -71,7 +78,8 @@ object ForeclosureManager {
         if (currentActive.size >= 3) return
 
         val bots = BotTycoonManager.getAllBots()
-        val availableProducts = Product.values().filter { it.facilityCost > 0L }
+        // KURAL: Tier 4 tesisler kesinlikle iflas masasına giremez
+        val availableProducts = Product.values().filter { it.facilityCost > 0L && it.tier != ProductTier.TIER_4 }
         if (availableProducts.isEmpty()) return
 
         val countToGenerate = Random.nextInt(2, 4) // 2 veya 3 adet
@@ -132,19 +140,74 @@ object ForeclosureManager {
 
         // Hemen al fiyatından büyükse buyoutFacility kullanılmalı veya buyout olarak işlenmeli
         val finalBid = bidAmount.coerceAtMost(target.buyoutPrice)
+        val isFullBuyout = finalBid >= target.buyoutPrice
 
         _auctions.value = currentList.map { auction ->
             if (auction.id == auctionId) {
                 auction.copy(
                     currentHighestBid = finalBid,
                     highestBidderId = player.id,
-                    highestBidderName = player.name
+                    highestBidderName = player.name,
+                    isSettled = isFullBuyout
                 )
             } else {
                 auction
             }
         }
         return true
+    }
+
+    /**
+     * Süresi dolan ihaleleri kontrol eder. Eğer oyuncu en yüksek teklifi vermişse
+     * tesisi oyuncuya kazandırır ve tesis listesi ile kesilecek tutarı döner.
+     */
+    data class AuctionWinResult(
+        val wonBusiness: BusinessEntity,
+        val winningBidAmount: Long,
+        val auctionId: String,
+        val facilityName: String
+    )
+
+    fun settleCompletedAuctions(player: PlayerEntity): List<AuctionWinResult> {
+        val now = System.currentTimeMillis()
+        val currentList = _auctions.value
+        val wins = mutableListOf<AuctionWinResult>()
+        val updatedList = mutableListOf<ForeclosureAuction>()
+
+        for (auction in currentList) {
+            if (!auction.isSettled && auction.endsAtMs <= now) {
+                if (auction.highestBidderId == player.id) {
+                    val business = BusinessEntity(
+                        id = 0,
+                        type = auction.facilityType,
+                        level = auction.level,
+                        cityId = auction.cityId,
+                        wearLevel = 0.0f,
+                        storageCapacity = auction.level.coerceIn(1, 10) * 500,
+                        storedItemsJson = "{}",
+                        isUpgrading = false,
+                        upgradeEndTime = null,
+                        isConstructing = false,
+                        constructionEndTime = null
+                    )
+                    wins.add(
+                        AuctionWinResult(
+                            wonBusiness = business,
+                            winningBidAmount = auction.currentHighestBid,
+                            auctionId = auction.id,
+                            facilityName = auction.facilityType
+                        )
+                    )
+                }
+                updatedList.add(auction.copy(isSettled = true))
+            } else {
+                updatedList.add(auction)
+            }
+        }
+
+        _auctions.value = updatedList
+        generateBotAuctions()
+        return wins
     }
 
     /**

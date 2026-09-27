@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.viewmodel.calculateCompanyValuation
 import com.example.ui.components.CurrencyText
 import com.example.ui.theme.RobotoMonoFontFamily
 import com.example.ui.theme.tr
@@ -407,7 +408,7 @@ fun SocialScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     CurrencyText(
-                                        text = tr("Aylık Sıralama = (Ay Sonu Şirket Değeri - Ay Başı Şirket Değeri) büyüme farkına göre büyükten küçüğe oluşturulur.\nAy sonunda ilk 3'e giren holdinglere elmas ödülleri aktarılır:\n🥇 1. 2000 💎  |  🥈 2. 1000 💎  |  🥉 3. 500 💎", "Monthly Leaderboard = Sorted descending by (Month-End Valuation - Month-Start Valuation) growth difference.\nAt month end, top 3 holdings receive diamond rewards:\n🥇 1st: 2000 💎  |  🥈 2nd: 1000 💎  |  🥉 3rd: 500 💎"),
+                                        text = tr("Holding Sıralaması = Oyuncuların güncel Net Şirket Değerine (Nakit, Banka Mevduatı, Döviz, Fabrikalar, Depo Malları ve Konsorsiyum Varlıkları) göre büyükten küçüğe oluşturulur.\nAy sonunda ilk 3'e giren holdinglere elmas ödülleri aktarılır:\n🥇 1. 2000 💎  |  🥈 2. 1000 💎  |  🥉 3. 500 💎", "Holding Leaderboard = Ranked descending by players' current Net Company Valuation (Cash, Bank Deposits, FX, Factories, Warehouse Stocks, and Consortium Assets).\nAt month end, top 3 holdings receive diamond rewards:\n🥇 1st: 2000 💎  |  🥈 2nd: 1000 💎  |  🥉 3rd: 500 💎"),
                                         style = MaterialTheme.typography.bodySmall,
                                         fontSize = 11.sp,
                                         color = theme.textSecondaryColor
@@ -562,7 +563,7 @@ fun SocialScreen(
                     }
                 }
 
-                // CURRENT MONTH LEADERBOARD ITEMS (SORTED BY MONTHLY VALUATION GROWTH DESCENDING)
+                // CURRENT MONTH LEADERBOARD ITEMS (SORTED BY NET COMPANY VALUATION DESCENDING)
                 // Sadece gerçek oyuncular sıralanır; bot oyuncular sıralama listelerinde yer almaz
 
                 val validOnlinePlayers = onlinePlayers
@@ -574,7 +575,7 @@ fun SocialScreen(
                     val myId = localPlayerState.id
                     val myName = localPlayerState.name
                     val myCleanKey = getCleanPlayerKey(OnlinePlayer(id = myId, name = myName, companyName = "${myName} Holding", netWorth = 0L, city = "istanbul", level = 1))
-                    val myNetWorth = (localPlayerState.money + localPlayerState.depositBalance - localPlayerState.loanAmount).coerceAtLeast(0L)
+                    val myNetWorth = if (uiState.netWorth > 0L) uiState.netWorth else (viewModel?.calculateCompanyValuation() ?: ((localPlayerState.money + localPlayerState.depositBalance + localPlayerState.lockedDepositBalance - localPlayerState.loanAmount).coerceAtLeast(0L)))
                     val existsInList = validOnlinePlayers.any { getCleanPlayerKey(it) == myCleanKey || it.id == myId || it.name.equals(myName, ignoreCase = true) }
                     val baseList = if (existsInList) {
                         validOnlinePlayers.map { player ->
@@ -604,19 +605,19 @@ fun SocialScreen(
                             monthlyScore = myGrowth
                         )
                     }
-                    baseList.sortedByDescending { it.monthlyScore }
+                    baseList.sortedByDescending { it.netWorth }
                 } else {
                     // Google girişi yoksa oyuncu çevrimdışı yerel belleğinde oynar; sadece sunucudaki kayıtlı oyuncular listelenir
                     validOnlinePlayers.map { player ->
                         val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
                         player.copy(monthlyScore = growth)
-                    }.sortedByDescending { it.monthlyScore }
+                    }.sortedByDescending { it.netWorth }
                 }
 
                 val sortedPlayers = rawSortedPlayers
                     .groupBy { getCleanPlayerKey(it) }
-                    .map { (_, list) -> list.maxByOrNull { it.monthlyScore }!! }
-                    .sortedByDescending { it.monthlyScore }
+                    .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
+                    .sortedByDescending { it.netWorth }
 
                 if (sortedPlayers.isEmpty()) {
                     item {
@@ -665,7 +666,7 @@ fun SocialScreen(
                     // Enrich player details for local user if clicked
                     val displayPlayer = if (isMe && localPlayerState != null) {
                         player.copy(
-                            netWorth = (localPlayerState!!.money + localPlayerState!!.depositBalance - localPlayerState!!.loanAmount).coerceAtLeast(0L),
+                            netWorth = player.netWorth,
                             city = localPlayerState!!.currentCity.uppercase(),
                             centralWarehouseLocation = tr("${localPlayerState!!.currentCity.uppercase()} Ana Lojistik Merkezi", "${localPlayerState!!.currentCity.uppercase()} Main Logistics Center"),
                             facilities = if (localBusinesses.isNotEmpty()) {
@@ -781,8 +782,8 @@ fun SocialScreen(
                 val sortedPastPlayers = pastMonthLeaderboard
                     .filter { !isBotPlayer(it) }
                     .groupBy { getCleanPlayerKey(it) }
-                    .map { (_, list) -> list.maxByOrNull { it.monthlyScore }!! }
-                    .sortedByDescending { it.monthlyScore }
+                    .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
+                    .sortedByDescending { it.netWorth }
                     .take(20)
 
                 if (sortedPastPlayers.isEmpty()) {
@@ -1062,12 +1063,12 @@ fun EliteLeaderboardCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Score (Valuation Growth) and Net Worth Panel
+            // Primary Metric: Net Company Valuation (and secondary Growth diff)
             Column(horizontalAlignment = Alignment.End) {
                 Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = ThemePositive.copy(alpha = 0.12f),
-                    border = BorderStroke(1.dp, ThemePositive.copy(alpha = 0.5f))
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (rank == 1) ThemeGold.copy(alpha = 0.2f) else ThemePositive.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (rank == 1) ThemeGold else ThemePositive.copy(alpha = 0.6f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1075,31 +1076,46 @@ fun EliteLeaderboardCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.TrendingUp,
+                            imageVector = Icons.Rounded.AccountBalance,
                             contentDescription = null,
-                            tint = ThemePositive,
-                            modifier = Modifier.size(12.dp)
+                            tint = if (rank == 1) ThemeGold else ThemePositive,
+                            modifier = Modifier.size(13.dp)
                         )
                         CurrencyText(
-                            text = "+${formatCredit(score)}",
+                            text = "₳${formatCredit(player.netWorth)}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Black,
                             fontFamily = RobotoMonoFontFamily,
-                            color = ThemePositive,
+                            color = if (rank == 1) ThemeGold else ThemePositive,
                             fontSize = 12.sp
                         )
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 
-                CurrencyText(
-                    text = tr("Şirket Değeri: ${formatCredit(player.netWorth)}", "Valuation: ${formatCredit(player.netWorth)}"),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 10.sp,
-                    fontFamily = RobotoMonoFontFamily,
-                    color = theme.textSecondaryColor
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    CurrencyText(
+                        text = tr("Şirket Değeri", "Net Worth"),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = RobotoMonoFontFamily,
+                        color = theme.textSecondaryColor
+                    )
+                    if (score > 0L) {
+                        CurrencyText(
+                            text = "• (+${formatCredit(score)})",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = ThemePositive
+                        )
+                    }
+                }
             }
         }
     }

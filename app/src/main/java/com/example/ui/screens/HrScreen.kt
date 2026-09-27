@@ -5,7 +5,6 @@ import com.example.viewmodel.*
 import com.example.ui.components.CurrencyText
 import com.example.ui.theme.RobotoMonoFontFamily
 import com.example.ui.theme.tr
-import com.example.ui.components.RdCenterSection
 import com.example.ui.components.formatCredit
 
 import androidx.compose.foundation.clickable
@@ -15,6 +14,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -67,7 +68,6 @@ fun HrScreen(
     val p = player ?: return
     val state = gameState ?: return
 
-    val directives by AutopilotEngine.directivesState.collectAsState()
     val liveInventory by viewModel.inventory.collectAsState()
     val liveBusinesses by viewModel.businesses.collectAsState()
     val liveMegaProjects by viewModel.megaProjects.collectAsState()
@@ -116,10 +116,34 @@ fun HrScreen(
         }
     }
 
+    var selectedFilterIndex by remember { mutableStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    val filteredManagers = remember(sortedManagers, selectedFilterIndex, searchQuery) {
+        val baseList = when (selectedFilterIndex) {
+            1 -> sortedManagers.filter { it.isHired }
+            2 -> sortedManagers.filter { !it.isHired }
+            3 -> sortedManagers.filter { it.id in listOf("mgr_treasury", "mgr_borsa") }
+            4 -> sortedManagers.filter { it.id in listOf("mgr_contracts", "mgr_logistics") }
+            5 -> sortedManagers.filter { it.id in listOf("mgr_prod", "mgr_maintenance", "mgr_rd", "mgr_hr") }
+            else -> sortedManagers
+        }
+        if (searchQuery.isBlank()) {
+            baseList
+        } else {
+            val q = searchQuery.trim().lowercase()
+            baseList.filter {
+                it.name.lowercase().contains(q) ||
+                it.title.lowercase().contains(q) ||
+                it.specialty.lowercase().contains(q)
+            }
+        }
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWideScreen = maxWidth >= 720.dp
-        val managerChunks = remember(sortedManagers, isWideScreen) {
-            sortedManagers.chunked(if (isWideScreen) 2 else 1)
+        val managerChunks = remember(filteredManagers, isWideScreen) {
+            filteredManagers.chunked(if (isWideScreen) 2 else 1)
         }
 
         LazyColumn(
@@ -129,183 +153,410 @@ fun HrScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 110.dp)
         ) {
-        // 0. YÖNETİM KURULU TAVSİYELERİ & OTOPİLOT PANELİ
-        item {
-            BoardroomDirectivesSection(
-                directives = directives,
-                isEng = isEng,
-                onExecute = { directive ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    coroutineScope.launch {
-                        val success = AutopilotEngine.executeDirective(directive.id, viewModel)
-                        if (success) {
-                            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
-                            SmartNotificationManager.show(
-                                if (isEng) "⚡ Directive applied successfully: ${directive.title}"
-                                else "⚡ Direktif başarıyla uygulandı: ${directive.title}",
-                                NotificationType.SUCCESS
-                            )
-                        } else {
-                            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
-                            SmartNotificationManager.show(
-                                if (isEng) "⚡ Could not execute directive (Check Safety Reserve or Cooldown)!"
-                                else "⚡ Direktif uygulanamadı (Emniyet Rezervi veya Bekleme Süresi)!",
-                                NotificationType.ALERT
-                            )
-                        }
-                    }
-                },
-                onToggleAutopilot = { directiveId, enabled ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    AutopilotEngine.setAutopilotEnabled(directiveId, enabled)
-                    SmartNotificationManager.show(
-                        if (enabled) {
-                            if (isEng) "Autopilot activated (Repeats every 10 min)" else "Otopilot aktif (10 dk aralıklarla otomatik yürütülür)"
-                        } else {
-                            if (isEng) "Autopilot deactivated" else "Otopilot pasif kılındı"
-                        },
-                        NotificationType.INFO
-                    )
-                }
-            )
-        }
-
-        // 1. HR HEADER HERO BANNER
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(ThemeGold.copy(alpha = 0.15f), Color.Transparent),
-                                radius = 600f
-                            )
-                        )
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            // 1. HR HEADER HERO BANNER & EXECUTIVE KPI SUMMARY
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF0F172A),
+                    border = BorderStroke(1.2.dp, Brush.horizontalGradient(listOf(ThemeGold, ThemeNeonCyan, ThemeGold)))
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color(0xFF16233B), Color(0xFF0B1322))
+                                )
+                            )
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = CircleShape,
-                                color = ThemeGold.copy(alpha = 0.2f),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Rounded.People,
-                                        contentDescription = null,
-                                        tint = ThemeGold,
-                                        modifier = Modifier.size(20.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = ThemeGold.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.dp, ThemeGold),
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Rounded.People,
+                                            contentDescription = null,
+                                            tint = ThemeGold,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    CurrencyText(
+                                        tr("İnsan Kaynakları & Yönetim", "Human Resources & Management"),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 15.sp,
+                                        fontFamily = RobotoMonoFontFamily
+                                    )
+                                    CurrencyText(
+                                        tr("Holding Operasyonları & C-Suite Liderleri", "Holding Operations & C-Suite Executives"),
+                                        color = Color.LightGray,
+                                        fontSize = 11.sp
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (hiredCount > 0) ThemeNeonCyan.copy(alpha = 0.15f) else Color(0xFF1E293B),
+                                border = BorderStroke(1.dp, if (hiredCount > 0) ThemeNeonCyan.copy(alpha = 0.8f) else Color.Gray)
+                            ) {
                                 CurrencyText(
-                                    tr("İnsan Kaynakları & Yönetim", "Human Resources & Management"),
-                                    color = Color.White,
+                                    "$hiredCount/${managers.size} " + tr("Kadro", "Staff"),
+                                    color = if (hiredCount > 0) ThemeNeonCyan else Color.LightGray,
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    fontFamily = RobotoMonoFontFamily
-                                )
-                                CurrencyText(
-                                    tr("Holding Operasyonları & Otomasyon Müdürleri", "Holding Operations & Automation Directors"),
-                                    color = Color.Gray,
-                                    fontSize = 11.sp
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
                         }
-                        Surface(
-                            shape = RoundedCornerShape(2.dp),
-                            color = ThemeNeonCyan.copy(alpha = 0.2f)
+
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
+
+                        // 4 KPI Micro Cards Grid
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            CurrencyText(
-                                "$hiredCount / ${managers.size} " + tr("Müdür", "Directors"),
-                                color = ThemeNeonCyan,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
+                            // Bordro
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF131D31),
+                                border = BorderStroke(0.8.dp, Color(0xFF24344F)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    CurrencyText(tr("Bordro Yükü", "Payroll Cost"), color = Color.Gray, fontSize = 10.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    CurrencyText(formatCurrency(totalDailySalaries, isEng), color = Color(0xFFEF5350), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+
+                            // Ortalama Verim
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF131D31),
+                                border = BorderStroke(0.8.dp, Color(0xFF24344F)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    CurrencyText(tr("Yönetim Verimi", "Efficiency"), color = Color.Gray, fontSize = 10.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CurrencyText("%${averageEfficiency.toInt()}", color = ThemePositive, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        LinearProgressIndicator(
+                                            progress = (averageEfficiency / 100f).coerceIn(0f, 1f),
+                                            color = ThemePositive,
+                                            trackColor = Color(0xFF1E293B),
+                                            modifier = Modifier.height(4.dp).weight(1f).clip(RoundedCornerShape(2.dp))
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Elmas Bütçesi
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF131D31),
+                                border = BorderStroke(0.8.dp, Color(0xFF24344F)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    CurrencyText(tr("Elmas Bütçesi", "Gem Budget"), color = Color.Gray, fontSize = 10.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Diamond, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(12.dp))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        CurrencyText("${p.gems} 💎", color = ThemeNeonCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            // Hazine Rezervi
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF131D31),
+                                border = BorderStroke(0.8.dp, Color(0xFF24344F)),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    CurrencyText(tr("Hazine Rezervi", "Treasury Reserve"), color = Color.Gray, fontSize = 10.sp)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    CurrencyText(if (treasuryReserve > 0L) formatCurrency(treasuryReserve, isEng) else tr("Pasif", "Inactive"), color = if (treasuryReserve > 0L) ThemeGold else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
+                }
+            }
 
-                    HorizontalDivider(color = ThemeBorder, thickness = 1.dp)
+            // 2. FİLTRELER & YÖNETİM AKSİYONLARI (Arama, Filtre Çipleri ve Resmi Tatil/İşbaşı Butonu)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Search Bar
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        placeholder = {
+                            CurrencyText(
+                                tr("Yönetici veya departman ara...", "Search director or department..."),
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Rounded.Search, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(18.dp))
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Rounded.Clear, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ThemeGold,
+                            unfocusedBorderColor = Color(0xFF26354D),
+                            focusedContainerColor = Color(0xFF0F172A),
+                            unfocusedContainerColor = Color(0xFF0F172A),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    val filterList = listOf(
+                        tr("Tümü", "All") to sortedManagers.size,
+                        tr("İşe Alınanlar", "Hired") to hiredCount,
+                        tr("Açık Kadro", "Vacant") to (sortedManagers.size - hiredCount),
+                        tr("Finans & Borsa", "Finance & Exchange") to sortedManagers.count { it.id in listOf("mgr_treasury", "mgr_borsa") },
+                        tr("Tedarik & Satış", "Supply & Sales") to sortedManagers.count { it.id in listOf("mgr_contracts", "mgr_logistics") },
+                        tr("Operasyon & Ar-Ge", "Operations & R&D") to sortedManagers.count { it.id in listOf("mgr_prod", "mgr_maintenance", "mgr_rd", "mgr_hr") }
+                    )
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Column {
-                            CurrencyText(tr("Bordro Yükü", "Payroll Expenses"), color = Color.Gray, fontSize = 11.sp)
-                            CurrencyText(formatCurrency(totalDailySalaries, isEng), color = Color(0xFFEF5350), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CurrencyText(tr("Elmas Bütçesi", "Gem Budget"), color = Color.Gray, fontSize = 11.sp)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Diamond, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(13.dp))
-                                Spacer(modifier = Modifier.width(3.dp))
-                                CurrencyText("${p.gems} 💎", color = ThemeNeonCyan, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        filterList.forEachIndexed { index, (label, count) ->
+                            val isSelected = selectedFilterIndex == index
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedFilterIndex = index
+                                },
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isSelected) ThemeGold.copy(alpha = 0.2f) else Color(0xFF131D31),
+                                border = BorderStroke(1.dp, if (isSelected) ThemeGold else Color(0xFF26354D))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    CurrencyText(
+                                        text = label,
+                                        color = if (isSelected) ThemeGold else Color.LightGray,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (isSelected) ThemeGold else Color(0xFF1E293B)
+                                    ) {
+                                        CurrencyText(
+                                            text = "$count",
+                                            color = if (isSelected) Color(0xFF1A1300) else Color.Gray,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            CurrencyText(tr("Hazine Rezervi", "Treasury Reserve"), color = Color.Gray, fontSize = 11.sp)
-                            CurrencyText(if (treasuryReserve > 0L) formatCurrency(treasuryReserve, isEng) else tr("Pasif", "Inactive"), color = if (treasuryReserve > 0L) ThemeGold else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+
+                    if (hiredCount > 0) {
+                        val anyActive = managers.filter { it.isHired }.any { it.isActive }
+                        val (buttonText, buttonColor, icon) = if (anyActive) {
+                            Triple(tr("TÜM MÜDÜRLERİ İZNE ÇIKAR (RESMİ TATİL)", "GRANT ALL DIRECTORS LEAVE (PUBLIC HOLIDAY)"), Color(0xFFE53935), Icons.Rounded.PauseCircleFilled)
+                        } else {
+                            Triple(tr("TÜM MÜDÜRLERİ GÖREVE ÇAĞIR (İŞBAŞI)", "CALL ALL DIRECTORS TO DUTY (RESUME WORK)"), ThemePositive, Icons.Rounded.PlayCircleFilled)
+                        }
+
+                        Surface(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleAllManagersActiveStatus)
+                            },
+                            shape = RoundedCornerShape(6.dp),
+                            color = buttonColor.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, buttonColor.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp).fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(icon, contentDescription = null, tint = buttonColor, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CurrencyText(
+                                    text = buttonText,
+                                    color = buttonColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // 2. RESMİ TATİL / İŞBAŞI BUTONU
-            if (hiredCount > 0) {
-                item {
-                    val anyActive = managers.filter { it.isHired }.any { it.isActive }
-                    val (buttonText, buttonColor, icon) = if (anyActive) {
-                        Triple(tr("TÜM MÜDÜRLERİ İZNE ÇIKAR (RESMİ TATİL)", "GRANT ALL DIRECTORS LEAVE (PUBLIC HOLIDAY)"), Color(0xFFE53935), Icons.Rounded.PauseCircleFilled)
-                    } else {
-                        Triple(tr("TÜM MÜDÜRLERİ GÖREVE ÇAĞIR (İŞBAŞI)", "CALL ALL DIRECTORS TO DUTY (RESUME WORK)"), ThemePositive, Icons.Rounded.PlayCircleFilled)
-                    }
-                    
+            // 4. CANLI C-SUITE KARAR AKIŞI
+            item {
+                val allRecentLogs = sortedManagers.filter { it.isHired }
+                    .flatMap { it.actionLogs }
+                    .sortedByDescending { it.timestampMs }
+                    .take(3)
+
+                if (allRecentLogs.isNotEmpty()) {
                     Surface(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleAllManagersActiveStatus)
-                        },
-                        shape = RoundedCornerShape(4.dp),
-                        color = buttonColor.copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, buttonColor.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(1.dp, ThemeBorder.copy(alpha = 0.7f)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ThemePositive))
+                                CurrencyText(
+                                    text = tr("CANLI C-SUITE KARAR AKIŞI", "LIVE C-SUITE DECISION STREAM"),
+                                    color = ThemeGold,
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = RobotoMonoFontFamily,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
+                            allRecentLogs.forEach { log ->
+                                val logTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestampMs))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CurrencyText(
+                                        text = "• ${log.description.trAuto(isEng)}",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    CurrencyText(
+                                        text = logTimeStr,
+                                        color = Color(0xFF64748B),
+                                        fontSize = 9.sp,
+                                        fontFamily = RobotoMonoFontFamily
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 5. MANAGERS LIST (Empty State or Adaptive Grid for PC & Mobile)
+            if (filteredManagers.isEmpty()) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF131D31),
+                        border = BorderStroke(1.dp, Color(0xFF26354D)),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(icon, contentDescription = null, tint = buttonColor, modifier = Modifier.size(22.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(Icons.Rounded.SearchOff, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             CurrencyText(
-                                text = buttonText,
-                                color = buttonColor,
-                                fontWeight = FontWeight.Bold,
+                                text = tr("Bu filtreye uygun yönetici bulunamadı.", "No directors found for this filter."),
+                                color = Color.Gray,
                                 fontSize = 12.sp,
-                                letterSpacing = 0.5.sp
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
                 }
+            } else {
+                items(managerChunks, key = { chunk -> chunk.joinToString("-") { it.id } }) { chunk ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        chunk.forEach { manager ->
+                            Box(modifier = Modifier.weight(1f)) {
+                                ManagerCard(
+                                    manager = manager,
+                                    player = p,
+                                    onHire = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.HireManager(manager.id))
+                                    },
+                                    onFire = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.FireManager(manager.id))
+                                    },
+                                    onUpgrade = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeManager(manager.id))
+                                    },
+                                    onToggleActive = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleManagerActive(manager.id))
+                                    },
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectedManagerForLogs = manager
+                                    },
+                                    onResetDiscipline = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ResetManagerDisciplineWithGems(manager.id))
+                                    }
+                                )
+                            }
+                        }
+
+                        if (chunk.size == 1 && isWideScreen) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
             }
 
-            // 3. HİYERARŞİ VE MAAŞ SKALASI KARTI
+            // 6. HİYERARŞİ VE MAAŞ SKALASI KARTI
             item {
                 GlassCard(
                     modifier = Modifier
@@ -424,137 +675,6 @@ fun HrScreen(
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            // 4. MANAGERS LIST TITLE & LIVE ACTIVITY STREAM
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CurrencyText(
-                            tr("YÖNETİCİ KADROSU & OTOMASYON", "EXECUTIVE STAFF & AUTOMATION"),
-                            color = ThemeGold,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                            fontFamily = RobotoMonoFontFamily
-                        )
-
-                        val totalHiredCount = sortedManagers.count { it.isHired }
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = ThemeNeonCyan.copy(alpha = 0.15f),
-                            border = BorderStroke(0.8.dp, ThemeNeonCyan.copy(alpha = 0.6f))
-                        ) {
-                            CurrencyText(
-                                text = "$totalHiredCount/${sortedManagers.size} " + tr("Aktif", "Active"),
-                                color = ThemeNeonCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-
-                    // Live Aggregate C-Suite Ticker
-                    val allRecentLogs = sortedManagers.filter { it.isHired }
-                        .flatMap { it.actionLogs }
-                        .sortedByDescending { it.timestampMs }
-                        .take(3)
-
-                    if (allRecentLogs.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF0F172A),
-                            border = BorderStroke(1.dp, ThemeBorder.copy(alpha = 0.7f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(ThemePositive))
-                                    CurrencyText(
-                                        text = tr("CANLI C-SUITE KARAR AKIŞI", "LIVE C-SUITE DECISION STREAM"),
-                                        color = ThemeGold,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                }
-                                allRecentLogs.forEach { log ->
-                                    val logTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(log.timestampMs))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        CurrencyText(
-                                            text = "• ${log.description.trAuto(isEng)}",
-                                            color = Color(0xFFCBD5E1),
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        CurrencyText(
-                                            text = logTimeStr,
-                                            color = Color(0xFF64748B),
-                                            fontSize = 9.sp,
-                                            fontFamily = RobotoMonoFontFamily
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 5. MANAGERS LIST (Adaptive Grid for PC & Mobile)
-            items(managerChunks, key = { chunk -> chunk.joinToString("-") { it.id } }) { chunk ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    chunk.forEach { manager ->
-                        Box(modifier = Modifier.weight(1f)) {
-                            ManagerCard(
-                                manager = manager,
-                                player = p,
-                                onHire = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.HireManager(manager.id))
-                                },
-                                onFire = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.FireManager(manager.id))
-                                },
-                                onUpgrade = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeManager(manager.id))
-                                },
-                                onToggleActive = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleManagerActive(manager.id))
-                                },
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    selectedManagerForLogs = manager
-                                },
-                                onResetDiscipline = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ResetManagerDisciplineWithGems(manager.id))
-                                }
-                            )
-                        }
-                    }
-
-                    if (chunk.size == 1 && isWideScreen) {
-                        Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -718,30 +838,28 @@ fun ManagerCard(
     val localizedDesc = if (isEng) manager.description.trAuto() else (if (manager.descriptionRes != 0) androidx.compose.ui.res.stringResource(id = manager.descriptionRes) else manager.description)
 
     val (hierarchyTag, hierarchyColor) = when (manager.id) {
-        "mgr_treasury" -> ("👑 " + tr("Hiyerarşi #1 (Finans Lideri)", "Hierarchy #1 (Finance Leader)")) to ThemeGold
-        "mgr_contracts" -> ("🥈 " + tr("Hiyerarşi #2 (Tedarik Yetkilisi)", "Hierarchy #2 (Procurement Lead)")) to ThemeNeonCyan
-        "mgr_borsa" -> ("🥉 " + tr("Hiyerarşi #3 (Yatırım Analisti)", "Hierarchy #3 (Investment Analyst)")) to Color(0xFFFFB74D)
-        "mgr_logistics" -> ("🚚 " + tr("Hiyerarşi #4 (Lojistik & Satış)", "Hierarchy #4 (Logistics & Sales)")) to Color(0xFF81C784)
-        "mgr_hr" -> ("👥 " + tr("Hiyerarşi #5 (İK Lideri)", "Hierarchy #5 (HR Leader)")) to Color(0xFFCE93D8)
-        else -> ("🛠️ " + tr("Hiyerarşi #5 (Operasyon)", "Hierarchy #5 (Operations)")) to Color.LightGray
+        "mgr_treasury" -> ("👑 " + tr("Hiyerarşi #1 (Finans)", "Hierarchy #1 (Finance)")) to ThemeGold
+        "mgr_contracts" -> ("🥈 " + tr("Hiyerarşi #2 (Tedarik)", "Hierarchy #2 (Procurement)")) to ThemeNeonCyan
+        "mgr_borsa" -> ("🥉 " + tr("Hiyerarşi #3 (Borsa)", "Hierarchy #3 (Exchange)")) to Color(0xFFFFB74D)
+        "mgr_logistics" -> ("🚚 " + tr("Hiyerarşi #4 (Lojistik)", "Hierarchy #4 (Logistics)")) to Color(0xFF81C784)
+        "mgr_hr" -> ("👥 " + tr("Hiyerarşi #5 (İK)", "Hierarchy #5 (HR)")) to Color(0xFFCE93D8)
+        else -> ("🛠️ " + tr("Hiyerarşi #5 (Operasyon)", "Hierarchy #5 (Operations)")) to Color(0xFF64B5F6)
     }
 
     val isHired = manager.isHired
     val containerColor = if (isHired) Color(0xFF131C2E) else Color(0xFF0F172A)
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { isDetailsExpanded = !isDetailsExpanded },
-        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
         color = containerColor,
-        border = if (isHired) BorderStroke(1.dp, hierarchyColor.copy(alpha = 0.8f)) else BorderStroke(1.dp, Color(0xFF1E293B))
+        border = if (isHired) BorderStroke(1.2.dp, hierarchyColor.copy(alpha = 0.7f)) else BorderStroke(1.dp, Color(0xFF1E293B))
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Summary Header Row
+            // Header Row: Icon + Name/Title + Quick Status / Level
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -752,10 +870,10 @@ fun ManagerCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isHired) hierarchyColor.copy(alpha = 0.2f) else Color(0xFF1E293B),
-                        border = BorderStroke(1.dp, if (isHired) hierarchyColor else Color(0xFF334155)),
-                        modifier = Modifier.size(40.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isHired) hierarchyColor.copy(alpha = 0.15f) else Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, if (isHired) hierarchyColor.copy(alpha = 0.8f) else Color(0xFF334155)),
+                        modifier = Modifier.size(42.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -768,59 +886,109 @@ fun ManagerCard(
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        if (isHired && manager.name.isNotBlank()) {
-                            CurrencyText(manager.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            CurrencyText(localizedTitle, color = hierarchyColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        } else {
-                            CurrencyText(tr("POZİSYON BOŞ", "POSITION VACANT"), color = ThemeGold, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            CurrencyText(localizedTitle, color = Color.LightGray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            if (isHired && manager.name.isNotBlank()) {
+                                CurrencyText(
+                                    manager.name,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            } else {
+                                CurrencyText(
+                                    tr("POZİSYON BOŞ", "POSITION VACANT"),
+                                    color = ThemeGold,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CurrencyText(
+                                localizedTitle,
+                                color = if (isHired) hierarchyColor else Color.LightGray,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (isHired) {
+                if (isHired) {
+                    // Level stars + Quick Active Switch directly on Header
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Surface(
-                            shape = RoundedCornerShape(2.dp),
-                            color = Color(0xFF1A2130)
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF1A2130),
+                            border = BorderStroke(0.8.dp, Color(0xFF2E3E5C))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 repeat(manager.level.coerceIn(1, 5)) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(12.dp))
+                                    Icon(Icons.Default.Star, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(11.dp))
                                 }
                             }
                         }
-                    } else {
+
+                        // Compact Quick Active/Duty Switch
                         Surface(
-                            shape = RoundedCornerShape(2.dp),
-                            color = ThemeBorder.copy(alpha = 0.3f)
+                            onClick = onToggleActive,
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (manager.isActive) ThemePositive.copy(alpha = 0.15f) else Color(0xFFE53935).copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, if (manager.isActive) ThemePositive.copy(alpha = 0.6f) else Color(0xFFE53935).copy(alpha = 0.6f))
                         ) {
-                            CurrencyText(
-                                text = tr("Aday Bekleniyor", "Awaiting Candidate"),
-                                color = Color.Gray,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(if (manager.isActive) ThemePositive else Color(0xFFE53935))
+                                )
+                                CurrencyText(
+                                    text = if (manager.isActive) tr("GÖREVDE", "ACTIVE") else tr("İZİNLİ", "LEAVE"),
+                                    color = if (manager.isActive) ThemePositive else Color(0xFFE53935),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
-
-                    Icon(
-                        imageVector = if (isDetailsExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = "Expand",
-                        tint = Color.Gray,
-                        modifier = Modifier.size(20.dp)
-                    )
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, Color(0xFF334155))
+                    ) {
+                        CurrencyText(
+                            text = tr("Aday Bekleniyor", "Awaiting Candidate"),
+                            color = Color.LightGray,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
-            // Always Visible Concise Summary Info
+            // Financial & Effect Strip
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -828,9 +996,9 @@ fun ManagerCard(
             ) {
                 Column(modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)) {
                     CurrencyText(
-                        if (isHired) tr("Maaş Miktarı (Nakit)", "Salary Amount (Cash)") else tr("Başlangıç Maaşı (Nakit)", "Starting Salary (Cash)"),
+                        if (isHired) tr("Günlük Maaş (Nakit)", "Daily Salary (Cash)") else tr("Başlangıç Maaşı", "Starting Salary"),
                         color = Color.Gray,
-                        fontSize = 11.sp,
+                        fontSize = 10.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -843,13 +1011,14 @@ fun ManagerCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
                 Column(horizontalAlignment = Alignment.End, modifier = Modifier.weight(1f, fill = false)) {
                     if (!isHired) {
                         CurrencyText(
-                            tr("Transfer Bütçesi", "Recruitment Budget"),
+                            tr("Transfer Bedeli", "Hiring Fee"),
                             color = ThemeNeonCyan,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 11.sp,
+                            fontSize = 10.5.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -866,15 +1035,6 @@ fun ManagerCard(
                             )
                         }
                     } else {
-                        CurrencyText(
-                            hierarchyTag,
-                            color = hierarchyColor,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-
                         val effectText = when (manager.specialty) {
                             "production" -> tr("Üretim Hızı", "Production Speed") + " +%${manager.level * 25}"
                             "logistics" -> tr("Nakliye İndirimi", "Logistics Discount") + " %${(manager.level * 15).coerceAtMost(75)}"
@@ -885,6 +1045,14 @@ fun ManagerCard(
                             "hr" -> tr("Oto-Terfi & Koçluk", "Auto-Promote & Coach")
                             else -> tr("Oto-Borsa Alımı", "Auto-Stock Buying")
                         }
+                        CurrencyText(
+                            hierarchyTag,
+                            color = hierarchyColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         CurrencyText(
                             effectText,
                             color = ThemeGold,
@@ -897,14 +1065,14 @@ fun ManagerCard(
                 }
             }
 
-            // Live Recent Action Badge on Front of Card
+            // Live Recent Action Badge (Front of Card)
             if (isHired && manager.actionLogs.isNotEmpty()) {
                 val latestLog = manager.actionLogs.first()
                 val logTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(latestLog.timestampMs))
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF0F172A),
-                    border = BorderStroke(0.8.dp, hierarchyColor.copy(alpha = 0.5f)),
+                    color = Color(0xFF0B1322),
+                    border = BorderStroke(0.8.dp, hierarchyColor.copy(alpha = 0.4f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -919,7 +1087,7 @@ fun ManagerCard(
                                 .background(hierarchyColor)
                         )
                         CurrencyText(
-                            text = "⚡ " + tr("Son İcraat:", "Latest Action:") + " ${latestLog.description.trAuto(isEng)}",
+                            text = "⚡ ${latestLog.description.trAuto(isEng)}",
                             color = Color(0xFFE2E8F0),
                             fontSize = 10.sp,
                             maxLines = 1,
@@ -936,648 +1104,177 @@ fun ManagerCard(
                 }
             }
 
+            // PRIMARY ACTIONS ROW (Directly on the card!)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (!isHired) {
+                    val hireGemCost = manager.hireGemCost
+                    val hasEnoughGems = player.gems >= hireGemCost
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { isDetailsExpanded = !isDetailsExpanded }
+                        ) {
+                            Icon(
+                                imageVector = if (isDetailsExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            CurrencyText(
+                                if (isDetailsExpanded) tr("Detayı Gizle", "Hide") else tr("Görev Tanımı", "Job Role"),
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Button(
+                            onClick = onHire,
+                            enabled = hasEnoughGems,
+                            shape = RoundedCornerShape(6.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ThemeGold,
+                                contentColor = Color(0xFF1A1300),
+                                disabledContainerColor = Color(0xFF1E293B),
+                                disabledContentColor = Color.Gray
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(Icons.Default.Diamond, contentDescription = null, modifier = Modifier.size(14.dp), tint = if (hasEnoughGems) Color(0xFF1A1300) else ThemeNeonCyan)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            CurrencyText(tr("İşe Al", "Hire") + " ($hireGemCost 💎)", fontWeight = FontWeight.Bold, fontSize = 11.5.sp)
+                        }
+                    }
+                } else {
+                    // Quick Action Strip: Logs Button, Upgrade Button, and Details Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // View Logs Button
+                            Surface(
+                                onClick = onClick,
+                                shape = RoundedCornerShape(6.dp),
+                                color = Color(0xFF1E293B),
+                                border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(Icons.Rounded.History, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(13.dp))
+                                    CurrencyText(
+                                        tr("Loglar", "Logs") + " (${manager.actionLogs.size})",
+                                        color = ThemeNeonCyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+
+                            // Details toggle
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { isDetailsExpanded = !isDetailsExpanded }
+                                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isDetailsExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                CurrencyText(
+                                    if (isDetailsExpanded) tr("Gizle", "Hide") else tr("Detay", "Details"),
+                                    color = Color.Gray,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        // Upgrade (Promote) Button
+                        if (manager.level < 5) {
+                            val upgradeCost = manager.dailySalary * 5 * manager.level
+                            val canAffordUpgrade = player.money >= upgradeCost
+                            Button(
+                                onClick = onUpgrade,
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (canAffordUpgrade) ThemeGold else Color(0xFF1E293B),
+                                    contentColor = if (canAffordUpgrade) Color(0xFF1A1300) else Color.Gray
+                                ),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Icon(Icons.Rounded.Upgrade, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(3.dp))
+                                CurrencyText(tr("Terfi", "Promote") + " (${formatCredit(upgradeCost)})", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = ThemeGold.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f))
+                            ) {
+                                CurrencyText(
+                                    tr("Maks Seviye (Lvl 5)", "Max Level (Lvl 5)"),
+                                    color = ThemeGold,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Collapsible Detailed View
             AnimatedVisibility(visible = isDetailsExpanded) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    HorizontalDivider(color = ThemeBorder, thickness = 0.5.dp)
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
 
-                    CurrencyText(localizedDesc, color = Color.Gray, fontSize = 12.sp)
+                    CurrencyText(localizedDesc, color = Color.LightGray, fontSize = 11.5.sp)
 
-                    OutlinedButton(
-                        onClick = onClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, if (isHired) ThemeNeonCyan.copy(alpha = 0.6f) else Color(0xFF334155))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.History,
-                            contentDescription = null,
-                            tint = if (isHired) ThemeNeonCyan else Color.Gray,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        CurrencyText(
-                            text = tr("İşlem Logları & Karar Geçmişini İncele", "Inspect Action Logs & Decision History") + " (${manager.actionLogs.size})",
-                            color = if (isHired) ThemeNeonCyan else Color.Gray,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!isHired) {
-                            val hireGemCost = manager.hireGemCost
-                            val hasEnoughGems = player.gems >= hireGemCost
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    val indicatorColor = if (hasEnoughGems) ThemePositive else ThemeNegative
-                                    val indicatorText = if (hasEnoughGems) tr("Elmas Bütçesi Uygun", "Gem Budget Sufficient") else tr("Yetersiz Elmas", "Insufficient Gems")
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(indicatorColor))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    CurrencyText(indicatorText, color = indicatorColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                Button(
-                                    onClick = onHire,
-                                    shape = RoundedCornerShape(6.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (hasEnoughGems) ThemeGold else Color(0xFF334155),
-                                        contentColor = if (hasEnoughGems) Color(0xFF1A1300) else Color.LightGray
-                                    )
-                                ) {
-                                    Icon(Icons.Default.Diamond, contentDescription = null, modifier = Modifier.size(15.dp), tint = if (hasEnoughGems) Color(0xFF1A1300) else ThemeNeonCyan)
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    CurrencyText(tr("İşe Al", "Hire") + " ($hireGemCost 💎)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Switch(
-                                        checked = manager.isActive,
-                                        onCheckedChange = { onToggleActive() },
-                                        colors = SwitchDefaults.colors(checkedThumbColor = ThemeGold, checkedTrackColor = ThemeGold.copy(alpha = 0.3f))
-                                    )
-                                    CurrencyText(if (manager.isActive) tr("Aktif", "Active") else tr("Pasif", "Inactive"), color = if (manager.isActive) ThemeGold else Color.Gray, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (manager.level < 5) {
-                                        val upgradeCost = manager.dailySalary * 5 * manager.level
-                                        OutlinedButton(
-                                            onClick = onUpgrade,
-                                            shape = RoundedCornerShape(6.dp),
-                                            border = BorderStroke(1.dp, ThemeGold)
-                                        ) {
-                                            CurrencyText(tr("Terfi", "Promote") + " (${formatCredit(upgradeCost)})", color = ThemeGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    } else {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = ThemeGold.copy(alpha = 0.2f),
-                                            border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.5f))
-                                        ) {
-                                            CurrencyText(tr("Maks Seviye (Lvl 5)", "Max Level (Lvl 5)"), color = ThemeGold, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
-                                        }
-                                    }
-                                    OutlinedButton(
-                                        onClick = onFire,
-                                        shape = RoundedCornerShape(6.dp),
-                                        border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.5f))
-                                    ) {
-                                        CurrencyText(tr("İşten Çıkar", "Fire"), color = Color(0xFFEF5350), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-    }
-}
-
-
-@Composable
-fun RdCenterBannerCard(
-    uiState: com.example.viewmodel.GameUiState,
-    viewModel: GameViewModel,
-    onOpenRdCenter: () -> Unit
-) {
-    val activeResearches = uiState.hrState.activeResearches
-    
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = Color(0xFF161F33),
-        border = BorderStroke(1.dp, ThemeBorder)
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = ThemeNeonCyan.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, ThemeNeonCyan)
-                    ) {
-                        Box(
-                            modifier = Modifier.size(38.dp),
-                            contentAlignment = Alignment.Center
+                    if (isHired) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Science,
-                                contentDescription = null,
-                                tint = ThemeNeonCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        CurrencyText(
-                            text = "🔬 " + tr("AR-GE VE TEKNOLOJİ MERKEZİ", "R&D AND TECHNOLOGY CENTER"),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = Color.White
-                        )
-                        CurrencyText(
-                            text = tr("Tier 3 & Tier 4 Tesis Teknolojileri", "Tier 3 & Tier 4 Plant Technologies"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.LightGray,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-
-                AppButton(
-                    onClick = onOpenRdCenter,
-                    shape = RoundedCornerShape(4.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                ) {
-                    Icon(imageVector = Icons.Rounded.AccountTree, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    CurrencyText(text = tr("AÇ & İNCELE", "OPEN & INSPECT"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            val uniqueActiveResearches = remember(activeResearches) {
-                val clean = mutableMapOf<String, Long>()
-                activeResearches.forEach { (k, v) ->
-                    val base = k.removePrefix("tech_")
-                    clean[base] = maxOf(clean[base] ?: 0L, v)
-                }
-                clean
-            }
-
-            if (uniqueActiveResearches.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CurrencyText(
-                        text = "⚡ " + tr("DEVAM EDEN ARAŞTIRMALAR", "ONGOING RESEARCH") + " (${uniqueActiveResearches.size}/4 " + tr("Slot", "Slots") + "):",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = ThemeNeonCyan,
-                        fontSize = 11.sp
-                    )
-
-                    uniqueActiveResearches.forEach { (techKey, endTimeMs) ->
-                        val remainingMs = (endTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
-                        val gemCost = kotlin.math.ceil(remainingMs / 3600_000.0).toInt().coerceAtLeast(1)
-                        val node = com.example.data.TechTree.nodes.find { it.id == techKey || it.id == "tech_$techKey" || it.id.removePrefix("tech_") == techKey }
-                        val techName = node?.getName() ?: techKey.uppercase()
-
-                        val curLvl = uiState.hrState.researchLevels[techKey] ?: 0
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF1E293B),
-                            border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.3f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    CurrencyText(
-                                        text = "$techName (" + tr("Seviye", "Level") + " $curLvl ➔ ${curLvl + 1})",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    CurrencyText(
-                                        text = "⏳ " + tr("Kalan Süre", "Remaining Time") + ": ${formatResearchTimeMs(remainingMs)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.LightGray,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF162032),
-                    border = BorderStroke(1.dp, Color(0xFF26334D)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Info,
-                            contentDescription = null,
-                            tint = Color.Gray,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        CurrencyText(
-                            text = tr("Henüz aktif araştırma yok. Tier 3 ve Tier 4 tesisleri inşa etmek için Ar-Ge Laboratuvarında araştırma başlatın (1 Saat = 1 Elmas Hızlandırma).", "No active research yet. Start research in the R&D Lab to build Tier 3 and Tier 4 plants (1 Hour = 1 Diamond Speed-Up)."),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray,
-                            fontSize = 11.sp
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun formatResearchTimeMs(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0L)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%02d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%02d:%02d", minutes, seconds)
-    }
-}
-
-@Composable
-fun ResearchLabDialog(
-    uiState: com.example.viewmodel.GameUiState,
-    viewModel: GameViewModel,
-    highlightedTechKey: String? = null,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            CurrencyText("🔬 " + tr("AR-GE Laboratuvarı", "R&D Laboratory"), fontWeight = FontWeight.Bold)
-        },
-        text = {
-            Box(modifier = Modifier.heightIn(max = 500.dp)) {
-                RdCenterSection(uiState = uiState, viewModel = viewModel, highlightedTechKey = highlightedTechKey)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                CurrencyText(tr("Kapat", "Close"))
-            }
-        },
-        containerColor = Color(0xFF0B101D),
-        titleContentColor = Color.White,
-        textContentColor = Color.White
-    )
-}
-
-@Composable
-fun BoardroomDirectivesSection(
-    directives: List<SmartDirective>,
-    isEng: Boolean,
-    onExecute: (SmartDirective) -> Unit,
-    onToggleAutopilot: (String, Boolean) -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF0E1726),
-        border = BorderStroke(1.2.dp, Brush.horizontalGradient(listOf(ThemeGold, ThemeNeonCyan, ThemeGold)))
-    ) {
-        Column(
-            modifier = Modifier
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF142036), Color(0xFF0B1220))
-                    )
-                )
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Header Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = ThemeGold.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, ThemeGold),
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
                             CurrencyText(
-                                text = "👔",
-                                fontSize = 16.sp
-                            )
-                        }
-                    }
-                    Column {
-                        CurrencyText(
-                            text = tr("⚡ OTOPİLOT & YÖNETİM DİREKTİFLERİ", "⚡ AUTOPILOT & STRATEGIC DIRECTIVES"),
-                            color = ThemeGold,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 13.sp,
-                            fontFamily = RobotoMonoFontFamily
-                        )
-                        CurrencyText(
-                            text = tr("Canlı müdür analizleri ve otomatik otopilot aksiyonları", "Live executive analysis & automated autopilot actions"),
-                            color = Color.LightGray,
-                            fontSize = 10.5.sp
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = if (directives.isNotEmpty()) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF1E293B),
-                    border = BorderStroke(1.dp, if (directives.isNotEmpty()) ThemeNeonCyan else Color.Gray)
-                ) {
-                    CurrencyText(
-                        text = if (directives.isNotEmpty()) "${directives.size} " + tr("Aktif Tavsiye", "Active Directives") else tr("Nominal", "Nominal"),
-                        color = if (directives.isNotEmpty()) ThemeNeonCyan else Color.LightGray,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                    )
-                }
-            }
-
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
-
-            if (directives.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    directives.forEach { directive ->
-                        DirectiveCard(
-                            directive = directive,
-                            isEng = isEng,
-                            onExecute = { onExecute(directive) },
-                            onToggleAutopilot = { enabled -> onToggleAutopilot(directive.id, enabled) }
-                        )
-                    }
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF162032).copy(alpha = 0.6f),
-                    border = BorderStroke(1.dp, Color(0xFF26334D)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ThemePositive.copy(alpha = 0.15f),
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.CheckCircle,
-                                    contentDescription = null,
-                                    tint = ThemePositive,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            CurrencyText(
-                                text = tr("Tüm operasyonlar nominal dengede", "All operations in nominal balance"),
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            CurrencyText(
-                                text = tr("Yönetim kurulu izleme modunda. Aşınma veya stok taşması durumunda tavsiyeler anında burada listelenir.", "Board of directors in active monitoring mode. Directives appear here upon wear or surplus."),
+                                tr("Pozisyonu Sonlandır:", "Terminate Position:"),
                                 color = Color.Gray,
-                                fontSize = 10.5.sp
+                                fontSize = 11.sp
                             )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DirectiveCard(
-    directive: SmartDirective,
-    isEng: Boolean,
-    onExecute: () -> Unit,
-    onToggleAutopilot: (Boolean) -> Unit
-) {
-    val borderColor = when {
-        directive.estimatedFinancialImpact > 0 -> ThemePositive.copy(alpha = 0.6f)
-        directive.estimatedFinancialImpact < 0 -> Color(0xFFEF5350).copy(alpha = 0.6f)
-        else -> ThemeGold.copy(alpha = 0.6f)
-    }
-
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color(0xFF0F172A),
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Manager & Title & Badge Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = Color(0xFF1E293B),
-                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            CurrencyText(
-                                text = directive.managerAvatarEmoji,
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CurrencyText(
-                                text = directive.managerName,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
-                            )
-                            if (directive.managerRole.isNotBlank()) {
-                                CurrencyText(
-                                    text = " • ${directive.managerRole}",
-                                    color = Color.LightGray,
-                                    fontSize = 10.sp
-                                )
+                            OutlinedButton(
+                                onClick = onFire,
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.6f)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Rounded.PersonRemove, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                CurrencyText(tr("İşten Çıkar (Tazminatsız)", "Fire Manager"), color = Color(0xFFEF5350), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        CurrencyText(
-                            text = directive.title,
-                            color = ThemeGold,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.5.sp,
-                            fontFamily = RobotoMonoFontFamily
-                        )
                     }
-                }
-
-                // Estimated Profit / Cost Badge
-                if (directive.estimatedFinancialImpact > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = ThemePositive.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, ThemePositive)
-                    ) {
-                        CurrencyText(
-                            text = "+₳${formatMoney(directive.estimatedFinancialImpact)}",
-                            color = ThemePositive,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-                } else if (directive.estimatedFinancialImpact < 0) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFEF5350).copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, Color(0xFFEF5350))
-                    ) {
-                        CurrencyText(
-                            text = "-₳${formatMoney(kotlin.math.abs(directive.estimatedFinancialImpact))}",
-                            color = Color(0xFFEF5350),
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = ThemeNeonCyan.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, ThemeNeonCyan)
-                    ) {
-                        CurrencyText(
-                            text = tr("Stratejik Katkı", "Strategic"),
-                            color = ThemeNeonCyan,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-
-            // Description
-            CurrencyText(
-                text = directive.description,
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = 11.5.sp,
-                lineHeight = 16.sp
-            )
-
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.8.dp)
-
-            // Action Row: Autopilot switch & Apply button
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Autopilot Switch
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Switch(
-                        checked = directive.isAutoPilotEnabled,
-                        onCheckedChange = { isChecked ->
-                            onToggleAutopilot(isChecked)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color(0xFF1E1402),
-                            checkedTrackColor = ThemeGold,
-                            uncheckedThumbColor = Color.Gray,
-                            uncheckedTrackColor = Color(0xFF1E293B)
-                        ),
-                        modifier = Modifier.scale(0.8f)
-                    )
-                    Column {
-                        CurrencyText(
-                            text = tr("Otopilot", "Autopilot"),
-                            color = if (directive.isAutoPilotEnabled) ThemeGold else Color.Gray,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        CurrencyText(
-                            text = if (directive.isAutoPilotEnabled) tr("Otomatik (10 dk)", "Auto (10m)") else tr("Manuel", "Manual"),
-                            color = Color.Gray,
-                            fontSize = 9.sp
-                        )
-                    }
-                }
-
-                // Execute Button
-                Button(
-                    onClick = onExecute,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ThemeGold,
-                        contentColor = Color(0xFF1E1402)
-                    ),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Bolt,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = Color(0xFF1E1402)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    CurrencyText(
-                        text = tr("⚡ Tek Tıkla Uygula", "⚡ Apply Now"),
-                        fontWeight = FontWeight.Black,
-                        fontSize = 11.sp,
-                        fontFamily = RobotoMonoFontFamily,
-                        color = Color(0xFF1E1402)
-                    )
                 }
             }
         }

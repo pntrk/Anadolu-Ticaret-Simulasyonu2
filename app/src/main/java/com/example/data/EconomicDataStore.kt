@@ -101,6 +101,7 @@ data class EconomicSnapshot(
     val isIpoActive: Boolean = false,
     val publicSharePercent: Int = 0,
     val totalDividendsPaid: Long = 0L,
+    val dividendDebt: Long = 0L,
     
     val businessesJson: String = "[]",
     val inventoryJson: String = "[]",
@@ -195,6 +196,7 @@ class EconomicDataStore(val context: Context) {
         val KEY_IS_IPO_ACTIVE = booleanPreferencesKey("is_ipo_active")
         val KEY_PUBLIC_SHARE_PERCENT = intPreferencesKey("public_share_percent")
         val KEY_TOTAL_DIVIDENDS_PAID = longPreferencesKey("total_dividends_paid")
+        val KEY_DIVIDEND_DEBT = longPreferencesKey("dividend_debt")
 
         val KEY_BUSINESSES_JSON = stringPreferencesKey("businesses_json")
         val KEY_INVENTORY_JSON = stringPreferencesKey("inventory_json")
@@ -368,6 +370,7 @@ class EconomicDataStore(val context: Context) {
             isIpoActive = prefs.getBooleanSafe("is_ipo_active", false),
             publicSharePercent = prefs.getIntSafe("public_share_percent", 0),
             totalDividendsPaid = prefs.getLongSafe("total_dividends_paid", 0L),
+            dividendDebt = prefs.getLongSafe("dividend_debt", 0L),
             
             businessesJson = prefs.getStringSafe("businesses_json", "[]"),
             inventoryJson = prefs.getStringSafe("inventory_json", "[]"),
@@ -432,6 +435,7 @@ class EconomicDataStore(val context: Context) {
         isIpoActive: Boolean = false,
         publicSharePercent: Int = 0,
         totalDividendsPaid: Long = 0L,
+        dividendDebt: Long = 0L,
         playerGuildShares: Map<String, Int> = emptyMap(),
         playerGuildBuyPrices: Map<String, Double> = emptyMap(),
         managers: List<CompanyManager> = emptyList(),
@@ -507,6 +511,7 @@ class EconomicDataStore(val context: Context) {
             prefs[KEY_IS_IPO_ACTIVE] = isIpoActive
             prefs[KEY_PUBLIC_SHARE_PERCENT] = publicSharePercent
             prefs[KEY_TOTAL_DIVIDENDS_PAID] = totalDividendsPaid
+            prefs[KEY_DIVIDEND_DEBT] = dividendDebt
 
             // JSON Serializations for Collections
             prefs[KEY_BUSINESSES_JSON] = serializeBusinesses(businesses)
@@ -1555,6 +1560,8 @@ class EconomicDataStore(val context: Context) {
                                 } catch (_: Exception) { emptyMap() }
                                 val now = System.currentTimeMillis()
                                 val mergedActive = mutableMapOf<String, Long>()
+                                val offlineCompletedTechs = mutableSetOf<String>()
+
                                 (existingMap.keys + incomingMap.keys).forEach { k ->
                                     val base = k.removePrefix("tech_")
                                     val exTime = maxOf(existingMap[base] ?: 0L, existingMap["tech_$base"] ?: 0L)
@@ -1562,12 +1569,58 @@ class EconomicDataStore(val context: Context) {
                                     val chosenTime = maxOf(exTime, incTime)
                                     if (chosenTime > now) {
                                         mergedActive[base] = chosenTime
+                                    } else if (chosenTime > 0L) {
+                                        offlineCompletedTechs.add(base)
                                     }
                                 }
+
+                                val singleKey = (jsonElement["active_research_tech_key"] as? JsonPrimitive)?.content?.removePrefix("tech_")
+                                val singleEnd = (jsonElement["research_end_time_ms"] as? JsonPrimitive)?.longOrNull ?: 0L
+                                if (!singleKey.isNullOrBlank() && singleEnd > 0L) {
+                                    if (singleEnd > now) {
+                                        mergedActive[singleKey] = maxOf(mergedActive[singleKey] ?: 0L, singleEnd)
+                                    } else {
+                                        offlineCompletedTechs.add(singleKey)
+                                    }
+                                }
+
+                                // If any research finished while offline, advance tech level
+                                if (offlineCompletedTechs.isNotEmpty()) {
+                                    val currentLevels = deserializeResearchLevels(prefs[KEY_RESEARCH_LEVELS_JSON] ?: "{}").toMutableMap()
+                                    val techPrefMap = mapOf(
+                                        "green_energy" to KEY_TECH_GREEN_ENERGY,
+                                        "quality_control" to KEY_TECH_QUALITY_CONTROL,
+                                        "logistics" to KEY_TECH_LOGISTICS,
+                                        "automation" to KEY_TECH_AUTOMATION,
+                                        "quantum_ai" to KEY_TECH_QUANTUM_AI,
+                                        "nanotech" to KEY_TECH_NANOTECH,
+                                        "cyber_security" to KEY_TECH_CYBER_SECURITY,
+                                        "biotech_cloning" to KEY_TECH_BIOTECH_CLONING,
+                                        "biotech_med" to KEY_TECH_BIOTECH_CLONING,
+                                        "aerospace" to KEY_TECH_AEROSPACE,
+                                        "heavy_industry" to KEY_TECH_HEAVY_INDUSTRY,
+                                        "consumer_goods" to KEY_TECH_CONSUMER_GOODS,
+                                        "petrochem" to KEY_TECH_PETROCHEM
+                                    )
+                                    offlineCompletedTechs.forEach { tech ->
+                                        val cur = currentLevels[tech] ?: 0
+                                        val newLvl = (cur + 1).coerceAtMost(5)
+                                        currentLevels[tech] = newLvl
+                                        currentLevels["tech_$tech"] = newLvl
+                                        techPrefMap[tech]?.let { pKey ->
+                                            prefs[pKey] = newLvl
+                                        }
+                                    }
+                                    prefs[KEY_RESEARCH_LEVELS_JSON] = serializeResearchLevels(currentLevels)
+                                }
+
                                 val firstOngoing = mergedActive.entries.firstOrNull { it.value > now }
                                 if (firstOngoing != null) {
                                     prefs[KEY_ACTIVE_RESEARCH_TECH_KEY] = firstOngoing.key
                                     prefs[KEY_RESEARCH_END_TIME_MS] = firstOngoing.value
+                                } else {
+                                    prefs[KEY_ACTIVE_RESEARCH_TECH_KEY] = ""
+                                    prefs[KEY_RESEARCH_END_TIME_MS] = 0L
                                 }
                                 AppJson.encodeToString(mergedActive)
                             }

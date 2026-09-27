@@ -18,13 +18,15 @@ fun FacilitiesScreen(
     onIntent: (GameIntent) -> Unit,
     viewModel: GameViewModel,
     initialProductId: String? = null,
-    onNavigateToRd: (String?) -> Unit = {}
+    onNavigateToRd: (String?) -> Unit = {},
+    onNavigateToConsortium: () -> Unit = {}
 ) {
     AssetsScreen(
         uiState = uiState,
         onIntent = onIntent,
         viewModel = viewModel,
         initialProductId = initialProductId,
-        onNavigateToRd = onNavigateToRd
+        onNavigateToRd = onNavigateToRd,
+        onNavigateToConsortium = onNavigateToConsortium
     )
 }

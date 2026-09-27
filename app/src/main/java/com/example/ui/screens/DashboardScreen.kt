@@ -1628,6 +1628,7 @@ fun HeroPlayerCompanyCard(
                 val cashAndDeposit = (cash + deposit + player.lockedDepositBalance).coerceAtLeast(0L)
                 val facilityVal = uiState.facilityValuation.coerceAtLeast(0L)
                 val invVal = uiState.inventoryValuation.coerceAtLeast(0L)
+                val rdVal = uiState.rdValuation.coerceAtLeast(0L)
                 val consortiumVal = uiState.consortiumValuation.coerceAtLeast(0L)
                 val guildSharesVal = remember(uiState.guildsState.playerGuildShares, uiState.guildsState.playerGuildBuyPrices) {
                     uiState.guildsState.playerGuildShares.entries.sumOf { (id, count) ->
@@ -1635,18 +1636,20 @@ fun HeroPlayerCompanyCard(
                         (count * p).toLong()
                     }
                 }
-                val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal)).coerceAtLeast(consortiumVal).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
-                val totalAllocation = (cashAndDeposit + facilityVal + invVal + otherVal).coerceAtLeast(1L)
+                val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal + rdVal)).coerceAtLeast(consortiumVal).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
+                val totalAllocation = (cashAndDeposit + facilityVal + invVal + rdVal + otherVal).coerceAtLeast(1L)
 
                 val pctCash = ((cashAndDeposit.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
                 val pctFac = ((facilityVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
                 val pctInv = ((invVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
-                val pctOther = (100 - (pctCash + pctFac + pctInv)).coerceAtLeast(0)
+                val pctRd = ((rdVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
+                val pctOther = (100 - (pctCash + pctFac + pctInv + pctRd)).coerceAtLeast(0)
 
-                val weightCash = if (cashAndDeposit > 0L) (cashAndDeposit.toFloat() / totalAllocation).coerceAtLeast(0.06f) else 0f
-                val weightFac = if (facilityVal > 0L) (facilityVal.toFloat() / totalAllocation).coerceAtLeast(0.06f) else 0f
-                val weightInv = if (invVal > 0L) (invVal.toFloat() / totalAllocation).coerceAtLeast(0.06f) else 0f
-                val weightOther = if (otherVal > 0L) (otherVal.toFloat() / totalAllocation).coerceAtLeast(0.06f) else 0f
+                val weightCash = if (cashAndDeposit > 0L) (cashAndDeposit.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
+                val weightFac = if (facilityVal > 0L) (facilityVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
+                val weightInv = if (invVal > 0L) (invVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
+                val weightRd = if (rdVal > 0L) (rdVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
+                val weightOther = if (otherVal > 0L) (otherVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
 
                 // Sparkline history & Momentum
                 val growthHistory = uiState.growthHistory
@@ -1695,11 +1698,13 @@ fun HeroPlayerCompanyCard(
                         cashAndDeposit = cashAndDeposit,
                         facilityVal = facilityVal,
                         invVal = invVal,
+                        rdVal = rdVal,
                         otherVal = otherVal,
                         totalNetWorth = netWorth,
                         pctCash = pctCash,
                         pctFac = pctFac,
                         pctInv = pctInv,
+                        pctRd = pctRd,
                         pctOther = pctOther,
                         isEng = isEng,
                         onDismiss = { showAssetAllocationDialog = false },
@@ -1845,7 +1850,7 @@ fun HeroPlayerCompanyCard(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // 4. ASSET ALLOCATION TILES (Nakit, Tesis, Depo 3-Sütunlu Ferah Görünüm)
+                // 4. ASSET ALLOCATION TILES (Nakit, Tesis, Depo, Ar-Ge 4-Sütunlu Ferah Görünüm)
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = Color(0xFF0A1326).copy(alpha = 0.80f),
@@ -1854,60 +1859,93 @@ fun HeroPlayerCompanyCard(
                         .fillMaxWidth()
                         .clickable { showAssetAllocationDialog = true }
                 ) {
-                    Column(modifier = Modifier.padding(10.dp)) {
+                    Column(modifier = Modifier.padding(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Nakit & Banka
                             Column(modifier = Modifier.weight(1f)) {
                                 CurrencyText(
-                                    text = tr("💵 Nakit & Banka", "💵 Cash & Bank", isEng),
+                                    text = tr("💵 Nakit", "💵 Cash", isEng),
                                     color = Color(0xFF94A3B8),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 CurrencyText(
                                     text = "${formatCompactNumber(cashAndDeposit)} ₳ (%$pctCash)",
                                     color = Color(0xFFF59E0B),
-                                    fontSize = 9.5.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily
+                                    fontFamily = RobotoMonoFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
                             // Tesis & Sanayi
-                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 CurrencyText(
-                                    text = tr("🏭 Tesisler", "🏭 Facilities", isEng),
+                                    text = tr("🏭 Tesis", "🏭 Facilities", isEng),
                                     color = Color(0xFF94A3B8),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 CurrencyText(
                                     text = "${formatCompactNumber(facilityVal)} ₳ (%$pctFac)",
                                     color = Color(0xFF06B6D4),
-                                    fontSize = 9.5.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily
+                                    fontFamily = RobotoMonoFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
                             // Depo & Emtia
-                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 CurrencyText(
-                                    text = tr("📦 Depo Stoku", "📦 Warehouse", isEng),
+                                    text = tr("📦 Depo", "📦 Warehouse", isEng),
                                     color = Color(0xFF94A3B8),
-                                    fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 CurrencyText(
                                     text = "${formatCompactNumber(invVal)} ₳ (%$pctInv)",
                                     color = Color(0xFF10B981),
-                                    fontSize = 9.5.sp,
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily
+                                    fontFamily = RobotoMonoFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            // Ar-Ge & Teknoloji
+                            Column(modifier = Modifier.weight(1f)) {
+                                CurrencyText(
+                                    text = tr("🔬 Ar-Ge", "🔬 R&D", isEng),
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                CurrencyText(
+                                    text = "${formatCompactNumber(rdVal)} ₳ (%$pctRd)",
+                                    color = Color(0xFFA855F7),
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = RobotoMonoFontFamily,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1946,12 +1984,20 @@ fun HeroPlayerCompanyCard(
                                         .background(Color(0xFF10B981))
                                 )
                             }
+                            if (weightRd > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(weightRd)
+                                        .fillMaxHeight()
+                                        .background(Color(0xFFA855F7))
+                                )
+                            }
                             if (weightOther > 0f) {
                                 Box(
                                     modifier = Modifier
                                         .weight(weightOther)
                                         .fillMaxHeight()
-                                        .background(Color(0xFFA855F7))
+                                        .background(Color(0xFF38BDF8))
                                 )
                             }
                         }
@@ -2162,11 +2208,13 @@ fun AssetAllocationDetailDialog(
     cashAndDeposit: Long,
     facilityVal: Long,
     invVal: Long,
+    rdVal: Long = 0L,
     otherVal: Long,
     totalNetWorth: Long,
     pctCash: Int,
     pctFac: Int,
     pctInv: Int,
+    pctRd: Int = 0,
     pctOther: Int,
     isEng: Boolean,
     onDismiss: () -> Unit,
@@ -2322,6 +2370,16 @@ fun AssetAllocationDetailDialog(
                         value = formatCredit(invVal),
                         description = tr("Merkezi depo ve fabrika ambarlarındaki stoklar (%80 değerleme).", "Commercial commodities in central and factory warehouses (80% val).", isEng)
                     )
+
+                    if (rdVal > 0L) {
+                        AssetDetailCard(
+                            accentColor = ThemeNeonCyan,
+                            title = tr("🔬 Ar-Ge & Teknoloji Yatırımları", "🔬 R&D & Technology Capital", isEng),
+                            percentage = pctRd,
+                            value = formatCredit(rdVal),
+                            description = tr("Kazanılan ve devam eden teknoloji araştırmaları için harcanan nakit sermaye.", "Cash capital invested in completed and ongoing technology research.", isEng)
+                        )
+                    }
 
                     AssetDetailCard(
                         accentColor = Color(0xFFA855F7),

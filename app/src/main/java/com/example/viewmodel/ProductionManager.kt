@@ -66,7 +66,7 @@ class ProductionManager(
             return
         }
 
-        val baseDuration = 10000L
+        val baseDuration = 5000L
         val baseDurationMs = (baseDuration / business.level.coerceAtLeast(1).toFloat()).toLong()
         val durationMs = (baseDurationMs * com.example.data.QualityCraftingService.getWearDurationMultiplier(business.wearLevel)).toLong()
         val businessId = business.id.toString()
@@ -133,8 +133,8 @@ class ProductionManager(
             removeProgress(uniqueProcessId)
             
             smartNotificationManager.show(
-                message = "Üretim Tamamlandı: [${itemQuality.starsText} ${itemQuality.label}] ${product.getDisplayName()} x$produceQty tesis deposuna eklendi.",
-                enMessage = "Production Completed: [${itemQuality.starsText} ${itemQuality.label}] ${product.getDisplayName()} x$produceQty added to facility warehouse.",
+                message = "Üretim Tamamlandı: [${itemQuality.starsText}] ${product.getDisplayName()} x$produceQty tesis deposuna eklendi.",
+                enMessage = "Production Completed: [${itemQuality.starsText}] ${product.getDisplayName()} x$produceQty added to facility warehouse.",
                 type = NotificationType.SUCCESS
             )
         }

@@ -55,7 +55,8 @@ fun GameViewModel.sell(itemId: String, quantity: Int, originCountry: String? = "
         val subsidyBonus = if (isItemInCrisis) (grossIncome * 0.25).toLong() else 0L
         val totalPrice = grossIncome + subsidyBonus
 
-        val sellBonus = activeArtifactBuffs.value[ArtifactBuffType.BORSA_SELL_BONUS] ?: 0f
+        val activeBuffs = activeArtifactBuffs.value
+        val sellBonus = activeBuffs[ArtifactBuffType.BORSA_SELL_BONUS] ?: 0f
         val artifactBonusValue = (totalPrice * sellBonus).toLong()
         val finalRevenue = totalPrice + artifactBonusValue
 
@@ -137,8 +138,8 @@ fun GameViewModel.sellFacilityStockOnBorsa(facilityId: Any, itemId: String = "",
         }
         saveEconomicDataToDataStore()
         SmartNotificationManager.show(
-            "💰 $sellQty Ton [${bizQuality.starsText} ${bizQuality.label}] ${prod?.getDisplayName() ?: baseId} borsada satıldı! (+₳${com.example.ui.components.formatCredit(earned)})",
-            "💰 $sellQty Tons of [${bizQuality.starsText} ${bizQuality.label}] ${prod?.getDisplayName() ?: baseId} sold on borsa! (+₳${com.example.ui.components.formatCredit(earned)})",
+            "💰 $sellQty Ton [${bizQuality.starsText}] ${prod?.getDisplayName() ?: baseId} borsada satıldı! (+₳${com.example.ui.components.formatCredit(earned)})",
+            "💰 $sellQty Tons of [${bizQuality.starsText}] ${prod?.getDisplayName() ?: baseId} sold on borsa! (+₳${com.example.ui.components.formatCredit(earned)})",
             NotificationType.SUCCESS
         )
     }
@@ -319,19 +320,44 @@ fun GameViewModel.updatePriceHistory(prices: List<MarketPriceEntity>? = null) {}
 
 // --- BANKING EXTENSIONS ---
 
+fun GameViewModel.calculateTotalFacilityValuation(): Long {
+    // Tier 4 Tesisler (Mega Projeler) haczedilemez ve iflas masasına devredilemez, bu nedenle teminatlı kredi limitinde sadece haczedilebilir tesisler hesaplanır
+    return businesses.value.filter { b ->
+        val prod = com.example.data.Product.values().find { it.facilityId == b.type || it.id == b.type }
+        prod?.tier != com.example.data.ProductTier.TIER_4
+    }.sumOf { b ->
+        val baseCost = calculateFacilityBaseCost(b)
+        (baseCost * b.level * 0.9f).toLong()
+    }.coerceAtLeast(0L)
+}
+
+fun GameViewModel.calculateMaxLoanLimit(): Long {
+    val totalFacilityVal = calculateTotalFacilityValuation()
+    return (totalFacilityVal / 2L).coerceAtLeast(0L)
+}
+
 fun GameViewModel.takeLoan(amount: Long) {
     val p = player.value ?: return
-    val maxLoanLimit = 50_000L + (p.level * 250_000L)
+    val totalFacilityVal = calculateTotalFacilityValuation()
+    val maxLoanLimit = (totalFacilityVal / 2L).coerceAtLeast(0L)
     val availableLoanLimit = (maxLoanLimit - p.loanAmount).coerceAtLeast(0L)
 
     if (amount <= 0L) {
         SmartNotificationManager.show("Lütfen geçerli bir kredi miktarı giriniz!", "Please enter a valid loan amount!", NotificationType.ALERT)
         return
     }
+    if (totalFacilityVal <= 0L) {
+        SmartNotificationManager.show(
+            "Teminatsız Kredi Çekilemez! Kredi limiti tesislerinizin toplam değerinin %50'si kadardır. Kredi çekebilmek için en az 1 tesise sahip olmalısınız.",
+            "No Collateral! Loan limit is 50% of your total facility valuation. You must own at least 1 facility to take a loan.",
+            NotificationType.ALERT
+        )
+        return
+    }
     if (amount > availableLoanLimit) {
         SmartNotificationManager.show(
-            "Kredi limitinizi aşıyorsunuz! Kalan limitiniz: ₳${com.example.ui.components.formatCredit(availableLoanLimit)}",
-            "Exceeding loan limit! Available limit: ₳${com.example.ui.components.formatCredit(availableLoanLimit)}",
+            "Kredi limitinizi aşıyorsunuz! %50 Tesis Teminat Limiti: ₳${com.example.ui.components.formatCredit(maxLoanLimit)} (Kalan Limit: ₳${com.example.ui.components.formatCredit(availableLoanLimit)})",
+            "Exceeding loan limit! 50% Facility Collateral Limit: ₳${com.example.ui.components.formatCredit(maxLoanLimit)} (Available: ₳${com.example.ui.components.formatCredit(availableLoanLimit)})",
             NotificationType.ALERT
         )
         return
@@ -599,17 +625,65 @@ fun GameViewModel.checkAndPerformBankDailySettlement(showNotification: Boolean =
     val depRate = gs?.centralBankDepositRate ?: 0.15f
     val loanRate = gs?.centralBankLoanRate ?: 0.20f
 
+    val currentSnapshot = com.example.data.EconomicSnapshot(
+        isIpoActive = _isIpoActive.value,
+        publicSharePercent = _publicSharePercent.value,
+        totalDividendsPaid = _totalDividendsPaid.value
+    )
+    val currentBusinesses = businesses.value
+
     val (updatedPlayer, receipt) = com.example.data.BankDailySettlementManager.performDailySettlementIfDue(
         context = context,
         player = p,
         annualDepositRate = depRate,
         annualLoanRate = loanRate,
         activeArtifactBuffs = activeArtifactBuffs.value,
-        isEnglish = false
+        isEnglish = false,
+        snapshot = currentSnapshot,
+        businesses = currentBusinesses
     )
 
     if (receipt != null) {
         viewModelScope.launch {
+            if (receipt.foreclosedFacilities.isNotEmpty()) {
+                var totalDebtCleared = 0L
+                for (facInfo in receipt.foreclosedFacilities) {
+                    repository.deleteBusinessById(facInfo.facilityId)
+                    totalDebtCleared += facInfo.debtClearedAmount
+                    
+                    val calculatedBuyout = (facInfo.valuation * 0.85f).toLong().coerceAtLeast(20_000L)
+                    val startingBid = (facInfo.valuation * 0.40f).toLong().coerceAtLeast(10_000L)
+                    val newAuction = com.example.data.ForeclosureAuction(
+                        id = "AUC-${java.util.UUID.randomUUID().toString().take(8).uppercase()}",
+                        originalOwnerId = player.value?.id ?: "player",
+                        originalOwnerName = player.value?.name ?: "Şirketiniz (İflas/Haciz)",
+                        facilityType = facInfo.facilityType,
+                        cityId = facInfo.cityId,
+                        level = facInfo.level,
+                        startingBid = startingBid,
+                        buyoutPrice = calculatedBuyout,
+                        currentHighestBid = startingBid,
+                        reason = if (facInfo.debtClearedAmount > 0L) "Banka Kredi Temerrüdü (Haciz Satışı - ₳${com.example.ui.components.formatCredit(facInfo.debtClearedAmount)} Borç Kapatıldı)" else facInfo.reason,
+                        endsAtMs = System.currentTimeMillis() + (24 * 60 * 60 * 1000L),
+                        isSettled = false
+                    )
+                    com.example.data.ForeclosureManager.addAuction(newAuction)
+                }
+                
+                if (totalDebtCleared > 0L) {
+                    com.example.ui.components.SmartNotificationManager.show(
+                        "⚖️ İflas Masası Haciz & Tasfiye Kararı!",
+                        "Kredi borcunuz zamanında ödenemediği için ${receipt.foreclosedFacilities.size} adet tesisiniz en değerlisinden başlanarak haczedildi ve İflas Masasından tasfiye edilerek ₳${com.example.ui.components.formatCredit(totalDebtCleared)} kredi borcunuz kapatıldı!",
+                        com.example.ui.components.NotificationType.ALERT
+                    )
+                } else {
+                    com.example.ui.components.SmartNotificationManager.show(
+                        "⚠️ Tesis Haczi Gerçekleşti!",
+                        "Temerrüt nedeniyle ${receipt.foreclosedFacilities.size} tesisinize el konularak İflas Masasına devredildi!",
+                        com.example.ui.components.NotificationType.ALERT
+                    )
+                }
+            }
             repository.updatePlayer(updatedPlayer)
             saveEconomicDataToDataStore(customPlayer = updatedPlayer, immediate = true)
             if (_isOnlineRegistered.value) {
@@ -688,6 +762,30 @@ fun GameViewModel.calculateConsortiumDeliveredMaterialsValuation(): Long {
     }.coerceAtLeast(0L)
 }
 
+fun GameViewModel.calculateRdInvestmentValuation(): Long {
+    var totalRdSpent = 0L
+    val allTechKeys = (com.example.data.TechTree.nodes.map { it.id.removePrefix("tech_") } +
+            _researchLevels.value.keys.map { it.removePrefix("tech_") }).distinct()
+
+    // 1. Tamamlanan ve kazanılan teknoloji seviyeleri için harcanan nakit tutarları
+    allTechKeys.forEach { baseId ->
+        val currentLvl = getTechLevel(baseId)
+        for (lvl in 0 until currentLvl) {
+            totalRdSpent += calculateTechCost(baseId, lvl)
+        }
+    }
+
+    // 2. Halihazırda yürütülen aktif Ar-Ge araştırmaları için kasadan peşin ödenen nakit
+    _activeResearches.value.keys.map { it.removePrefix("tech_") }.distinct().forEach { baseId ->
+        val currentLvl = getTechLevel(baseId)
+        if (currentLvl < 5) {
+            totalRdSpent += calculateTechCost(baseId, currentLvl)
+        }
+    }
+
+    return totalRdSpent.coerceAtLeast(0L)
+}
+
 fun GameViewModel.calculateCompanyValuation(): Long {
     val p = player.value ?: return 0L
     
@@ -715,7 +813,10 @@ fun GameViewModel.calculateCompanyValuation(): Long {
     // 5. Konsorsiyuma gönderilen hammaddelerin ve ortaklık hisselerinin değeri
     val consortiumVal = calculateConsortiumValuation()
     
-    val totalNetWorth = tryNet + convertedUsdNet + busVal + invVal + consortiumVal
+    // 6. Ar-Ge bölümünde harcanan nakitler ve teknoloji sermaye değeri
+    val rdVal = calculateRdInvestmentValuation()
+    
+    val totalNetWorth = tryNet + convertedUsdNet + busVal + invVal + consortiumVal + rdVal
     return totalNetWorth.coerceAtLeast(0L)
 }
 
@@ -2676,12 +2777,37 @@ fun GameViewModel.applySnapshotToState(snapshot: EconomicSnapshot) {
     _selectedTheme.value = snapshot.selectedTheme
     _selectedLanguage.value = snapshot.selectedLanguage
 
+    val currentRLevels = _researchLevels.value.toMutableMap()
+
+    // 1. Direct tech levels from snapshot fields
+    val directSnapshotTechs = mapOf(
+        "green_energy" to snapshot.techGreenEnergy,
+        "quality_control" to snapshot.techQualityControl,
+        "logistics" to snapshot.techLogistics,
+        "automation" to snapshot.techAutomation,
+        "quantum_ai" to snapshot.techQuantumAi,
+        "nanotech" to snapshot.techNanotech,
+        "cyber_security" to snapshot.techCyberSecurity,
+        "biotech_cloning" to snapshot.techBiotechCloning,
+        "biotech_med" to snapshot.techBiotechCloning,
+        "aerospace" to snapshot.techAerospace,
+        "heavy_industry" to snapshot.techHeavyIndustry,
+        "consumer_goods" to snapshot.techConsumerGoods,
+        "petrochem" to snapshot.techPetrochem
+    )
+    directSnapshotTechs.forEach { (tech, lvl) ->
+        if (lvl > 0) {
+            currentRLevels[tech] = maxOf(currentRLevels[tech] ?: 0, lvl).coerceAtMost(5)
+            currentRLevels["tech_$tech"] = maxOf(currentRLevels["tech_$tech"] ?: 0, lvl).coerceAtMost(5)
+        }
+    }
+
+    // 2. Decode researchLevelsJson and merge
     val parsedResearchLevels = try {
         com.example.data.network.AppJson.decodeFromString<Map<String, Int>>(snapshot.researchLevelsJson)
     } catch (e: Exception) {
         emptyMap()
     }
-    val currentRLevels = _researchLevels.value.toMutableMap()
     parsedResearchLevels.forEach { (k, v) ->
         val base = k.removePrefix("tech_")
         if (v > 0) {
@@ -2689,50 +2815,60 @@ fun GameViewModel.applySnapshotToState(snapshot: EconomicSnapshot) {
             currentRLevels["tech_$base"] = maxOf(currentRLevels["tech_$base"] ?: 0, v).coerceAtMost(5)
         }
     }
-    _researchLevels.value = currentRLevels
 
+    // 3. Decode activeResearchesJson and handle ongoing vs offline completed
+    val clean = mutableMapOf<String, Long>()
+    val now = System.currentTimeMillis()
     val parsedActiveResearches = try {
         val raw = com.example.data.network.AppJson.decodeFromString<Map<String, Long>>(snapshot.activeResearchesJson)
-        val clean = mutableMapOf<String, Long>()
-        val now = System.currentTimeMillis()
         raw.forEach { (k, v) ->
             val base = k.removePrefix("tech_")
             if (v > now) {
                 clean[base] = maxOf(clean[base] ?: 0L, v)
+            } else if (v > 0L) {
+                // Completed while game was closed / backgrounded -> advance tech level
+                val curLvl = currentRLevels[base] ?: 0
+                val newLvl = (curLvl + 1).coerceAtMost(5)
+                currentRLevels[base] = newLvl
+                currentRLevels["tech_$base"] = newLvl
             }
         }
         clean
     } catch (e: Exception) {
         emptyMap()
     }
-    _activeResearches.value = parsedActiveResearches
+
+    // 4. Legacy single active research key / timestamp handling
+    if (snapshot.activeResearchTechKey.isNotBlank() && snapshot.researchEndTimeMs > 0L) {
+        val baseKey = snapshot.activeResearchTechKey.removePrefix("tech_")
+        if (snapshot.researchEndTimeMs > now) {
+            clean[baseKey] = maxOf(clean[baseKey] ?: 0L, snapshot.researchEndTimeMs)
+        } else {
+            // Completed while offline
+            val curLvl = currentRLevels[baseKey] ?: 0
+            val newLvl = (curLvl + 1).coerceAtMost(5)
+            currentRLevels[baseKey] = newLvl
+            currentRLevels["tech_$baseKey"] = newLvl
+        }
+    }
+
+    _researchLevels.value = currentRLevels
+    _activeResearches.value = clean
 
     // Synchronize research state flows and research levels map
-    syncResearchStateFlowsAndMap(parsedResearchLevels)
+    syncResearchStateFlowsAndMap(currentRLevels)
 
     // Restore active research key and timer if active
-    if (snapshot.activeResearchTechKey.isNotBlank() && snapshot.researchEndTimeMs > System.currentTimeMillis()) {
-        val baseKey = snapshot.activeResearchTechKey.removePrefix("tech_")
+    val firstActive = _activeResearches.value.entries.firstOrNull { it.value > System.currentTimeMillis() }
+    if (firstActive != null) {
+        val baseKey = firstActive.key.removePrefix("tech_")
         _activeResearchTechKey.value = baseKey
-        _researchEndTimeMs.value = snapshot.researchEndTimeMs
-        _researchRemainingMs.value = (snapshot.researchEndTimeMs - System.currentTimeMillis()).coerceAtLeast(0L)
-        if (!_activeResearches.value.containsKey(baseKey)) {
-            val updated = _activeResearches.value.toMutableMap()
-            updated[baseKey] = snapshot.researchEndTimeMs
-            _activeResearches.value = updated
-        }
+        _researchEndTimeMs.value = firstActive.value
+        _researchRemainingMs.value = (firstActive.value - System.currentTimeMillis()).coerceAtLeast(0L)
     } else {
-        val firstActive = _activeResearches.value.entries.firstOrNull { it.value > System.currentTimeMillis() }
-        if (firstActive != null) {
-            val baseKey = firstActive.key.removePrefix("tech_")
-            _activeResearchTechKey.value = baseKey
-            _researchEndTimeMs.value = firstActive.value
-            _researchRemainingMs.value = (firstActive.value - System.currentTimeMillis()).coerceAtLeast(0L)
-        } else {
-            _activeResearchTechKey.value = null
-            _researchEndTimeMs.value = 0L
-            _researchRemainingMs.value = 0L
-        }
+        _activeResearchTechKey.value = null
+        _researchEndTimeMs.value = 0L
+        _researchRemainingMs.value = 0L
     }
 
     _activeDeliveries.value = try {
@@ -3228,6 +3364,20 @@ fun GameViewModel.startDemoPlayerBotLoop() {
 
                 // 5. Foreclosure Auction Maintenance & Bot Bidding Cycle (Every 24s)
                 if (cycleCount % 2 == 0) {
+                    val p = player.value
+                    if (p != null) {
+                        val wins = com.example.data.ForeclosureManager.settleCompletedAuctions(p)
+                        for (win in wins) {
+                            if (p.money >= win.winningBidAmount) {
+                                repository.buyBusinessTransaction(cost = win.winningBidAmount, business = win.wonBusiness)
+                                com.example.ui.components.SmartNotificationManager.show(
+                                    "🏆 İhale Kazanıldı: ${win.wonBusiness.cityId.replaceFirstChar { it.uppercase() }} - Seviye ${win.wonBusiness.level} tesis ₳${com.example.ui.components.formatMoney(win.winningBidAmount)} bedelle portföyünüze eklendi!",
+                                    com.example.ui.components.NotificationType.SUCCESS
+                                )
+                                saveEconomicDataToDataStore(immediate = true)
+                            }
+                        }
+                    }
                     com.example.data.ForeclosureManager.generateBotAuctions()
                     com.example.data.ForeclosureManager.processBotBiddingCycle()
                 }

@@ -15,36 +15,36 @@ enum class ProductQuality(
 ) {
     STANDARD(
         tier = 1,
-        labelTr = "Standart / Halk Tipi",
-        labelEng = "Standard Grade",
+        labelTr = "★",
+        labelEng = "★",
         priceMultiplier = 1.0,
         prestigeReward = 0
     ),
     SELECTED(
         tier = 2,
-        labelTr = "Seçme Mahsul",
-        labelEng = "Selected Harvest",
+        labelTr = "★★",
+        labelEng = "★★",
         priceMultiplier = 1.3,
         prestigeReward = 0
     ),
     SPECIAL(
         tier = 3,
-        labelTr = "Özel Üretim",
-        labelEng = "Special Reserve",
+        labelTr = "★★★",
+        labelEng = "★★★",
         priceMultiplier = 1.8,
         prestigeReward = 5
     ),
     MASTERWORK(
         tier = 4,
-        labelTr = "Usta İşi / İhracat",
-        labelEng = "Masterwork Export",
+        labelTr = "★★★★",
+        labelEng = "★★★★",
         priceMultiplier = 2.6,
         prestigeReward = 15
     ),
     PALACE_GRAND(
         tier = 5,
-        labelTr = "Coğrafi İşaretli Saray / Gurme",
-        labelEng = "Imperial Palace Grand",
+        labelTr = "★★★★★",
+        labelEng = "★★★★★",
         priceMultiplier = 4.5,
         prestigeReward = 40
     );
@@ -52,22 +52,25 @@ enum class ProductQuality(
     val starsText: String
         get() = "★".repeat(tier)
 
+    val label: String
+        get() = starsText
+
     val primaryColor: Color
         get() = when (this) {
-            STANDARD -> Color(0xFF9E9E9E) // Bronz / Gri
-            SELECTED -> Color(0xFF4CAF50) // Yeşil
-            SPECIAL -> Color(0xFF00E5FF)  // Camgöbeği / Gümüş
-            MASTERWORK -> Color(0xFFD500F9) // Kraliyet Moru
-            PALACE_GRAND -> Color(0xFFFFD700) // Saray Altını / Amber
+            STANDARD -> Color(0xFF9E9E9E) // 1 Yıldız: Gri
+            SELECTED -> Color(0xFF8D6E63) // 2 Yıldız: Kahve
+            SPECIAL -> Color(0xFFFF9800)  // 3 Yıldız: Turuncu
+            MASTERWORK -> Color(0xFF7C4DFF) // 4 Yıldız: Mavi Mor
+            PALACE_GRAND -> Color(0xFFFFEB3B) // 5 Yıldız: Parlak Sarı
         }
 
     val gradientColors: List<Color>
         get() = when (this) {
             STANDARD -> listOf(Color(0xFF616161), Color(0xFF9E9E9E))
-            SELECTED -> listOf(Color(0xFF1B5E20), Color(0xFF4CAF50))
-            SPECIAL -> listOf(Color(0xFF006064), Color(0xFF00E5FF))
-            MASTERWORK -> listOf(Color(0xFF4A148C), Color(0xFFD500F9))
-            PALACE_GRAND -> listOf(Color(0xFFE65100), Color(0xFFFFB300), Color(0xFFFFE082))
+            SELECTED -> listOf(Color(0xFF5D4037), Color(0xFF8D6E63), Color(0xFFA1887F))
+            SPECIAL -> listOf(Color(0xFFE65100), Color(0xFFFF9800), Color(0xFFFFB74D))
+            MASTERWORK -> listOf(Color(0xFF2979FF), Color(0xFF651FFF), Color(0xFF7C4DFF))
+            PALACE_GRAND -> listOf(Color(0xFFFFA000), Color(0xFFFFD700), Color(0xFFFFEB3B))
         }
 
     val gradientBrush: Brush

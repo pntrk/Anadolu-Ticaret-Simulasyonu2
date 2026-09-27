@@ -60,6 +60,7 @@ fun HoldingIpoSection(viewModel: GameViewModel) {
     val pLevel = player?.level ?: 1
     val pMoney = player?.money ?: 0L
     val companyValuation = viewModel.calculateCompanyValuation()
+    val rdValuation = viewModel.calculateRdInvestmentValuation()
     val sharePrice = companyValuation / 1_000_000.0
 
     var showIpoDialog by remember { mutableStateOf(false) }
@@ -143,45 +144,82 @@ fun HoldingIpoSection(viewModel: GameViewModel) {
             // --- VALUATION METRICS CARD ---
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(6.dp),
                 color = Color(0xFF162032),
                 border = BorderStroke(1.dp, Color(0xFF2E3D56))
             ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        CurrencyText(
-                            text = "ŞİRKET TOPLAM DEĞERLEMESİ".trAuto(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = Color.Gray
-                        )
-                        CurrencyText(
-                            text = formatMoney(companyValuation),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = ThemeGold
-                        )
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            CurrencyText(
+                                text = "ŞİRKET TOPLAM DEĞERLEMESİ".trAuto(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = RobotoMonoFontFamily,
+                                color = Color.Gray
+                            )
+                            CurrencyText(
+                                text = formatMoney(companyValuation),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = RobotoMonoFontFamily,
+                                color = ThemeGold
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            CurrencyText(
+                                text = "BİRİM HİSSE FİYATI".trAuto(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = RobotoMonoFontFamily,
+                                color = Color.Gray
+                            )
+                            CurrencyText(
+                                text = tr("₳${String.format(java.util.Locale.US, "%.2f", sharePrice)} / Hisse", "₳${String.format(java.util.Locale.US, "%.2f", sharePrice)} / Share"),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = RobotoMonoFontFamily,
+                                color = ThemeNeonCyan
+                            )
+                        }
                     }
 
-                    Column(horizontalAlignment = Alignment.End) {
-                        CurrencyText(
-                            text = "BİRİM HİSSE FİYATI".trAuto(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = Color.Gray
-                        )
-                        CurrencyText(
-                            text = tr("₳${String.format(java.util.Locale.US, "%.2f", sharePrice)} / Hisse", "₳${String.format(java.util.Locale.US, "%.2f", sharePrice)} / Share"),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = ThemeNeonCyan
-                        )
+                    // Ar-Ge ve Teknoloji Yatırımı Katkı Rozeti
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF0F172A),
+                        border = BorderStroke(0.6.dp, ThemeNeonCyan.copy(alpha = 0.4f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                CurrencyText("🔬", fontSize = 11.sp)
+                                CurrencyText(
+                                    text = tr("Ar-Ge & Teknoloji Sermaye Değeri:", "R&D & Tech Capital Value:"),
+                                    fontSize = 11.sp,
+                                    color = Color.LightGray
+                                )
+                            }
+                            CurrencyText(
+                                text = "+${formatMoney(rdValuation)}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ThemeNeonCyan,
+                                fontFamily = RobotoMonoFontFamily
+                            )
+                        }
                     }
                 }
             }

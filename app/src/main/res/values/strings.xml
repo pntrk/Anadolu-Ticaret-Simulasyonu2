@@ -449,10 +449,10 @@
     <string name="mgr_contracts_desc">Hiyerarşi #2: Tedarik Yetkilisi. Konsorsiyum üretimi ve teslimatı için gerekli malzemeleri pazardan en uygun fiyata otomatik bulur, bulamazsa borsa vadeli sözleşmesiyle tedarik eder.</string>
     <string name="mgr_borsa_title">Borsa ve Yatırım Analisti</string>
     <string name="mgr_borsa_desc">Hiyerarşi #3: Yatırım Yetkilisi. Konsorsiyum için gereken tedarik malzemesi depoda yoksa Tedarik Müdürü ile koordineli çalışarak borsadan spot alım yapar veya vadeli talep açar.</string>
-    <string name="mgr_logistics_title">Lojistik ve Pazar Satış Müdürü</string>
-    <string name="mgr_logistics_desc">Hiyerarşi #4: Lojistik ve Satış Müdürü. Konsorsiyum tedariki için ihtiyaç duyulan ürünleri depoda sevkiyata kadar rezerve edip korur; ihtiyaç fazlası ürünleri satarak nakit sağlar.</string>
-    <string name="mgr_hr_title">İnsan Kaynakları Müdürü</string>
-    <string name="mgr_hr_desc">Hiyerarşi #5: İK Lideri. Konsorsiyum ihtiyaçlarını gözetmeyen müdürleri tespit edip konsorsiyum önceliğine hizalar; terfi ve performans yönetimi ile tüm operasyonları koordine eder.</string>
+    <string name="mgr_logistics_title">Lojistik ve Depo Müdürü</string>
+    <string name="mgr_logistics_desc">Hiyerarşi #4: Lojistik ve Depo Müdürü. Tesis ambarlarında üretilen ürünleri otomatik olarak merkez depoya sevk eder; konsorsiyum teslimatlarını yapar ve ihtiyaç fazlası ürünleri satarak nakit sağlar.</string>
+    <string name="mgr_hr_title">İnsan Kaynakları ve Operasyon Müdürü</string>
+    <string name="mgr_hr_desc">Hiyerarşi #5: İK ve Operasyon Lideri. Tesis depolarındaki ürünlerin merkez depoya otomatik aktarılmasını koordine eder; konsorsiyum ihtiyaçlarını gözetmeyen müdürleri hizalar, terfi ve performans yönetimini yürütür.</string>
     <string name="mgr_rd_title">Araştırma ve Geliştirme Müdürü</string>
     <string name="mgr_rd_desc">Hiyerarşi #5: Ar-Ge Müdürü. Öncelikle konsorsiyum projeleri ve endüstriyel üretim hatları için kritik olan teknolojik araştırmaları geliştirir.</string>
     <string name="mgr_prod_title">Üretim ve Operasyon Müdürü</string>

@@ -1121,18 +1121,19 @@ fun OsbParcelSlotCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val bizCity = if (business != null) cities.find { it.id == business.cityId } else null
                         Surface(
                             shape = RoundedCornerShape(3.dp),
                             color = Color(0xFF0F1724).copy(alpha = 0.90f),
-                            border = BorderStroke(0.5.dp, Color(0xFF28364A))
+                            border = BorderStroke(0.5.dp, if (bizCity != null) ThemeNeonCyan.copy(alpha = 0.5f) else Color(0xFF28364A))
                         ) {
                             Text(
-                                text = "P#$slotNumber",
+                                text = if (bizCity != null) "${bizCity.countryFlag} ${bizCity.getDisplayName(isEnglish)}" else "P#$slotNumber",
                                 fontFamily = RobotoMonoFontFamily,
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF94A3B8),
-                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                color = if (bizCity != null) ThemeNeonCyan else Color(0xFF94A3B8),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
 

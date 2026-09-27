@@ -1953,9 +1953,11 @@ class TycoonMapOverlay(
                 val cityBusinesses = businesses.filter { it.cityId == city.id }
                 if (cityBusinesses.isNotEmpty()) {
                     pinPaint.color = AndroidColor.argb(baseAlpha, AndroidColor.red(themePrimaryColor), AndroidColor.green(themePrimaryColor), AndroidColor.blue(themePrimaryColor))
-                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 13f, pinPaint)
+                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 18f, pinPaint)
+                    pinPaint.color = AndroidColor.rgb(255, 215, 0)
+                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 10f, pinPaint)
                     pinPaint.color = AndroidColor.rgb(255, 255, 255)
-                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 5f, pinPaint)
+                    canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 4f, pinPaint)
                 } else {
                     pinPaint.color = AndroidColor.argb(baseAlpha, 150, 150, 150)
                     canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), 9f, pinPaint)
@@ -1965,9 +1967,12 @@ class TycoonMapOverlay(
             // City Label
             textPaint.alpha = baseAlpha
             textPaint.textSize = if (isSelected || isCenter || activeConsortiumInCity != null) 34f else 26f
+            val cityBusinesses = businesses.filter { it.cityId == city.id }
             val name = when {
+                isCenter && cityBusinesses.isNotEmpty() -> "🏠 ${city.getDisplayName(context)} (" + trLocal("MERKEZ DEPO", "CENTRAL WAREHOUSE") + ") [🏭 ${cityBusinesses.size}]"
                 isCenter -> "🏠 ${city.getDisplayName(context)} (" + trLocal("MERKEZ DEPO", "CENTRAL WAREHOUSE") + ")"
                 activeConsortiumInCity != null -> "🚀 ${city.getDisplayName(context)} [👑 " + trLocal("KONSORSİYUM", "CONSORTIUM") + "]"
+                cityBusinesses.isNotEmpty() -> "🏭 ${city.getDisplayName(context)} [${cityBusinesses.size} " + trLocal("Tesis", "Fac.") + "]"
                 else -> city.getDisplayName(context)
             }
             canvas.drawText(name, pt.x.toFloat() + 16f, pt.y.toFloat() + 8f, textPaint)
@@ -1975,7 +1980,7 @@ class TycoonMapOverlay(
 
         // Draw Facility Icons & Add Facility Buttons when zoomed in
         val zoom = mapView.zoomLevelDouble
-        val facilityZoomThreshold = 7.2
+        val facilityZoomThreshold = 5.2
         if (layersState.showFacilities && zoom >= facilityZoomThreshold) {
             cities.forEach { city ->
                 val geo = cityCoordinates[city.id] ?: return@forEach
@@ -2044,7 +2049,7 @@ class TycoonMapOverlay(
     override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
         val proj = mapView.projection
         val zoom = mapView.zoomLevelDouble
-        val facilityZoomThreshold = 7.2
+        val facilityZoomThreshold = 5.2
         
         if (zoom >= facilityZoomThreshold) {
             for (city in cities) {

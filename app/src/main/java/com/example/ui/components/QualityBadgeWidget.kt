@@ -40,9 +40,6 @@ fun QualityBadge(
     showLabel: Boolean = false,
     fontSize: Int = 10
 ) {
-    val isEng = isEnglishLanguage()
-    val label = if (isEng) quality.labelEng else quality.labelTr
-
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(4.dp),
@@ -59,9 +56,9 @@ fun QualityBadge(
                         )
                     )
                 )
-                .padding(horizontal = 6.dp, vertical = 2.dp),
+                .padding(horizontal = 5.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+            horizontalArrangement = Arrangement.spacedBy(1.5.dp)
         ) {
             repeat(quality.tier) {
                 Icon(
@@ -69,16 +66,6 @@ fun QualityBadge(
                     contentDescription = null,
                     tint = quality.primaryColor,
                     modifier = Modifier.size(size)
-                )
-            }
-            if (showLabel) {
-                Spacer(modifier = Modifier.width(3.dp))
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = fontSize.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = quality.primaryColor
                 )
             }
         }

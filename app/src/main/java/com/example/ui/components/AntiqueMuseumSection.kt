@@ -108,7 +108,7 @@ fun AntiqueMuseumSection(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "✨ " + tr("AKTİF ŞİRKET GÜÇLERİ", "ACTIVE COMPANY BUFFS"),
+                        text = "🏛️ " + tr("Aktif Şirket Güçleriniz", "Your Active Company Buffs"),
                         fontSize = 10.5.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = RobotoMonoFontFamily,
@@ -116,7 +116,7 @@ fun AntiqueMuseumSection(
                         letterSpacing = 0.5.sp
                     )
                     LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(vertical = 2.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -353,18 +353,18 @@ fun AntiqueMuseumSection(
                                 fontSize = 10.sp,
                                 color = Color.LightGray
                             )
-                            val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == auctionArtifact.artifactId }
+                            val buff = com.example.data.ArtifactBuffRegistry.buffs.find { it.artifactId == auctionArtifact.artifactId }
                             if (buff != null) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(4.dp),
                                     modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                                 ) {
                                     Text(
                                         text = "✨ Pasif Güç: ${buff.loreDescription}",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
                             }

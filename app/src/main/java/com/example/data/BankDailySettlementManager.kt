@@ -22,6 +22,16 @@ data class LoanInstallmentBreakdown(
     val remainingDaysEstimate: Int
 )
 
+data class ForeclosedFacilityInfo(
+    val facilityId: Int,
+    val facilityType: String,
+    val cityId: String,
+    val level: Int,
+    val valuation: Long,
+    val reason: String,
+    val debtClearedAmount: Long
+)
+
 /**
  * Receipt resulting from daily banking settlement
  */
@@ -37,7 +47,10 @@ data class BankDailySettlementReceipt(
     val finalDeposit: Long,
     val initialLoan: Long,
     val finalLoan: Long,
-    val isShortfall: Boolean
+    val isShortfall: Boolean,
+    val foreclosedFacilities: List<ForeclosedFacilityInfo> = emptyList(),
+    val foreclosedFacilityId: Int? = null,
+    val foreclosedFacilityType: String? = null
 )
 
 /**
@@ -140,6 +153,14 @@ object BankDailySettlementManager {
         )
     }
 
+    fun calculateFacilityValuation(business: BusinessEntity): Long {
+        val product = Product.values().find { it.facilityId == business.type }
+        val city = com.example.data.cities.find { it.id == business.cityId }
+        val cityMultiplier = city?.economicMultiplier ?: 1.0f
+        val baseCost = ((product?.facilityCost ?: 1_000_000L) * cityMultiplier).toLong()
+        return (baseCost * business.level * 0.9f).toLong().coerceAtLeast(10_000L)
+    }
+
     /**
      * Gerçek zamanlı gün mutabakatı kontrolü ve uygulanması.
      * Uygulama açıkken veya çevrimdışından dönüldüğünde çağrılır.
@@ -153,7 +174,9 @@ object BankDailySettlementManager {
         annualDepositRate: Float,
         annualLoanRate: Float,
         activeArtifactBuffs: Map<ArtifactBuffType, Float>,
-        isEnglish: Boolean = false
+        isEnglish: Boolean = false,
+        snapshot: EconomicSnapshot = EconomicSnapshot(),
+        businesses: List<BusinessEntity> = emptyList()
     ): Pair<PlayerEntity, BankDailySettlementReceipt?> {
         val prefs = getPrefs(context)
         val todayStr = getCurrentDayString()
@@ -202,6 +225,8 @@ object BankDailySettlementManager {
         var totalPrincipalRepaid = 0L
         var totalInterestCharged = 0L
         var isShortfall = false
+        val remainingBusinesses = businesses.toMutableList()
+        val allForeclosedFacilities = mutableListOf<ForeclosedFacilityInfo>()
 
         for (day in 1..daysElapsed) {
             // 1. Günlük Vadeli Mevduat Getirisi (Bileşik büyüme)
@@ -238,23 +263,79 @@ object BankDailySettlementManager {
                         totalLoanPaid += totalInstallmentDue
                         totalPrincipalRepaid += principalDue
                     } else {
-                        // Nakit ve mevduat yetersiz kaldı
+                        // Nakit ve mevduat yetersiz kaldı -> TEMERRÜT (DEFAULT)!
                         val allFunds = curMoney + curDeposit
                         curMoney = 0L
                         curDeposit = 0L
                         isShortfall = true
 
-                        if (allFunds >= interestDue) {
-                            // En azından faizi öde, kalanı anaparadan düş
-                            val remainingForPrincipal = allFunds - interestDue
-                            curLoan = (curLoan - remainingForPrincipal).coerceAtLeast(0L)
-                            totalLoanPaid += allFunds
-                            totalPrincipalRepaid += remainingForPrincipal
-                        } else {
-                            // Faiz dahi ödenemedi, ödenemeyen faiz anaparaya eklendi
-                            val unpaidInterest = interestDue - allFunds
-                            curLoan += unpaidInterest
-                            totalLoanPaid += allFunds
+                        // Eldeki nakit ve mevduat borca aktarılır
+                        val totalDue = interestDue + principalDue
+                        curLoan = (curLoan - allFunds + interestDue).coerceAtLeast(0L)
+                        totalLoanPaid += allFunds
+
+                        // KREDİ BORCU TEMERRÜDÜ: Tesisler en değerlisinden başlanarak haczedilir ve kredi borcu kapatılır!
+                        // KURAL: Tier 4 tesisler (Mega Projeler) haczedilemez, iflas masasında satışa sunulamaz!
+                        val sortedFacilities = remainingBusinesses
+                            .filter { fac ->
+                                val prod = Product.values().find { it.facilityId == fac.type || it.id == fac.type }
+                                prod?.tier != ProductTier.TIER_4
+                            }
+                            .sortedByDescending { calculateFacilityValuation(it) }
+                        for (fac in sortedFacilities) {
+                            if (curLoan <= 0L) break
+                            val facVal = calculateFacilityValuation(fac)
+                            val debtCleared = curLoan.coerceAtMost(facVal)
+                            curLoan = (curLoan - facVal).coerceAtLeast(0L)
+
+                            allForeclosedFacilities.add(
+                                ForeclosedFacilityInfo(
+                                    facilityId = fac.id,
+                                    facilityType = fac.type,
+                                    cityId = fac.cityId,
+                                    level = fac.level,
+                                    valuation = facVal,
+                                    reason = "Banka Kredi Temerrüdü (Haciz Satışı)",
+                                    debtClearedAmount = debtCleared
+                                )
+                            )
+                            remainingBusinesses.remove(fac)
+                        }
+                    }
+                }
+            }
+
+            if (snapshot.isIpoActive && snapshot.publicSharePercent > 0) {
+                val dailyProfitEst = (player.dailyIncome - player.dailyExpense).coerceAtLeast(0L)
+                if (dailyProfitEst > 0) {
+                    val dailyDividend = (dailyProfitEst * (snapshot.publicSharePercent / 100.0)).toLong()
+                    if (curMoney >= dailyDividend) {
+                        curMoney -= dailyDividend
+                    } else {
+                        // TEMERRÜT! Kâr payı ödenemedi, en DEĞERLİ tesise el konulacak (Tier 4 hariç).
+                        isShortfall = true
+                        curMoney = 0L // Kalan paraya da el konur
+                        val sortedRemaining = remainingBusinesses
+                            .filter { fac ->
+                                val prod = Product.values().find { it.facilityId == fac.type || it.id == fac.type }
+                                prod?.tier != ProductTier.TIER_4
+                            }
+                            .sortedByDescending { calculateFacilityValuation(it) }
+                        val targetFacility = sortedRemaining.firstOrNull()
+                        if (targetFacility != null) {
+                            val facVal = calculateFacilityValuation(targetFacility)
+                            allForeclosedFacilities.add(
+                                ForeclosedFacilityInfo(
+                                    facilityId = targetFacility.id,
+                                    facilityType = targetFacility.type,
+                                    cityId = targetFacility.cityId,
+                                    level = targetFacility.level,
+                                    valuation = facVal,
+                                    reason = "Temettü Temerrüdü (Hissedar Haczi)",
+                                    debtClearedAmount = 0L
+                                )
+                            )
+                            remainingBusinesses.remove(targetFacility)
                         }
                     }
                 }
@@ -285,7 +366,10 @@ object BankDailySettlementManager {
             finalDeposit = curDeposit,
             initialLoan = player.loanAmount,
             finalLoan = curLoan,
-            isShortfall = isShortfall
+            isShortfall = isShortfall,
+            foreclosedFacilities = allForeclosedFacilities,
+            foreclosedFacilityId = allForeclosedFacilities.firstOrNull()?.facilityId,
+            foreclosedFacilityType = allForeclosedFacilities.firstOrNull()?.facilityType
         )
 
         return Pair(updatedPlayer, receipt)

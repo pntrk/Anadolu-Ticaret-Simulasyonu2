@@ -25,10 +25,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.Product
+import com.example.data.ProductTier
 import com.example.data.TechTree
 import com.example.ui.components.AppButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ProductIconBadge
+import com.example.ui.components.SmartNotificationManager
+import com.example.ui.components.NotificationType
 import com.example.ui.theme.RobotoMonoFontFamily
 import com.example.ui.theme.tr
 import com.example.ui.theme.trAuto
@@ -539,13 +542,30 @@ fun ProductDetailModal(
                         
                         if (isUnlocked) {
                             if (!hasFacility) {
-                                AppButton(
-                                    onClick = { /* Action to build facility */ },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026))
-                                ) {
-                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    CurrencyText(tr("KUR", "BUILD") + " (₳${product.facilityCost / 1_000_000}M)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                if (product.tier == ProductTier.TIER_4) {
+                                    AppButton(
+                                        onClick = {
+                                            SmartNotificationManager.show(
+                                                "🏛️ Tier 4 Mega Tesisleri doğrudan kurulamaz! Konsorsiyum projesi kurarak veya katılarak inşa edebilirsiniz.",
+                                                "🏛️ Tier 4 Mega Facilities cannot be built directly! Must be established via Consortium.",
+                                                NotificationType.ALERT
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color(0xFF1E1400))
+                                    ) {
+                                        Icon(Icons.Rounded.Handshake, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        CurrencyText(tr("KONSORSİYUM", "CONSORTIUM"), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                                    }
+                                } else {
+                                    AppButton(
+                                        onClick = { /* Action to build facility */ },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026))
+                                    ) {
+                                        Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        CurrencyText(tr("KUR", "BUILD") + " (₳${product.facilityCost / 1_000_000}M)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             } else {
                                 AppButton(

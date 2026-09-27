@@ -127,5 +127,17 @@
 -allowaccessmodification
 -dontusemixedcaseclassnames
 -dontskipnonpubliclibraryclasses
--verbose
+-mergeinterfacesaggressively
+-repackageclasses ''
+
+# OSMDroid map & bitmap cache optimization rules
+-keep class org.osmdroid.** { *; }
+-dontwarn org.osmdroid.**
+
+# Strip unnecessary logging in release to save CPU cycles and RAM
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+}
 

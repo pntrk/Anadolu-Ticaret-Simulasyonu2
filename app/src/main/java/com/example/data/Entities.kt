@@ -583,7 +583,7 @@ fun getDefaultCompanyManagers(): List<CompanyManager> = listOf(
     CompanyManager(
         id = "mgr_logistics",
         name = "Zeynep Demir",
-        title = "Lojistik ve Pazar Satış Müdürü",
+        title = "Lojistik ve Depo Müdürü",
         titleRes = R.string.mgr_logistics_title,
         specialty = "logistics",
         level = 1,
@@ -591,13 +591,13 @@ fun getDefaultCompanyManagers(): List<CompanyManager> = listOf(
         efficiency = 1.0f,
         isHired = false,
         isActive = true,
-        description = "Hiyerarşi #4: Lojistik ve Satış Müdürü. Konsorsiyum tedariki için ihtiyaç duyulan ürünleri depoda sevkiyata kadar rezerve edip korur; ihtiyaç fazlası ürünleri satarak nakit sağlar.",
+        description = "Hiyerarşi #4: Lojistik ve Depo Müdürü. Tesis ambarlarında üretilen ürünleri otomatik olarak merkez depoya sevk eder; konsorsiyum teslimatlarını yapar ve ihtiyaç fazlası ürünleri satarak nakit sağlar.",
         descriptionRes = R.string.mgr_logistics_desc
     ),
     CompanyManager(
         id = "mgr_hr",
         name = "Banu Aydın, MBA",
-        title = "İnsan Kaynakları Müdürü",
+        title = "İnsan Kaynakları ve Operasyon Müdürü",
         titleRes = R.string.mgr_hr_title,
         specialty = "hr",
         level = 1,
@@ -605,7 +605,7 @@ fun getDefaultCompanyManagers(): List<CompanyManager> = listOf(
         efficiency = 1.0f,
         isHired = false,
         isActive = true,
-        description = "Hiyerarşi #5: İK Lideri. Konsorsiyum ihtiyaçlarını gözetmeyen müdürleri tespit edip konsorsiyum önceliğine hizalar; terfi ve performans yönetimi ile tüm operasyonları koordine eder.",
+        description = "Hiyerarşi #5: İK ve Operasyon Lideri. Tesis depolarındaki ürünlerin merkez depoya otomatik aktarılmasını koordine eder; konsorsiyum ihtiyaçlarını gözetmeyen müdürleri hizalar, terfi ve performans yönetimini yürütür.",
         descriptionRes = R.string.mgr_hr_desc
     ),
     CompanyManager(

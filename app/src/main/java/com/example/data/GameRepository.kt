@@ -974,6 +974,10 @@ class GameRepository(
     suspend fun deleteBusiness(id: Int) {
         gameDao.deleteBusinessById(id)
     }
+
+    suspend fun deleteBusinessById(id: Int) {
+        gameDao.deleteBusinessById(id)
+    }
     
     suspend fun getAllMuseumAuctions(): List<MuseumAuctionEntity> {
         return gameDao.getAllMuseumAuctions()

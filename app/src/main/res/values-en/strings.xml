@@ -449,10 +449,10 @@
     <string name="mgr_contracts_desc">Hierarchy #2: Chief Procurement Officer. Sources required consortium materials at optimal prices or secures forward exchange contracts to guarantee supplies.</string>
     <string name="mgr_borsa_title">Equities &amp; Investment Analyst</string>
     <string name="mgr_borsa_desc">Hierarchy #3: Chief Investment Officer. Collaborates with Procurement to execute spot purchases or forward bids on the Commodity Exchange for missing consortium goods.</string>
-    <string name="mgr_logistics_title">Logistics &amp; Global Sales Director</string>
-    <string name="mgr_logistics_desc">Hierarchy #4: Chief Commercial Officer. Reserves required consortium supply items in inventory until dispatch; liquidates surplus stock on global markets to generate cash.</string>
-    <string name="mgr_hr_title">Human Resources Director</string>
-    <string name="mgr_hr_desc">Hierarchy #5: Chief Human Resources Officer. Aligns all department heads with Consortium-First priorities, auditing manager performance and promoting talent.</string>
+    <string name="mgr_logistics_title">Logistics &amp; Warehouse Director</string>
+    <string name="mgr_logistics_desc">Hierarchy #4: Logistics &amp; Warehouse Director. Automatically transports products produced in facility warehouses to the central warehouse; handles consortium dispatches and liquidates surplus stock.</string>
+    <string name="mgr_hr_title">Human Resources &amp; Operations Director</string>
+    <string name="mgr_hr_desc">Hierarchy #5: Chief Human Resources &amp; Operations Officer. Coordinates automatic transfer of facility stocks to the central warehouse, aligns all managers with consortium priorities, and manages promotions.</string>
     <string name="mgr_rd_title">Research &amp; Development Director</string>
     <string name="mgr_rd_desc">Hierarchy #5: Chief Technology Officer. Prioritizes deep-tech, automation, and industrial research projects required for consortium excellence and manufacturing output.</string>
     <string name="mgr_prod_title">Production &amp; Operations Director</string>

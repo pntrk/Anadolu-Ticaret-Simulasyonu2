@@ -787,7 +787,7 @@ data class MegaProject(
     val lastBatchDurationMs: Long = 0L,
     val previousSharePrice: Double = 0.0,
     val sharePriceMultiplier: Double = 1.0,
-    val batchProductionDurationSeconds: Int = 450,
+    val batchProductionDurationSeconds: Int = 225,
     val isBatchInProduction: Boolean = false,
     val batchProductionStartTimeMs: Long = 0L,
     val qualityTier: ConsortiumQualityTier = ConsortiumQualityTier.GRADE_C,
@@ -830,15 +830,15 @@ data class MegaProject(
 
             val targetProd = map["targetProductId"] as? String ?: ""
             val defaultDuration = when (targetProd) {
-                "defense_frigate" -> 600
-                "space_rocket" -> 900
-                "quantum_supercomputer" -> 450
-                "fusion_reactor_core" -> 750
-                "super_yacht" -> 600
-                "ai_datacenter" -> 450
-                "cargo_ship" -> 450
-                "bullet_train" -> 450
-                else -> 450
+                "defense_frigate" -> 300
+                "space_rocket" -> 450
+                "quantum_supercomputer" -> 225
+                "fusion_reactor_core" -> 375
+                "super_yacht" -> 300
+                "ai_datacenter" -> 225
+                "cargo_ship" -> 225
+                "bullet_train" -> 225
+                else -> 225
             }
 
             val rawDuration = (map["batchProductionDurationSeconds"] as? Number)?.toInt() ?: defaultDuration
@@ -1001,21 +1001,23 @@ data class MegaProject(
     val standardBatchDurationSeconds: Int
         get() {
             if (batchProductionDurationSeconds > 0) {
-                if (batchProductionDurationSeconds in 1..90) {
-                    return batchProductionDurationSeconds * 10
+                val sec = if (batchProductionDurationSeconds in 1..90) {
+                    batchProductionDurationSeconds * 10
+                } else {
+                    batchProductionDurationSeconds
                 }
-                return batchProductionDurationSeconds
+                return (sec / 2).coerceAtLeast(10)
             }
             return when (targetProductId) {
-                "defense_frigate" -> 600
-                "space_rocket" -> 900
-                "quantum_supercomputer" -> 450
-                "fusion_reactor_core" -> 750
-                "super_yacht" -> 600
-                "ai_datacenter" -> 450
-                "cargo_ship" -> 450
-                "bullet_train" -> 450
-                else -> 450
+                "defense_frigate" -> 300
+                "space_rocket" -> 450
+                "quantum_supercomputer" -> 225
+                "fusion_reactor_core" -> 375
+                "super_yacht" -> 300
+                "ai_datacenter" -> 225
+                "cargo_ship" -> 225
+                "bullet_train" -> 225
+                else -> 225
             }
         }
 
@@ -1023,9 +1025,9 @@ data class MegaProject(
         get() {
             val base = (standardBatchDurationSeconds * productionStrategy.speedMultiplier).toInt()
             return if (chiefEngineerId != null) {
-                (base * 0.85f).toInt().coerceAtLeast(20) // %15 Hızlandırılmış Ar-Ge Üretim Süresi
+                (base * 0.85f).toInt().coerceAtLeast(10) // %15 Hızlandırılmış Ar-Ge Üretim Süresi
             } else {
-                base.coerceAtLeast(20)
+                base.coerceAtLeast(10)
             }
         }
 
@@ -1458,15 +1460,15 @@ object MegaProjectFactory {
         val totalValue = (totalCostSum * 1.8f * qualityTier.borsaMultiplier).toLong()
 
         val baseBatchDuration = when (targetProductId) {
-            "defense_frigate" -> 600
-            "space_rocket" -> 900
-            "quantum_supercomputer" -> 450
-            "fusion_reactor_core" -> 750
-            "super_yacht" -> 600
-            "ai_datacenter" -> 450
-            "cargo_ship" -> 450
-            "bullet_train" -> 450
-            else -> 450
+            "defense_frigate" -> 300
+            "space_rocket" -> 450
+            "quantum_supercomputer" -> 225
+            "fusion_reactor_core" -> 375
+            "super_yacht" -> 300
+            "ai_datacenter" -> 225
+            "cargo_ship" -> 225
+            "bullet_train" -> 225
+            else -> 225
         }
         val actualBatchDuration = (baseBatchDuration * qualityTier.durationMultiplier).toInt()
 

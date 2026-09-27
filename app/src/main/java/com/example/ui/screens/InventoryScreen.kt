@@ -1165,7 +1165,7 @@ fun ListingCreationDialog(
                             border = BorderStroke(0.8.dp, item.quality.badgeColor.copy(alpha = 0.8f))
                         ) {
                             CurrencyText(
-                                text = "${item.quality.starsText} ${item.quality.label}",
+                                text = item.quality.starsText,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = item.quality.badgeColor,
@@ -1597,7 +1597,7 @@ fun FacilityWarehousesView(
                                                                 )
                                                             }
                                                         }
-                                                        CurrencyText("$qty Ton • ${quality.label} • Değer: $priceText", fontSize = 10.sp, color = ThemeGold)
+                                                        CurrencyText("$qty Ton • Değer: $priceText", fontSize = 10.sp, color = ThemeGold)
                                                     }
                                                 }
 
@@ -1780,8 +1780,11 @@ fun InventoryDeliveriesView(
             }
         } else {
             activeDeliveries.forEach { delivery ->
-                val prod = Product.values().find { it.id == delivery.itemId }
-                val prodName = prod?.getDisplayName(isEnglish) ?: delivery.itemId.uppercase()
+                val baseProdId = com.example.data.ItemQuality.extractBaseProductId(delivery.itemId)
+                val prod = Product.values().find { it.id == baseProdId || it.facilityId == baseProdId }
+                val quality = com.example.data.ItemQuality.extractQuality(delivery.itemId)
+                val brandColor = if (prod != null) Color(prod.colorTint) else ThemeNeonCyan
+                val prodName = prod?.getDisplayName(isEnglish) ?: baseProdId.uppercase()
                 val originCityName = if (delivery.originCityId == "istanbul") "🏛️ İstanbul Borsa Deposu"
                     else if (delivery.originCityId == "new_york") "🏛️ New York Borsa Deposu"
                     else "🏙️ " + (com.example.data.cities.find { it.id == delivery.originCityId }?.name ?: delivery.originCityId)
@@ -1805,7 +1808,7 @@ fun InventoryDeliveriesView(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF111927),
-                    border = BorderStroke(1.dp, if (delivery.isOutboundSale) ThemeGold.copy(alpha = 0.5f) else ThemeNeonCyan.copy(alpha = 0.5f))
+                    border = BorderStroke(1.dp, if (delivery.isOutboundSale) ThemeGold.copy(alpha = 0.5f) else brandColor.copy(alpha = 0.45f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -1818,20 +1821,52 @@ fun InventoryDeliveriesView(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (prod != null) {
-                                    UniversalProductIcon(product = prod, size = 26.dp)
-                                } else {
-                                    Icon(Icons.Rounded.LocalShipping, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(24.dp))
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Ürün Görsel Rozeti
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = brandColor.copy(alpha = 0.18f),
+                                    border = BorderStroke(1.2.dp, brandColor.copy(alpha = 0.6f)),
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (prod != null) {
+                                            UniversalProductIcon(product = prod, size = 26.dp, tint = brandColor)
+                                        } else {
+                                            UniversalProductIcon(productId = baseProdId, size = 26.dp, tint = brandColor)
+                                        }
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column {
-                                    CurrencyText(
-                                        text = "${delivery.quantity} Ton $prodName",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        CurrencyText(
+                                            text = "${delivery.quantity} Ton $prodName",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        if (quality.stars > 1) {
+                                            Surface(
+                                                shape = RoundedCornerShape(3.dp),
+                                                color = Color(0xFF1E293B),
+                                                border = BorderStroke(0.6.dp, Color(0xFFFBBF24))
+                                            ) {
+                                                CurrencyText(
+                                                    text = quality.starsText,
+                                                    fontSize = 8.sp,
+                                                    color = Color(0xFFFBBF24),
+                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                     CurrencyText(
                                         text = if (delivery.isOutboundSale) tr("Borsaya Satış Sevkiyatı", "Borsa Outbound Sale", isEnglish) else tr("Merkez Depoya Sevkiyat", "Inbound Warehouse Delivery", isEnglish),
                                         style = MaterialTheme.typography.labelSmall,

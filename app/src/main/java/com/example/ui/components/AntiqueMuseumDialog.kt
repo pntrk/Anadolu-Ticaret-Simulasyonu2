@@ -346,11 +346,11 @@ fun AntiqueMuseumDialog(
                             modifier = Modifier.padding(bottom = 2.dp)
                         ) {
                             Text(
-                                text = "✨",
+                                text = "🏛️",
                                 fontSize = 11.sp
                             )
                             Text(
-                                text = tr("AKTİF ŞİRKET GÜÇLERİ", "ACTIVE COMPANY BUFFS"),
+                                text = tr("Aktif Şirket Güçleriniz", "Your Active Company Buffs"),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Black,
                                 color = Color(0xFFFBBF24),
@@ -359,7 +359,7 @@ fun AntiqueMuseumDialog(
                             )
                         }
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = PaddingValues(vertical = 2.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -868,18 +868,18 @@ private fun ArtifactGlassCard(
                     color = Color.LightGray
                 )
 
-                val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
+                val buff = com.example.data.ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
                 if (buff != null) {
                     Surface(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(4.dp),
                         modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                     ) {
                         Text(
                             text = "✨ Pasif Güç: ${buff.loreDescription}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -1366,18 +1366,18 @@ private fun AuctionCardItem(
                     }
                     CurrencyText(artifact.getLocalizedName(isEnglishLanguage()), color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     CurrencyText("🏛️ ${artifact.getLocalizedEra(isEnglishLanguage())} • 📍 ${artifact.getLocalizedOriginCity(isEnglishLanguage())}", color = Color.Gray, fontSize = 9.sp)
-                    val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
+                    val buff = com.example.data.ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
                     if (buff != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.tertiaryContainer,
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(4.dp),
                             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                         ) {
                             Text(
                                 text = "✨ Pasif Güç: ${buff.loreDescription}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     }

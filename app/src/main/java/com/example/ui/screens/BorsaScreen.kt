@@ -275,6 +275,9 @@ fun BorsaScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
+                    com.example.ui.components.IPOManagementPanel(viewModel = viewModel)
+                }
+                item {
                     com.example.ui.components.OtherCompaniesMarketSection(viewModel = viewModel)
                 }
             }
@@ -2036,7 +2039,7 @@ fun BorsaTradeModal(
                                     fontSize = 11.sp
                                 )
                                 CurrencyText(
-                                    text = "${maxOwnedQuality.starsText} ${maxOwnedQuality.label} (x${maxOwnedQuality.priceMultiplier})",
+                                    text = "${maxOwnedQuality.starsText} (x${maxOwnedQuality.priceMultiplier})",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = maxOwnedQuality.badgeColor,
                                     fontWeight = FontWeight.Bold,

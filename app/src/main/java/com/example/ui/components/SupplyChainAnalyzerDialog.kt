@@ -50,7 +50,8 @@ fun SupplyChainAnalyzerDialog(
     onDismiss: () -> Unit,
     onSelectBuildFacility: (Product) -> Unit,
     onSelectProduce: (Product) -> Unit,
-    onNavigateToRd: (String?) -> Unit
+    onNavigateToRd: (String?) -> Unit,
+    onNavigateToConsortium: (() -> Unit)? = null
 ) {
     val theme = LocalAppThemeOption.current
     val haptic = LocalHapticFeedback.current
@@ -264,12 +265,13 @@ fun SupplyChainAnalyzerDialog(
                             },
                             onSelectBuildFacility = onSelectBuildFacility,
                             onSelectProduce = onSelectProduce,
-                            onNavigateToRd = onNavigateToRd
+                            onNavigateToRd = onNavigateToRd,
+                            onNavigateToConsortium = onNavigateToConsortium
                         )
-                        1 -> TierProductsList(viewModel, ProductTier.TIER_1, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd)
-                        2 -> TierProductsList(viewModel, ProductTier.TIER_2, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd)
-                        3 -> TierProductsList(viewModel, ProductTier.TIER_3, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd)
-                        4 -> TierProductsList(viewModel, ProductTier.TIER_4, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd)
+                        1 -> TierProductsList(viewModel, ProductTier.TIER_1, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd, onNavigateToConsortium)
+                        2 -> TierProductsList(viewModel, ProductTier.TIER_2, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd, onNavigateToConsortium)
+                        3 -> TierProductsList(viewModel, ProductTier.TIER_3, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd, onNavigateToConsortium)
+                        4 -> TierProductsList(viewModel, ProductTier.TIER_4, businesses, inventory, onSelectBuildFacility, onSelectProduce, onNavigateToRd, onNavigateToConsortium)
                     }
                 }
             }
@@ -431,7 +433,8 @@ fun InteractiveRecipeTreeTab(
     onSelectNode: (Product?) -> Unit,
     onSelectBuildFacility: (Product) -> Unit,
     onSelectProduce: (Product) -> Unit,
-    onNavigateToRd: (String?) -> Unit
+    onNavigateToRd: (String?) -> Unit,
+    onNavigateToConsortium: (() -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var onlyOwnedFilter by remember { mutableStateOf(false) }
@@ -709,7 +712,8 @@ fun InteractiveRecipeTreeTab(
                     onCloseNode = { onSelectNode(null) },
                     onSelectBuildFacility = onSelectBuildFacility,
                     onSelectProduce = onSelectProduce,
-                    onNavigateToRd = onNavigateToRd
+                    onNavigateToRd = onNavigateToRd,
+                    onNavigateToConsortium = onNavigateToConsortium
                 )
             }
         }
@@ -1074,7 +1078,8 @@ fun NodeInspectionDrawer(
     onCloseNode: () -> Unit,
     onSelectBuildFacility: (Product) -> Unit,
     onSelectProduce: (Product) -> Unit,
-    onNavigateToRd: (String?) -> Unit
+    onNavigateToRd: (String?) -> Unit,
+    onNavigateToConsortium: (() -> Unit)? = null
 ) {
     val haptic = LocalHapticFeedback.current
     val isUnlocked = viewModel.isProductUnlocked(product.id)
@@ -1231,27 +1236,53 @@ fun NodeInspectionDrawer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isUnlocked) {
-                        AppButton(
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onSelectBuildFacility(product)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(32.dp),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Rounded.AddBusiness, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            CurrencyText(
-                                text = tr("TESİS KUR", "BUILD FACILITY") + " (${formatCredit(product.facilityCost)})",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        val isT4 = product.tier == ProductTier.TIER_4
+                        if (isT4 && ownedCount == 0) {
+                            AppButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    if (onNavigateToConsortium != null) onNavigateToConsortium() else onSelectBuildFacility(product)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color(0xFF1E1400)),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Rounded.Handshake, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                CurrencyText(
+                                    text = tr("🏛️ KONSORSİYUM İLE KUR", "🏛️ BUILD VIA CONSORTIUM"),
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else if (ownedCount == 0) {
+                            AppButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectBuildFacility(product)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Rounded.AddBusiness, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                CurrencyText(
+                                    text = tr("TESİS KUR", "BUILD FACILITY") + " (${formatCredit(product.facilityCost)})",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 9.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
 
                         if (ownedCount > 0) {
@@ -1560,7 +1591,8 @@ fun TierProductsList(
     inventory: List<InventoryEntity>,
     onSelectBuildFacility: (Product) -> Unit,
     onSelectProduce: (Product) -> Unit,
-    onNavigateToRd: (String?) -> Unit
+    onNavigateToRd: (String?) -> Unit,
+    onNavigateToConsortium: (() -> Unit)? = null
 ) {
     val products = remember(tier) { Product.values().toList().filter { it.tier == tier } }
 
@@ -1570,6 +1602,43 @@ fun TierProductsList(
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        if (tier == ProductTier.TIER_4) {
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF261A08),
+                    border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.8f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Rounded.Groups, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(24.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            CurrencyText(
+                                text = tr("🏛️ KONSORSİYUM MEGA PROJELERİ", "🏛️ CONSORTIUM MEGA PROJECTS"),
+                                fontWeight = FontWeight.Black,
+                                fontSize = 11.sp,
+                                color = ThemeGold
+                            )
+                            CurrencyText(
+                                text = tr(
+                                    "Tier 4 Mega Tesisler devasa sanayi ortaklığı gerektirir ve doğrudan kurulamaz. Konsorsiyum kurarak veya ortak projelere katılarak inşa edilir.",
+                                    "Tier 4 Mega Facilities require collaborative industrial partnership and cannot be built directly. Built by launching or joining Consortium projects."
+                                ),
+                                fontSize = 10.sp,
+                                color = Color(0xFFCBD5E1)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         items(products, key = { it.id }) { prod ->
             val isUnlocked = viewModel.isProductUnlocked(prod.id)
             val ownedCount = businesses.count { it.type == prod.facilityId }
@@ -1627,12 +1696,26 @@ fun TierProductsList(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (isUnlocked) {
-                                AppButton(
-                                    onClick = { onSelectBuildFacility(prod) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                                    shape = RoundedCornerShape(4.dp)
-                                ) {
-                                    CurrencyText(tr("TESİS KUR", "BUILD FACILITY"), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                if (prod.tier == ProductTier.TIER_4 && ownedCount == 0) {
+                                    AppButton(
+                                        onClick = {
+                                            if (onNavigateToConsortium != null) onNavigateToConsortium() else onSelectBuildFacility(prod)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color(0xFF1E1400)),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Handshake, contentDescription = null, modifier = Modifier.size(13.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        CurrencyText(tr("KONSORSİYUM", "CONSORTIUM"), fontWeight = FontWeight.Black, fontSize = 10.sp)
+                                    }
+                                } else if (ownedCount == 0) {
+                                    AppButton(
+                                        onClick = { onSelectBuildFacility(prod) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        CurrencyText(tr("TESİS KUR", "BUILD FACILITY"), fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                    }
                                 }
                                 if (ownedCount > 0) {
                                     AppButton(

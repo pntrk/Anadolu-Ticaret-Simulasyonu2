@@ -45,6 +45,7 @@ import com.example.data.billing.findActivity
 import com.example.data.cities
 import com.example.ui.theme.*
 import com.example.viewmodel.calculateCompanyValuation
+import com.example.viewmodel.calculateRdInvestmentValuation
 import com.example.viewmodel.loginOnline
 import com.example.viewmodel.registerOnline
 
@@ -93,6 +94,9 @@ fun TraderProfileDialog(
     } else {
         (player.money + player.depositBalance + player.lockedDepositBalance - player.loanAmount).coerceAtLeast(0L)
     }
+    val rdInvestment = if (viewModel != null) {
+        viewModel.calculateRdInvestmentValuation()
+    } else 0L
     var selectedTab by remember { mutableStateOf(ProfileTab.OVERVIEW) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var companyNameInput by remember { mutableStateOf(player.name) }
@@ -620,6 +624,7 @@ fun TraderProfileDialog(
                                     player = player,
                                     cityName = cityName,
                                     netWorth = netWorth,
+                                    rdInvestment = rdInvestment,
                                     onNavigateToBank = onNavigateToBank,
                                     onNavigateToGemStore = onNavigateToGemStore
                                 )
@@ -770,6 +775,7 @@ private fun ProfileOverviewTab(
     player: PlayerEntity,
     cityName: String,
     netWorth: Long,
+    rdInvestment: Long = 0L,
     onNavigateToBank: () -> Unit,
     onNavigateToGemStore: () -> Unit
 ) {
@@ -853,6 +859,12 @@ private fun ProfileOverviewTab(
                         label = tr("Mevduat Hesabı (Banka):", "Deposit Account (Bank):"),
                         value = "₳${formatMoney(player.depositBalance)}",
                         color = ThemePositive
+                    )
+
+                    FinancialRow(
+                        label = tr("🔬 Ar-Ge & Teknoloji Yatırımı:", "🔬 R&D & Tech Investment:"),
+                        value = "+₳${formatMoney(rdInvestment)}",
+                        color = ThemeNeonCyan
                     )
 
                     FinancialRow(

@@ -494,7 +494,7 @@ fun FacilityQualityPotentialBar(
                                     color = Color.LightGray
                                 )
                                 Text(
-                                    text = "${nextQuality.starsText} ${nextQuality.label.replace("⭐", "").trim()}",
+                                    text = nextQuality.starsText,
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (nextTierLevel == 9) Color(0xFFFFD700) else nextQuality.badgeColor
@@ -564,7 +564,7 @@ fun FacilityQualityPotentialBar(
                                             border = BorderStroke(0.5.dp, expectedQual.badgeColor)
                                         ) {
                                             Text(
-                                                text = "${expectedQual.starsText} ${expectedQual.label.replace("⭐", "").trim()}",
+                                                text = expectedQual.starsText,
                                                 fontSize = 8.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = RobotoMonoFontFamily,

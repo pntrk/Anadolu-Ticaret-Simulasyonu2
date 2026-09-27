@@ -217,8 +217,14 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
             activeResearches,
             researchLevels
         ) { activeResearches, researchLevels ->
+            val rdVal = this@startUiStateSync.calculateRdInvestmentValuation()
+            val nw = this@startUiStateSync.calculateCompanyValuation()
             updateUiState {
-                copy(hrState = HrUiState(activeResearches = activeResearches.toPersistentMap(), researchLevels = researchLevels.toPersistentMap()))
+                copy(
+                    hrState = HrUiState(activeResearches = activeResearches.toPersistentMap(), researchLevels = researchLevels.toPersistentMap()),
+                    rdValuation = rdVal,
+                    netWorth = nw
+                )
             }
         }.collect {}
     }
@@ -268,6 +274,7 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
             val consortiumDeliveredVal = this@startUiStateSync.calculateConsortiumDeliveredMaterialsValuation()
             val consortiumTotalVal = this@startUiStateSync.calculateConsortiumValuation()
             val guildSharesVal = (consortiumTotalVal - consortiumDeliveredVal).coerceAtLeast(0L)
+            val rdVal = this@startUiStateSync.calculateRdInvestmentValuation()
             val nw = this@startUiStateSync.calculateCompanyValuation()
             
             updateUiState {
@@ -280,6 +287,7 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
                     consortiumValuation = consortiumTotalVal,
                     consortiumDeliveredValuation = consortiumDeliveredVal,
                     guildSharesValuation = guildSharesVal,
+                    rdValuation = rdVal,
                     netWorth = nw,
                     growthHistory = _growthHistory.value.toPersistentList()
                 )
@@ -292,12 +300,14 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
             val consortiumDeliveredVal = this@startUiStateSync.calculateConsortiumDeliveredMaterialsValuation()
             val consortiumTotalVal = this@startUiStateSync.calculateConsortiumValuation()
             val guildSharesVal = (consortiumTotalVal - consortiumDeliveredVal).coerceAtLeast(0L)
+            val rdVal = this@startUiStateSync.calculateRdInvestmentValuation()
             val nw = this@startUiStateSync.calculateCompanyValuation()
             updateUiState {
                 copy(
                     consortiumValuation = consortiumTotalVal,
                     consortiumDeliveredValuation = consortiumDeliveredVal,
                     guildSharesValuation = guildSharesVal,
+                    rdValuation = rdVal,
                     netWorth = nw
                 )
             }

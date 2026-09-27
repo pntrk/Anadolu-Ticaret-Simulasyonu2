@@ -128,6 +128,7 @@ fun RdLabCenterVisualView(
             SciFiLabCenterTopBanner(
                 totalTechLevel = researchLevels.values.sum(),
                 activeSlotsCount = activeEntries.size,
+                rdValuation = uiState.rdValuation,
                 isEnglish = isEnglish
             )
 
@@ -429,6 +430,7 @@ fun RdLabCenterVisualView(
 private fun SciFiLabCenterTopBanner(
     totalTechLevel: Int,
     activeSlotsCount: Int,
+    rdValuation: Long = 0L,
     isEnglish: Boolean
 ) {
     Surface(
@@ -468,8 +470,9 @@ private fun SciFiLabCenterTopBanner(
                         fontSize = 12.5.sp
                     )
                     CurrencyText(
-                        text = tr("Gelişmiş Sanayi ve Teknoloji Araştırmaları", "Advanced Industrial & Tech Engineering"),
-                        color = Color(0xFF94A3B8),
+                        text = tr("Şirket Değerine Katkı: +₳${formatMoney(rdValuation)}", "Net Worth Contribution: +₳${formatMoney(rdValuation)}"),
+                        color = ThemeNeonCyan,
+                        fontWeight = FontWeight.Bold,
                         fontSize = 9.5.sp
                     )
                 }

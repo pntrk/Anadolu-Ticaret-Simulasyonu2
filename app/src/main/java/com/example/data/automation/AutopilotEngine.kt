@@ -2,7 +2,9 @@ package com.example.data.automation
 
 import com.example.data.BusinessEntity
 import com.example.data.CompanyManager
+import com.example.data.EconomicSnapshot
 import com.example.data.ManagerActionLog
+import com.example.data.PlayerEntity
 import com.example.data.getDefaultCompanyManagers
 import com.example.viewmodel.GameViewModel
 import com.example.viewmodel.deliverMaterialsToConsortium
@@ -28,6 +30,25 @@ data class SmartDirective(
 )
 
 object AutopilotEngine {
+
+    // Gece ödenecek tahmini temettü borcunu hesaplar ve bu parayı harcamaya kapatır.
+    fun getLockedTreasuryReserve(snapshot: EconomicSnapshot, player: PlayerEntity): Long {
+        var lockedReserve = 0L
+        if (snapshot.isIpoActive && snapshot.publicSharePercent > 0) {
+            val dailyProfitEst = (player.dailyIncome - player.dailyExpense).coerceAtLeast(0L)
+            lockedReserve = (dailyProfitEst * (snapshot.publicSharePercent / 100.0)).toLong()
+        }
+        // Şirketin asgari işletme sermayesi de güvence altına alınır (Toplam nakdin %10'u veya 50.000 TL)
+        val minimumOperatingCash = (player.money * 0.10).toLong().coerceAtLeast(50000L)
+        return lockedReserve + minimumOperatingCash
+    }
+
+    // Yöneticilerin bir işlem yapmadan önce bütçe onayı almasını sağlayan fonksiyon.
+    fun canManagerSpend(requiredAmount: Long, snapshot: EconomicSnapshot, player: PlayerEntity): Boolean {
+        val lockedReserve = getLockedTreasuryReserve(snapshot, player)
+        val availableCash = player.money - lockedReserve
+        return availableCash >= requiredAmount
+    }
 
     private val directiveCooldowns = mutableMapOf<String, Long>()
     private val autopilotSettings = mutableMapOf<String, Boolean>()
@@ -293,9 +314,10 @@ object AutopilotEngine {
             return false
         }
 
-        // 2. SAFETY CASH RESERVE (25% of player's money is untouchable reserve)
-        val untouchableReserve = (p.money * 0.25).toLong()
-        val spendableCash = (p.money - untouchableReserve).coerceAtLeast(0L)
+        // 2. SAFETY CASH RESERVE & TREASURY GUARD (Locked dividend reserve + minimum operating cash)
+        val snapshot = viewModel.economicSnapshotFlow.value ?: EconomicSnapshot()
+        val lockedReserve = getLockedTreasuryReserve(snapshot, p)
+        val spendableCash = (p.money - lockedReserve).coerceAtLeast(0L)
 
         var executedSuccessfully = false
 

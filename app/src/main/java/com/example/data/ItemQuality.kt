@@ -16,32 +16,32 @@ enum class ItemQuality(
     STAR_1(
         stars = 1,
         priceMultiplier = 1.0,
-        label = "⭐ Standart",
-        badgeColor = Color(0xFFB08D57) // Bronz
+        label = "★",
+        badgeColor = Color(0xFF9E9E9E) // 1 Yıldız: Gri
     ),
     STAR_2(
         stars = 2,
         priceMultiplier = 1.35,
-        label = "⭐⭐ Seçme",
-        badgeColor = Color(0xFFC0C0C0) // Gümüş
+        label = "★★",
+        badgeColor = Color(0xFF8D6E63) // 2 Yıldız: Kahve
     ),
     STAR_3(
         stars = 3,
         priceMultiplier = 1.9,
-        label = "⭐⭐⭐ Usta İşi",
-        badgeColor = Color(0xFFFFD700) // Altın
+        label = "★★★",
+        badgeColor = Color(0xFFFF9800) // 3 Yıldız: Turuncu
     ),
     STAR_4(
         stars = 4,
         priceMultiplier = 2.8,
-        label = "⭐⭐⭐⭐ Seçkin",
-        badgeColor = Color(0xFFE5E4E2) // Platin
+        label = "★★★★",
+        badgeColor = Color(0xFF7C4DFF) // 4 Yıldız: Mavi Mor
     ),
     STAR_5(
         stars = 5,
         priceMultiplier = 4.5,
-        label = "⭐⭐⭐⭐⭐ Kusursuz",
-        badgeColor = Color(0xFF00E676) // Parlak Zümrüt
+        label = "★★★★★",
+        badgeColor = Color(0xFFFFEB3B) // 5 Yıldız: Parlak Sarı
     );
 
     val starsText: String
@@ -49,11 +49,11 @@ enum class ItemQuality(
 
     val gradientColors: List<Color>
         get() = when (this) {
-            STAR_1 -> listOf(Color(0xFF616161), Color(0xFFB08D57))
-            STAR_2 -> listOf(Color(0xFF455A64), Color(0xFFC0C0C0))
-            STAR_3 -> listOf(Color(0xFFE65100), Color(0xFFFFD700))
-            STAR_4 -> listOf(Color(0xFF37474F), Color(0xFFE5E4E2), Color(0xFF80DEEA))
-            STAR_5 -> listOf(Color(0xFF1B5E20), Color(0xFF00E676), Color(0xFF69F0AE))
+            STAR_1 -> listOf(Color(0xFF616161), Color(0xFF9E9E9E))
+            STAR_2 -> listOf(Color(0xFF5D4037), Color(0xFF8D6E63), Color(0xFFA1887F))
+            STAR_3 -> listOf(Color(0xFFE65100), Color(0xFFFF9800), Color(0xFFFFB74D))
+            STAR_4 -> listOf(Color(0xFF2979FF), Color(0xFF651FFF), Color(0xFF7C4DFF))
+            STAR_5 -> listOf(Color(0xFFFFA000), Color(0xFFFFD700), Color(0xFFFFEB3B))
         }
 
     val gradientBrush: Brush

@@ -99,10 +99,11 @@ fun AssetsScreen(
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
     initialProductId: String? = null,
-    onNavigateToRd: (String?) -> Unit = {}
+    onNavigateToRd: (String?) -> Unit = {},
+    onNavigateToConsortium: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        AssetsContent(uiState, onIntent, viewModel, initialProductId, onNavigateToRd)
+        AssetsContent(uiState, onIntent, viewModel, initialProductId, onNavigateToRd, onNavigateToConsortium)
     }
 }
 
@@ -112,7 +113,8 @@ fun AssetsContent(
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
     initialProductId: String? = null,
-    onNavigateToRd: (String?) -> Unit = {}
+    onNavigateToRd: (String?) -> Unit = {},
+    onNavigateToConsortium: () -> Unit = {}
 ) {
     val player = uiState.playerState.player
     val inventory = uiState.inventoryState.items
@@ -268,14 +270,24 @@ fun AssetsContent(
                             it.facilityId.equals(targetProductId, ignoreCase = true)
                         }
                         if (prod != null) {
-                            showCityDialogFor = prod
+                            if (prod.tier == ProductTier.TIER_4) {
+                                SmartNotificationManager.show(
+                                    "🏛️ Tier 4 Mega Tesisleri doğrudan kurulamaz! Konsorsiyum projesi kurarak veya katılarak inşa edebilirsiniz.",
+                                    "🏛️ Tier 4 Mega Facilities cannot be built directly! Must be established via Consortium.",
+                                    NotificationType.ALERT
+                                )
+                                onNavigateToConsortium()
+                            } else {
+                                showCityDialogFor = prod
+                            }
                         } else {
                             showNewFacilityDialog = true
                         }
                     },
                     onNavigateToWarehouse = { _ ->
                         selectedViewMode = FacilityViewMode.LIST
-                    }
+                    },
+                    onNavigateToConsortium = onNavigateToConsortium
                 )
             }
 
@@ -287,6 +299,10 @@ fun AssetsContent(
                 playerMoney = player.money,
                 playerDollarBalance = player.dollarBalance,
                 onDismiss = { showCityDialogFor = null },
+                onNavigateToConsortium = {
+                    showCityDialogFor = null
+                    onNavigateToConsortium()
+                },
                 onSelectCity = { cityId, cost ->
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.handleIntent(com.example.viewmodel.GameIntent.BuildBusiness(prod.facilityId, cityId, cost))
@@ -344,7 +360,16 @@ fun AssetsContent(
                 onDismiss = { showNewFacilityDialog = false },
                 onSelectFacility = { product ->
                     showNewFacilityDialog = false
-                    showCityDialogFor = product
+                    if (product.tier == ProductTier.TIER_4) {
+                        SmartNotificationManager.show(
+                            "🏛️ Tier 4 Mega Tesisleri doğrudan kurulamaz! Konsorsiyum projesi kurarak veya katılarak inşa edebilirsiniz.",
+                            "🏛️ Tier 4 Mega Facilities cannot be built directly! Must be established via Consortium.",
+                            NotificationType.ALERT
+                        )
+                        onNavigateToConsortium()
+                    } else {
+                        showCityDialogFor = product
+                    }
                 },
                 onNavigateToRd = { techId ->
                     showNewFacilityDialog = false
@@ -359,7 +384,16 @@ fun AssetsContent(
                 onDismiss = { showSupplyChainAnalyzer = false },
                 onSelectBuildFacility = { product ->
                     showSupplyChainAnalyzer = false
-                    showCityDialogFor = product
+                    if (product.tier == ProductTier.TIER_4) {
+                        SmartNotificationManager.show(
+                            "🏛️ Tier 4 Mega Tesisleri doğrudan kurulamaz! Konsorsiyum projesi kurarak veya katılarak inşa edebilirsiniz.",
+                            "🏛️ Tier 4 Mega Facilities cannot be built directly! Must be established via Consortium.",
+                            NotificationType.ALERT
+                        )
+                        onNavigateToConsortium()
+                    } else {
+                        showCityDialogFor = product
+                    }
                 },
                 onSelectProduce = { product ->
                     showSupplyChainAnalyzer = false
@@ -368,6 +402,10 @@ fun AssetsContent(
                 onNavigateToRd = { techId ->
                     showSupplyChainAnalyzer = false
                     onNavigateToRd(techId)
+                },
+                onNavigateToConsortium = {
+                    showSupplyChainAnalyzer = false
+                    onNavigateToConsortium()
                 }
             )
         }
@@ -384,6 +422,7 @@ fun CitySelectionBuildDialog(
     playerMoney: Long,
     playerDollarBalance: Long,
     onDismiss: () -> Unit,
+    onNavigateToConsortium: () -> Unit = {},
     onSelectCity: (cityId: String, cost: Long) -> Unit
 ) {
     val isEnglish = isEnglishLanguage()
@@ -652,6 +691,21 @@ fun ProduceControlDialog(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        val facilityCityList = productBusinesses.mapNotNull { biz -> com.example.data.cities.find { it.id == biz.cityId } }.distinctBy { it.id }
+                        val facilityCityNames = if (facilityCityList.isNotEmpty()) {
+                            facilityCityList.joinToString(", ") { "${it.countryFlag} ${it.name}" }
+                        } else {
+                            producingCity?.let { "${it.countryFlag} ${it.name}" } ?: producingCityId
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            CurrencyText("Tesis Lokasyonu / Şehir:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText(facilityCityNames, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween

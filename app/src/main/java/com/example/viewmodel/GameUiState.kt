@@ -97,6 +97,7 @@ data class GameUiState(
     val consortiumValuation: Long = 0L,
     val consortiumDeliveredValuation: Long = 0L,
     val guildSharesValuation: Long = 0L,
+    val rdValuation: Long = 0L,
     val netWorth: Long = 0L,
     val growthHistory: ImmutableList<com.example.data.GrowthPointDto> = persistentListOf()
 )

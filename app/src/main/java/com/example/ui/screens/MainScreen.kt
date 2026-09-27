@@ -351,6 +351,9 @@ fun MainScreen(gameViewModel: GameViewModel) {
                             onNavigateToRd = { techId -> 
                                 val route = if (techId != null) "rd?techId=$techId" else "rd"
                                 navController.navigate(route) { launchSingleTop = true } 
+                            },
+                            onNavigateToConsortium = {
+                                navController.navigate("megaproject") { launchSingleTop = true }
                             }
                         ) 
                     }

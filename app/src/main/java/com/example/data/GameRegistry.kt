@@ -10,10 +10,10 @@ import androidx.compose.ui.res.stringResource
 import com.example.R
 
 enum class ProductTier(val baseDurationMs: Long) {
-    TIER_1(18_000_000L * 10L), // 5 hours
-    TIER_2(36_000_000L * 10L), // 10 hours
-    TIER_3(108_000_000L * 10L), // 30 hours
-    TIER_4(216_000_000L * 10L) // 60 hours
+    TIER_1(18_000_000L * 5L), // 2.5 hours (halved)
+    TIER_2(36_000_000L * 5L), // 5 hours (halved)
+    TIER_3(108_000_000L * 5L), // 15 hours (halved)
+    TIER_4(216_000_000L * 5L) // 30 hours (halved)
 }
 
 data class RecipeRequirement(
@@ -365,7 +365,7 @@ enum class Product(
                 "space_rocket", "fusion_reactor_core", "quantum_supercomputer" -> 240_000L
                 else -> 150_000L
             }
-        }) * 10L
+        }) * 5L
 
     fun calculatePrice(quality: ItemQuality = ItemQuality.STAR_1): Long = (basePrice * quality.priceMultiplier).toLong()
     fun calculatePrice(quality: ProductQuality): Long = (basePrice * quality.priceMultiplier).toLong()
