@@ -21,31 +21,52 @@ fun GameViewModel.buyFromBorsa(itemId: String, quantity: Int, originCountryParam
 
 fun GameViewModel.sell(itemId: String, quantity: Int, originCountry: String? = "Global", isSilent: Boolean = false) {
     if (quantity <= 0) return
-    val inv = inventory.value.find { it.itemId == itemId }
-    val owned = inv?.quantity ?: 0
-    if (owned < quantity) {
+    val exactInv = inventory.value.find { it.itemId == itemId }
+    val baseProductId = com.example.data.ItemQuality.extractBaseProductId(itemId)
+    val matchingItems = if (exactInv != null) listOf(exactInv) else inventory.value.filter { it.baseProductId == baseProductId && it.quantity > 0 }
+    val totalOwned = matchingItems.sumOf { it.quantity }
+
+    if (totalOwned < quantity) {
         if (!isSilent) SmartNotificationManager.show("Yetersiz Merkez Depo Stoğu!", "Insufficient Central Depot Stock!", NotificationType.ALERT)
         return
     }
     viewModelScope.launch {
-        val prod = Product.values().find { it.id == itemId }
-        val priceEntity = marketPrices.value.find { it.itemId == itemId }
-        val pricePerUnit = priceEntity?.price ?: (prod?.basePrice ?: 100L)
-        val grossIncome = pricePerUnit * quantity
-        
+        val prod = Product.values().find { it.id == baseProductId }
+        val priceEntity = marketPrices.value.find { it.itemId == baseProductId }
+        val basePricePerUnit = priceEntity?.price ?: (prod?.basePrice ?: 100L)
+
+        var remainingToSell = quantity
+        var grossIncome = 0L
+        val consumedItems = mutableListOf<Pair<String, Int>>()
+
+        for (item in matchingItems) {
+            if (remainingToSell <= 0) break
+            val take = minOf(item.quantity, remainingToSell)
+            val unitPrice = (basePricePerUnit * item.quality.priceMultiplier).toLong()
+            grossIncome += unitPrice * take
+            consumedItems.add(item.itemId to take)
+            remainingToSell -= take
+        }
+
         // 🏛️ Borsa Krizinde "Devlet / Hazine Teşvik Fonu" ve Üretici Sübvansiyonu (+%25 Nakit Prim)
         val isItemInCrisis = priceEntity?.let {
             it.isCrisis || it.borsaStock <= MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
         } ?: false
         val subsidyBonus = if (isItemInCrisis) (grossIncome * 0.25).toLong() else 0L
-        val totalIncome = grossIncome + subsidyBonus
-        
-        repository.consumeItem(itemId, quantity)
+        val totalPrice = grossIncome + subsidyBonus
+
+        val sellBonus = activeArtifactBuffs.value[ArtifactBuffType.BORSA_SELL_BONUS] ?: 0f
+        val artifactBonusValue = (totalPrice * sellBonus).toLong()
+        val finalRevenue = totalPrice + artifactBonusValue
+
+        for ((cItemId, cQty) in consumedItems) {
+            repository.consumeItem(cItemId, cQty)
+        }
+
+        addMoney(finalRevenue)
+
         val p = player.value
         if (p != null) {
-            val updatedMoney = p.money + totalIncome
-            repository.updatePlayer(p.copy(money = updatedMoney))
-            
             val originCityId = if (p.currentCity.isNotBlank()) p.currentCity else "istanbul"
             val destCityId = "new_york"
             val durationMs = calculateLogisticsDuration(originCityId, destCityId)
@@ -55,15 +76,15 @@ fun GameViewModel.sell(itemId: String, quantity: Int, originCountry: String? = "
                     quantity = quantity,
                     originCityId = originCityId,
                     destinationCityId = destCityId,
-                    pricePerUnit = pricePerUnit,
-                    totalCost = totalIncome,
+                    pricePerUnit = if (quantity > 0) grossIncome / quantity else basePricePerUnit,
+                    totalCost = finalRevenue,
                     startTimeMs = System.currentTimeMillis(),
                     totalDurationMs = durationMs,
                     isOutboundSale = true
                 )
             )
-            
-            val prodName = prod?.getDisplayName() ?: itemId.uppercase()
+
+            val prodName = prod?.getDisplayName() ?: baseProductId.uppercase()
             val originName = com.example.data.cities.find { it.id == originCityId }?.name ?: originCityId.uppercase()
             if (!isSilent) {
                 if (subsidyBonus > 0L) {
@@ -83,30 +104,100 @@ fun GameViewModel.sell(itemId: String, quantity: Int, originCountry: String? = "
         }
         updateDailyQuestProgress(QuestType.BORSA_TRADE, 1L)
         updateDailyQuestProgress(QuestType.SELL_COMMODITY, quantity.toLong())
-        onBorsaItemSold(itemId, quantity, originCountry ?: "Global")
+        onBorsaItemSold(baseProductId, quantity, originCountry ?: "Global")
     }
 }
 
 fun GameViewModel.sellFacilityStockOnBorsa(facilityId: Any, itemId: String = "", quantity: Int = 100) {
     val biz = businesses.value.find { it.id.toString() == facilityId.toString() } ?: return
-    val prodId = if (itemId.isNotBlank()) itemId else (Product.values().find { it.facilityId == biz.type || it.id == biz.type }?.id ?: "")
-    if (prodId.isNotBlank()) {
-        sell(prodId, quantity)
+    val storedMap = biz.getStoredItemsMap()
+    val targetKey = if (itemId.isNotBlank()) {
+        storedMap.keys.find { it == itemId || com.example.data.ItemQuality.extractBaseProductId(it) == itemId }
+    } else {
+        storedMap.keys.firstOrNull()
+    } ?: return
+    val availableQty = storedMap[targetKey] ?: 0
+    if (availableQty <= 0) return
+    val sellQty = minOf(availableQty, quantity)
+
+    viewModelScope.launch {
+        val bizQuality = if (targetKey.contains("_star")) com.example.data.ItemQuality.extractQuality(targetKey) else com.example.data.QualityCraftingService.getQualityByFacilityLevel(biz.level)
+        val baseId = com.example.data.ItemQuality.extractBaseProductId(targetKey)
+        val prod = Product.values().find { it.id == baseId }
+        val basePrice = marketPrices.value.find { it.itemId == baseId }?.price ?: prod?.basePrice ?: 100L
+        val unitPrice = (basePrice * bizQuality.priceMultiplier).toLong()
+        val earned = unitPrice * sellQty
+
+        val updatedBiz = biz.withRemovedItem(targetKey, sellQty)
+        repository.updateBusiness(updatedBiz)
+
+        val p = player.value
+        if (p != null) {
+            repository.updatePlayer(p.copy(money = p.money + earned))
+        }
+        saveEconomicDataToDataStore()
+        SmartNotificationManager.show(
+            "💰 $sellQty Ton [${bizQuality.starsText} ${bizQuality.label}] ${prod?.getDisplayName() ?: baseId} borsada satıldı! (+₳${com.example.ui.components.formatCredit(earned)})",
+            "💰 $sellQty Tons of [${bizQuality.starsText} ${bizQuality.label}] ${prod?.getDisplayName() ?: baseId} sold on borsa! (+₳${com.example.ui.components.formatCredit(earned)})",
+            NotificationType.SUCCESS
+        )
     }
 }
 
 fun GameViewModel.sellAllFacilityStockOnBorsa(facilityId: Any? = null) {
-    if (facilityId == null) return
-    val biz = businesses.value.find { it.id.toString() == facilityId.toString() } ?: return
-    val prod = Product.values().find { it.facilityId == biz.type || it.id == biz.type } ?: return
-    val inv = inventory.value.find { it.itemId == prod.id }
-    val qty = inv?.quantity ?: 0
-    if (qty > 0) {
-        sell(prod.id, qty)
+    val targetBusinesses = if (facilityId != null) {
+        businesses.value.filter { it.id.toString() == facilityId.toString() }
+    } else {
+        businesses.value
+    }
+    if (targetBusinesses.isEmpty()) return
+
+    viewModelScope.launch {
+        var totalEarned = 0L
+        var totalTonsSold = 0
+
+        for (biz in targetBusinesses) {
+            val stored = biz.getStoredItemsMap()
+            if (stored.isEmpty()) continue
+            var currentBiz = biz
+            for ((storedItemId, qty) in stored) {
+                if (qty <= 0) continue
+                val quality = if (storedItemId.contains("_star")) com.example.data.ItemQuality.extractQuality(storedItemId) else com.example.data.QualityCraftingService.getQualityByFacilityLevel(biz.level)
+                val baseId = com.example.data.ItemQuality.extractBaseProductId(storedItemId)
+                val prod = Product.values().find { it.id == baseId }
+                val basePrice = marketPrices.value.find { it.itemId == baseId }?.price ?: prod?.basePrice ?: 100L
+                val unitPrice = (basePrice * quality.priceMultiplier).toLong()
+                val income = unitPrice * qty
+                totalEarned += income
+                totalTonsSold += qty
+                currentBiz = currentBiz.withRemovedItem(storedItemId, qty)
+            }
+            if (currentBiz != biz) {
+                repository.updateBusiness(currentBiz)
+            }
+        }
+
+        if (totalEarned > 0) {
+            val p = player.value
+            if (p != null) {
+                repository.updatePlayer(p.copy(money = p.money + totalEarned))
+            }
+            saveEconomicDataToDataStore()
+            SmartNotificationManager.show(
+                "💰 Tesis Deposu Satışı: $totalTonsSold Ton ürün kalite çarpanlarıyla borsada satıldı! (+₳${com.example.ui.components.formatCredit(totalEarned)})",
+                "💰 Facility Storage Sale: $totalTonsSold Tons sold on exchange with quality multipliers! (+₳${com.example.ui.components.formatCredit(totalEarned)})",
+                NotificationType.SUCCESS
+            )
+        }
     }
 }
 
-fun GameViewModel.onBorsaItemBought(itemId: String, quantity: Int, originCountry: String? = "Global") {
+fun GameViewModel.onBorsaItemBought(
+    itemId: String,
+    quantity: Int,
+    originCountry: String? = "Global",
+    syncToRemote: Boolean = false
+) {
     if (quantity <= 0) return
     val product = Product.values().find { it.id == itemId } ?: return
     val currentPrices = marketPrices.value
@@ -122,13 +213,13 @@ fun GameViewModel.onBorsaItemBought(itemId: String, quantity: Int, originCountry
         basePrice = basePrice
     )
     
-    // Kriz Kontrolü (Stok 999.999 Ton ve altına düştüğünde kriz patlak verir ve fiyat 2 katına çıkar)
+    // Kriz Kontrolü (Stok 999 Ton ve altına düştüğünde kriz patlak verir ve fiyat 2 katına çıkar)
     val wasInCrisis = currentStock <= MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
     val enteredCrisis = !wasInCrisis && newStock <= MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
     
     if (enteredCrisis) {
-        val crisisMsg = "🚨 KÜRESEL BORSA KRİZİ: ${product.getDisplayName()} rezervleri kritik seviyenin altına indi ($newStock Ton <= 999.999)! Borsa fiyatı 2 katına fırladı!"
-        val crisisMsgEng = "🚨 GLOBAL EXCHANGE CRISIS: ${product.getDisplayName()} reserves dropped below critical threshold ($newStock Tons <= 999,999)! Price doubled!"
+        val crisisMsg = "🚨 KÜRESEL BORSA KRİZİ: ${product.getDisplayName()} rezervleri kritik seviyenin altına indi ($newStock Ton <= 999)! Borsa fiyatı 2 katına fırladı!"
+        val crisisMsgEng = "🚨 GLOBAL EXCHANGE CRISIS: ${product.getDisplayName()} reserves dropped below critical threshold ($newStock Tons <= 999)! Price doubled!"
         _newsTickerMessage.value = "$crisisMsg | ${_newsTickerMessage.value}"
         SmartNotificationManager.show(crisisMsg, crisisMsgEng, NotificationType.ALERT)
         
@@ -152,19 +243,22 @@ fun GameViewModel.onBorsaItemBought(itemId: String, quantity: Int, originCountry
     }
     
     viewModelScope.launch {
-        repository.updateMarketPrices(updatedPrices)
-        repository.syncGlobalBorsaPricesToSupabase(updatedPrices, force = true)
-        MultiplayerManager.sendBroadcastBorsaPrices(updatedPrices)
-        SupabaseManager.updateSingleMarketPriceInSupabase(
-            itemId = itemId,
-            newStock = newStock,
-            newPrice = newPrice,
-            originCountry = target?.originCountry ?: "Türkiye"
-        )
+        repository.updateMarketPrices(updatedPrices, syncToRemote = false)
+        if (syncToRemote) {
+            val updatedEntity = updatedPrices.find { it.itemId == itemId }
+            if (updatedEntity != null) {
+                SupabaseManager.syncSingleMarketPrice(updatedEntity)
+            }
+        }
     }
 }
 
-fun GameViewModel.onBorsaItemSold(itemId: String, quantity: Int, originCountry: String? = "Global") {
+fun GameViewModel.onBorsaItemSold(
+    itemId: String,
+    quantity: Int,
+    originCountry: String? = "Global",
+    syncToRemote: Boolean = false
+) {
     if (quantity <= 0) return
     val product = Product.values().find { it.id == itemId } ?: return
     val currentPrices = marketPrices.value
@@ -180,7 +274,7 @@ fun GameViewModel.onBorsaItemSold(itemId: String, quantity: Int, originCountry: 
         basePrice = basePrice
     )
     
-    // Krizden Çıkış Kontrolü (Stok 999.999 Ton üstüne çıktığında kriz sona erer)
+    // Krizden Çıkış Kontrolü (Stok 999 Ton üstüne çıktığında kriz sona erer)
     val wasInCrisis = currentStock <= MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
     val resolvedCrisis = wasInCrisis && newStock > MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
     
@@ -203,15 +297,13 @@ fun GameViewModel.onBorsaItemSold(itemId: String, quantity: Int, originCountry: 
     }
     
     viewModelScope.launch {
-        repository.updateMarketPrices(updatedPrices)
-        repository.syncGlobalBorsaPricesToSupabase(updatedPrices, force = true)
-        MultiplayerManager.sendBroadcastBorsaPrices(updatedPrices)
-        SupabaseManager.updateSingleMarketPriceInSupabase(
-            itemId = itemId,
-            newStock = newStock,
-            newPrice = newPrice,
-            originCountry = target?.originCountry ?: "Türkiye"
-        )
+        repository.updateMarketPrices(updatedPrices, syncToRemote = false)
+        if (syncToRemote) {
+            val updatedEntity = updatedPrices.find { it.itemId == itemId }
+            if (updatedEntity != null) {
+                SupabaseManager.syncSingleMarketPrice(updatedEntity)
+            }
+        }
     }
 }
 
@@ -355,7 +447,7 @@ fun GameViewModel.payDailyLoanInstallmentNow() {
     }
     val gs = gameState.value
     val loanRate = gs?.centralBankLoanRate ?: 0.20f
-    val breakdown = com.example.data.BankDailySettlementManager.calculateDailyLoanInstallment(p.loanAmount, loanRate)
+    val breakdown = com.example.data.BankDailySettlementManager.calculateDailyLoanInstallment(p.loanAmount, loanRate, activeArtifactBuffs.value)
     val totalDue = breakdown.totalDailyInstallment
     val principal = breakdown.principalInstallment
 
@@ -493,8 +585,8 @@ fun GameViewModel.updateDailyBankingMetrics(showNotification: Boolean = false) {
     val depRate = gs?.centralBankDepositRate ?: 0.15f
     val loanRate = gs?.centralBankLoanRate ?: 0.20f
 
-    _dailyDepositYieldTry.value = com.example.data.BankDailySettlementManager.calculateDailyDepositYield(p.depositBalance, depRate)
-    val breakdown = com.example.data.BankDailySettlementManager.calculateDailyLoanInstallment(p.loanAmount, loanRate)
+    _dailyDepositYieldTry.value = com.example.data.BankDailySettlementManager.calculateDailyDepositYield(p.depositBalance, depRate, activeArtifactBuffs.value)
+    val breakdown = com.example.data.BankDailySettlementManager.calculateDailyLoanInstallment(p.loanAmount, loanRate, activeArtifactBuffs.value)
     _dailyLoanInstallmentTry.value = breakdown.totalDailyInstallment
     _dailyLoanPrincipalTry.value = breakdown.principalInstallment
     _dailyLoanInterestTry.value = breakdown.dailyInterestCost
@@ -512,6 +604,7 @@ fun GameViewModel.checkAndPerformBankDailySettlement(showNotification: Boolean =
         player = p,
         annualDepositRate = depRate,
         annualLoanRate = loanRate,
+        activeArtifactBuffs = activeArtifactBuffs.value,
         isEnglish = false
     )
 
@@ -538,6 +631,63 @@ fun GameViewModel.checkAndPerformBankDailySettlement(showNotification: Boolean =
 
 // --- SHARES & IPO EXTENSIONS ---
 
+fun GameViewModel.calculateConsortiumValuation(): Long {
+    val p = player.value ?: return 0L
+    val pId = p.id.ifBlank { "local_player" }
+    val pName = p.name
+
+    fun isUserSlot(slot: com.example.data.ConsortiumSupplierSlot): Boolean {
+        if (slot.assignedPartnerId == "local_player" || slot.assignedPartnerId == pId) return true
+        if (pName.isNotBlank() && (slot.assignedPartnerName == pName || slot.assignedPartnerId == pName)) return true
+        return false
+    }
+
+    val priceMap = marketPrices.value.associateBy({ it.itemId }, { it.price })
+    
+    // 1. Konsorsiyuma teslim edilen tüm hammadde ve ara mamullerin güncel piyasa ve maliyet değeri
+    val deliveredMaterialsVal = _megaProjects.value.sumOf { project ->
+        project.slots.filter { isUserSlot(it) && it.quantityDelivered > 0 }.sumOf { slot ->
+            val mPrice = priceMap[slot.productId] ?: (com.example.data.Product.values().find { it.id == slot.productId }?.basePrice ?: 1000L)
+            maxOf((mPrice * slot.quantityDelivered * 0.8f).toLong(), slot.costContributionValue)
+        }
+    }
+
+    // 2. Oyuncunun sahip olduğu konsorsiyum / lonca hisselerinin portföy değeri
+    val guildSharesVal = _playerGuildShares.value.entries.sumOf { (guildId, quantity) ->
+        if (quantity <= 0) return@sumOf 0L
+        val proj = _megaProjects.value.find { it.id == guildId }
+        val sharePrice = if (proj != null) {
+            val initialPrice = proj.baseSharePrice
+            (initialPrice * (1.0 + (quantity * 0.002))).toLong()
+        } else {
+            (_playerGuildBuyPrices.value[guildId] ?: 1000.0).toLong()
+        }
+        sharePrice * quantity
+    }
+
+    return (deliveredMaterialsVal + guildSharesVal).coerceAtLeast(0L)
+}
+
+fun GameViewModel.calculateConsortiumDeliveredMaterialsValuation(): Long {
+    val p = player.value ?: return 0L
+    val pId = p.id.ifBlank { "local_player" }
+    val pName = p.name
+
+    fun isUserSlot(slot: com.example.data.ConsortiumSupplierSlot): Boolean {
+        if (slot.assignedPartnerId == "local_player" || slot.assignedPartnerId == pId) return true
+        if (pName.isNotBlank() && (slot.assignedPartnerName == pName || slot.assignedPartnerId == pName)) return true
+        return false
+    }
+
+    val priceMap = marketPrices.value.associateBy({ it.itemId }, { it.price })
+    return _megaProjects.value.sumOf { project ->
+        project.slots.filter { isUserSlot(it) && it.quantityDelivered > 0 }.sumOf { slot ->
+            val mPrice = priceMap[slot.productId] ?: (com.example.data.Product.values().find { it.id == slot.productId }?.basePrice ?: 1000L)
+            maxOf((mPrice * slot.quantityDelivered * 0.8f).toLong(), slot.costContributionValue)
+        }
+    }.coerceAtLeast(0L)
+}
+
 fun GameViewModel.calculateCompanyValuation(): Long {
     val p = player.value ?: return 0L
     
@@ -562,7 +712,10 @@ fun GameViewModel.calculateCompanyValuation(): Long {
         (price * i.quantity * 0.8f).toLong()
     }
     
-    val totalNetWorth = tryNet + convertedUsdNet + busVal + invVal
+    // 5. Konsorsiyuma gönderilen hammaddelerin ve ortaklık hisselerinin değeri
+    val consortiumVal = calculateConsortiumValuation()
+    
+    val totalNetWorth = tryNet + convertedUsdNet + busVal + invVal + consortiumVal
     return totalNetWorth.coerceAtLeast(0L)
 }
 
@@ -579,9 +732,8 @@ fun GameViewModel.buyGuildShares(guildId: String, quantity: Int) {
     val proj = _megaProjects.value.find { it.id == guildId } ?: return
     
     val owned = _playerGuildShares.value[guildId] ?: 0
-    val initialPrice = proj.baseSharePrice
-    val sharePrice = (initialPrice * (1.0 + (owned * 0.002))).toLong()
-    val totalCost = sharePrice * quantity
+    val currentSharePrice = proj.currentSharePrice
+    val totalCost = (currentSharePrice * quantity).toLong()
     
     if (p.money < totalCost) {
         com.example.ui.components.SmartNotificationManager.show(
@@ -597,8 +749,17 @@ fun GameViewModel.buyGuildShares(guildId: String, quantity: Int) {
     _playerGuildShares.value = currentShares
     
     val currentPrices = _playerGuildBuyPrices.value.toMutableMap()
-    currentPrices[guildId] = sharePrice.toDouble()
+    currentPrices[guildId] = currentSharePrice
     _playerGuildBuyPrices.value = currentPrices
+    
+    // Alım talebi hisse fiyatını yukarı doğru yeniden değerler (Supply/Demand Model)
+    val curMultiplier = if (proj.sharePriceMultiplier > 0.0) proj.sharePriceMultiplier else 1.0
+    val newMultiplier = (curMultiplier * (1.0 + (quantity * 0.008))).coerceIn(0.20, 5.0)
+    val updatedProject = proj.copy(
+        previousSharePrice = currentSharePrice,
+        sharePriceMultiplier = newMultiplier
+    )
+    _megaProjects.update { list -> list.map { if (it.id == guildId) updatedProject else it } }
     
     val updatedPlayer = p.copy(money = p.money - totalCost)
     
@@ -606,12 +767,16 @@ fun GameViewModel.buyGuildShares(guildId: String, quantity: Int) {
         repository.updatePlayer(updatedPlayer)
         saveEconomicDataToDataStoreSuspend(customPlayer = updatedPlayer)
     }
+    
+    val changePct = updatedProject.sharePriceChangePercent
+    val signStr = if (changePct >= 0) "+" else ""
     com.example.ui.components.SmartNotificationManager.show(
-        "+$quantity Hisse başarıyla alındı!",
-        "+$quantity Shares purchased successfully!",
+        "+$quantity ${proj.brandName} hissesi alındı! Güncel Değer: ₳${com.example.ui.components.formatMoney(updatedProject.currentSharePrice.toLong())} ($signStr${String.format(java.util.Locale.US, "%.1f", changePct)}%)",
+        "+$quantity ${proj.brandName} shares purchased! Current Price: ₳${com.example.ui.components.formatMoney(updatedProject.currentSharePrice.toLong())} ($signStr${String.format(java.util.Locale.US, "%.1f", changePct)}%)",
         com.example.ui.components.NotificationType.SUCCESS
     )
 }
+
 fun GameViewModel.sellGuildShares(guildId: String, quantity: Int) {
     if (quantity <= 0) return
     val p = player.value ?: return
@@ -620,9 +785,8 @@ fun GameViewModel.sellGuildShares(guildId: String, quantity: Int) {
     val owned = _playerGuildShares.value[guildId] ?: 0
     if (owned < quantity) return
     
-    val initialPrice = proj.baseSharePrice
-    val sharePrice = (initialPrice * (1.0 + (owned * 0.002))).toLong()
-    val totalRevenue = sharePrice * quantity
+    val currentSharePrice = proj.currentSharePrice
+    val totalRevenue = (currentSharePrice * quantity).toLong()
     
     val currentShares = _playerGuildShares.value.toMutableMap()
     currentShares[guildId] = owned - quantity
@@ -631,15 +795,27 @@ fun GameViewModel.sellGuildShares(guildId: String, quantity: Int) {
     }
     _playerGuildShares.value = currentShares
     
+    // Satış arzı hisse fiyatını gevşetir ve yeniden değerler
+    val curMultiplier = if (proj.sharePriceMultiplier > 0.0) proj.sharePriceMultiplier else 1.0
+    val newMultiplier = (curMultiplier * (1.0 - (quantity * 0.008))).coerceIn(0.20, 5.0)
+    val updatedProject = proj.copy(
+        previousSharePrice = currentSharePrice,
+        sharePriceMultiplier = newMultiplier
+    )
+    _megaProjects.update { list -> list.map { if (it.id == guildId) updatedProject else it } }
+    
     val updatedPlayer = p.copy(money = p.money + totalRevenue)
     
     viewModelScope.launch {
         repository.updatePlayer(updatedPlayer)
         saveEconomicDataToDataStoreSuspend(customPlayer = updatedPlayer)
     }
+    
+    val changePct = updatedProject.sharePriceChangePercent
+    val signStr = if (changePct >= 0) "+" else ""
     com.example.ui.components.SmartNotificationManager.show(
-        "-$quantity Hisse başarıyla satıldı! (+₳${com.example.ui.components.formatMoney(totalRevenue)})",
-        "-$quantity Shares sold successfully! (+₳${com.example.ui.components.formatMoney(totalRevenue)})",
+        "-$quantity ${proj.brandName} hissesi satıldı (+₳${com.example.ui.components.formatMoney(totalRevenue)})! Güncel Değer: ₳${com.example.ui.components.formatMoney(updatedProject.currentSharePrice.toLong())} ($signStr${String.format(java.util.Locale.US, "%.1f", changePct)}%)",
+        "-$quantity ${proj.brandName} shares sold (+₳${com.example.ui.components.formatMoney(totalRevenue)})! Current Price: ₳${com.example.ui.components.formatMoney(updatedProject.currentSharePrice.toLong())} ($signStr${String.format(java.util.Locale.US, "%.1f", changePct)}%)",
         com.example.ui.components.NotificationType.SUCCESS
     )
 }
@@ -961,14 +1137,15 @@ fun GameViewModel.resetConsortiumNewBatch(projectId: String) {
 }
 
 fun GameViewModel.listenToConsortiumChat(projectId: String) {
-    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-        val remoteMessages = com.example.data.SupabaseManager.fetchConsortiumChatMessagesFromSupabase(projectId)
-        if (remoteMessages != null) {
-            _consortiumChatMessages.update { current ->
-                current + (projectId to remoteMessages)
-            }
+    repository.startListeningToConsortiumChat(projectId) { updatedMessages ->
+        _consortiumChatMessages.update { current ->
+            current + (projectId to updatedMessages)
         }
     }
+}
+
+fun GameViewModel.stopListeningToConsortiumChat(projectId: String) {
+    repository.stopListeningToConsortiumChat(projectId)
 }
 
 fun GameViewModel.disbandConsortium(projectId: String) {
@@ -1087,39 +1264,81 @@ fun GameViewModel.deliverMaterialsToConsortium(projectId: String, slotId: String
         return
     }
 
-    val inv = inventory.value.find { it.itemId == slot.productId }
-    val available = inv?.quantity ?: 0
-    if (available < quantity) {
+    // Projenin hedef kalite standardına (A, B, C) uygun envanter kalemlerini bul
+    val currentInv = inventory.value
+    val matchingItems = currentInv.filter { item ->
+        val baseId = com.example.data.ItemQuality.extractBaseProductId(item.itemId)
+        val itemQ = item.quality
+        baseId == slot.productId && project.qualityTier.isQualityAllowed(itemQ) && item.quantity > 0
+    }
+
+    val totalAvailable = matchingItems.sumOf { it.quantity }
+    if (totalAvailable <= 0) {
         if (!isSilent) {
-            SmartNotificationManager.show("Yetersiz Envanter! Mevcut: $available", "Insufficient Inventory! Available: $available", NotificationType.ALERT)
+            val allForProduct = currentInv.filter { com.example.data.ItemQuality.extractBaseProductId(it.itemId) == slot.productId && it.quantity > 0 }
+            val msg = if (allForProduct.isNotEmpty()) {
+                "Bu konsorsiyum ${project.qualityTier.titleTr} standardındadır! Yalnızca ${project.qualityTier.allowedQualityRangeTextTr} kabul edilir. Depondaki ürünlerin kalitesi uygun değil."
+            } else {
+                "Yetersiz Envanter! Deponda ${slot.productName} bulunmuyor."
+            }
+            SmartNotificationManager.show(msg, NotificationType.ALERT)
         }
         return
     }
 
-    val deliverQty = minOf(quantity, slot.remainingQuantity)
+    val deliverQty = minOf(quantity, slot.remainingQuantity, totalAvailable)
     if (deliverQty <= 0) return
 
+    // Envanterden uygun kalitelerden düş ve ağırlıklı kalite puanını hesapla
+    var remainingToDeduct = deliverQty
+    var weightedQualitySum = 0.0
+    val inventoryUpdates = mutableListOf<com.example.data.InventoryEntity>()
+
+    val sortedMatching = matchingItems.sortedByDescending { it.quality.stars }
+    for (invItem in sortedMatching) {
+        if (remainingToDeduct <= 0) break
+        val deductFromThis = minOf(invItem.quantity, remainingToDeduct)
+        remainingToDeduct -= deductFromThis
+        weightedQualitySum += (invItem.quality.stars * deductFromThis)
+        val newQty = invItem.quantity - deductFromThis
+        inventoryUpdates.add(com.example.data.InventoryEntity(invItem.itemId, newQty))
+    }
+
+    val actualAvgDeliveredQuality = if (deliverQty > 0) (weightedQualitySum / deliverQty).coerceIn(1.0, 5.0) else 1.0
+    val deliveredQualityTierInt = kotlin.math.round(actualAvgDeliveredQuality).toInt().coerceIn(1, 5)
+
     val unitCost = com.example.data.Product.values().find { it.id == slot.productId }?.basePrice ?: 1000L
+
     val updatedSlot = slot.copy(
         quantityDelivered = slot.quantityDelivered + deliverQty,
         costContributionValue = slot.costContributionValue + (unitCost * deliverQty),
         lastDeliveryTimeMs = System.currentTimeMillis(),
-        isBottleneckWarning = false
+        isBottleneckWarning = false,
+        deliveredQualityTier = deliveredQualityTierInt,
+        deliveredQualityScore = actualAvgDeliveredQuality
     )
     val updatedSlots = project.slots.map { if (it.slotId == slotId) updatedSlot else it }
-    val updatedProject = project.copy(slots = updatedSlots)
+    val deliveredSlots = updatedSlots.filter { it.quantityDelivered > 0 }
+    val newAvgScore = if (deliveredSlots.isNotEmpty()) deliveredSlots.map { it.deliveredQualityScore }.average().coerceIn(1.0, 5.0) else 1.0
+    val updatedProject = project.copy(
+        slots = updatedSlots,
+        averageCraftsmanshipScore = newAvgScore
+    )
 
     _megaProjects.value = _megaProjects.value.map { if (it.id == projectId) updatedProject else it }
 
     viewModelScope.launch {
-        repository.insertInventory(com.example.data.InventoryEntity(slot.productId, available - deliverQty))
+        inventoryUpdates.forEach { ent ->
+            repository.insertInventory(ent)
+        }
         syncMegaProject(updatedProject, force = true)
         saveEconomicDataToDataStore(immediate = true)
 
         if (!isSilent) {
+            val qBadge = com.example.data.ItemQuality.fromStars(deliveredQualityTierInt).label
             SmartNotificationManager.show(
-                "$deliverQty Adet ${slot.productName} Teslim Edildi! 📦",
-                "Delivered $deliverQty units of ${slot.productName}! 📦",
+                "$deliverQty Adet ${slot.productName} ($qBadge) Teslim Edildi! 📦",
+                "Delivered $deliverQty units of ${slot.productName} ($qBadge)! 📦",
                 NotificationType.SUCCESS
             )
         }
@@ -1493,15 +1712,20 @@ fun GameViewModel.oneTapDeliverToConsortium(projectId: String, slotId: String) {
     val project = _megaProjects.value.find { it.id == projectId } ?: return
     val slot = project.slots.find { it.slotId == slotId } ?: return
 
-    val invItem = inventory.value.find { it.itemId == slot.productId }
-    val userStock = invItem?.quantity ?: 0
+    val allProductInv = inventory.value.filter { 
+        com.example.data.ItemQuality.extractBaseProductId(it.itemId) == slot.productId && it.quantity > 0 
+    }
+    val eligibleItems = allProductInv.filter { project.qualityTier.isQualityAllowed(it.quality) }
+    val eligibleStock = eligibleItems.sumOf { it.quantity }
 
-    if (userStock <= 0) {
-        SmartNotificationManager.show(
-            "Şirket deponuzda '${slot.productName}' bulunmuyor!",
-            "No '${slot.productName}' in company warehouse!",
-            NotificationType.ALERT
-        )
+    if (eligibleStock <= 0) {
+        val totalIneligible = allProductInv.sumOf { it.quantity }
+        val msg = if (totalIneligible > 0) {
+            "Depondaki $totalIneligible Ton '${slot.productName}' bu projenin ${project.qualityTier.titleTr} (${project.qualityTier.allowedQualityRangeTextTr}) standardına uymuyor!"
+        } else {
+            "Şirket deponuzda '${slot.productName}' bulunmuyor!"
+        }
+        SmartNotificationManager.show(msg, NotificationType.ALERT)
         return
     }
 
@@ -1515,7 +1739,7 @@ fun GameViewModel.oneTapDeliverToConsortium(projectId: String, slotId: String) {
         return
     }
 
-    val toTransfer = minOf(userStock, needed)
+    val toTransfer = minOf(eligibleStock, needed)
     deliverMaterialsToConsortium(projectId, slotId, toTransfer)
 }
 
@@ -1817,13 +2041,21 @@ fun GameViewModel.signInWithGoogleAccount(
     viewModelScope.launch {
         try {
             updateCompanyName(displayName)
-            repository.saveOnlineAuth(email, "", true)
-            _isOnlineRegistered.value = true
-            _onlineEmail.value = email
+            val cleanEmail = email.trim()
+            val resolvedPlayerId = cleanEmail.replace(".", "_")
 
-            val resolvedPlayerId = email.replace(".", "_")
-            val cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(email)
-                ?: com.example.data.SupabaseManager.fetchPlayerSaveData(resolvedPlayerId)
+            // 1. DO NOT set _isOnlineRegistered.value = true yet!
+            // First fetch the cloud save from Supabase with retries
+            var cloudSaveJson: String? = null
+            var attempts = 0
+            while (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                attempts++
+                cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(cleanEmail)
+                    ?: com.example.data.SupabaseManager.fetchPlayerSaveData(resolvedPlayerId)
+                if (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                    kotlinx.coroutines.delay(1200L)
+                }
+            }
 
             if (!cloudSaveJson.isNullOrBlank()) {
                 val importSuccess = repository.economicDataStore?.importSaveJson(cloudSaveJson, force = true) ?: false
@@ -1831,14 +2063,34 @@ fun GameViewModel.signInWithGoogleAccount(
                 if (snapshot != null) {
                     applySnapshotToState(snapshot)
                 }
+                repository.saveOnlineAuth(cleanEmail, "", true)
+                _onlineEmail.value = cleanEmail
+                _isOnlineRegistered.value = true
                 onResult(true, "Supabase bulut yedeğiniz başarıyla yüklendi!")
             } else {
-                syncCloudSaveToSupabase(force = true, immediate = true)
-                val snapshot = repository.initializeGame(resolvedPlayerId)
-                if (snapshot != null) {
-                    applySnapshotToState(snapshot)
+                // Cloud save was not found on remote.
+                // CRITICAL SAFETY: Check if local player has real progress.
+                val curPlayer = player.value
+                val hasLocalProgress = (curPlayer != null && (curPlayer.level > 1 || curPlayer.money > 250_000L || curPlayer.gems > 0 || curPlayer.totalProfit > 0L))
+                
+                repository.saveOnlineAuth(cleanEmail, "", true)
+                _onlineEmail.value = cleanEmail
+                _isOnlineRegistered.value = true
+
+                if (hasLocalProgress) {
+                    syncCloudSaveToSupabase(force = true, immediate = true)
+                    val snapshot = repository.initializeGame(resolvedPlayerId)
+                    if (snapshot != null) {
+                        applySnapshotToState(snapshot)
+                    }
+                    onResult(true, "Yerel ilerlemeniz bulut hesabınıza yedeklendi!")
+                } else {
+                    val snapshot = repository.initializeGame(resolvedPlayerId)
+                    if (snapshot != null) {
+                        applySnapshotToState(snapshot)
+                    }
+                    onResult(true, "Google hesabınız başarıyla bağlandı!")
                 }
-                onResult(true, "Yeni bulut profiliniz oluşturuldu!")
             }
         } catch (e: Exception) {
             Log.e("GameViewModel", "Error in signInWithGoogleAccount", e)
@@ -1852,13 +2104,19 @@ fun GameViewModel.loginOnline(email: String, pass: String, onResult: (Boolean, S
         try {
             val res = com.example.data.SupabaseManager.signInWithEmail(email, pass)
             if (res.first) {
-                repository.saveOnlineAuth(email, pass, true)
-                _isOnlineRegistered.value = true
-                _onlineEmail.value = email
+                val cleanEmail = email.trim()
+                val resolvedPlayerId = cleanEmail.replace(".", "_")
 
-                val resolvedPlayerId = email.replace(".", "_")
-                val cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(email)
-                    ?: com.example.data.SupabaseManager.fetchPlayerSaveData(resolvedPlayerId)
+                var cloudSaveJson: String? = null
+                var attempts = 0
+                while (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                    attempts++
+                    cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(cleanEmail)
+                        ?: com.example.data.SupabaseManager.fetchPlayerSaveData(resolvedPlayerId)
+                    if (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                        kotlinx.coroutines.delay(1200L)
+                    }
+                }
 
                 if (!cloudSaveJson.isNullOrBlank()) {
                     val importSuccess = repository.economicDataStore?.importSaveJson(cloudSaveJson, force = true) ?: false
@@ -1866,14 +2124,32 @@ fun GameViewModel.loginOnline(email: String, pass: String, onResult: (Boolean, S
                     if (snapshot != null) {
                         applySnapshotToState(snapshot)
                     }
+                    repository.saveOnlineAuth(cleanEmail, pass, true)
+                    _onlineEmail.value = cleanEmail
+                    _isOnlineRegistered.value = true
                     onResult(true, "Çevrimiçi profil başarıyla yüklendi!")
                 } else {
-                    syncCloudSaveToSupabase(force = true, immediate = true)
-                    val snapshot = repository.initializeGame(resolvedPlayerId)
-                    if (snapshot != null) {
-                        applySnapshotToState(snapshot)
+                    val curPlayer = player.value
+                    val hasLocalProgress = (curPlayer != null && (curPlayer.level > 1 || curPlayer.money > 250_000L || curPlayer.gems > 0 || curPlayer.totalProfit > 0L))
+
+                    repository.saveOnlineAuth(cleanEmail, pass, true)
+                    _onlineEmail.value = cleanEmail
+                    _isOnlineRegistered.value = true
+
+                    if (hasLocalProgress) {
+                        syncCloudSaveToSupabase(force = true, immediate = true)
+                        val snapshot = repository.initializeGame(resolvedPlayerId)
+                        if (snapshot != null) {
+                            applySnapshotToState(snapshot)
+                        }
+                        onResult(true, "Giriş başarılı, ilerlemeniz buluta yedeklendi.")
+                    } else {
+                        val snapshot = repository.initializeGame(resolvedPlayerId)
+                        if (snapshot != null) {
+                            applySnapshotToState(snapshot)
+                        }
+                        onResult(true, "Giriş başarılı.")
                     }
-                    onResult(true, "Giriş başarılı, yeni bulut profili oluşturuldu.")
                 }
             } else {
                 onResult(false, res.second ?: "Giriş başarısız.")
@@ -1947,7 +2223,11 @@ fun GameViewModel.recordGrowthPointIfNeeded(isNewDay: Boolean = false) {
     val p = player.value ?: return
     val nw = uiState.value.netWorth.toDouble().coerceAtLeast(0.0)
     val cash = p.money.toDouble().coerceAtLeast(0.0)
-    val assets = (cash + p.depositBalance.toDouble() + p.lockedDepositBalance.toDouble() + uiState.value.facilityValuation.toDouble() + uiState.value.inventoryValuation.toDouble()).coerceAtLeast(0.0)
+    val facVal = uiState.value.facilityValuation.toDouble().coerceAtLeast(0.0)
+    val invVal = uiState.value.inventoryValuation.toDouble().coerceAtLeast(0.0)
+    val conVal = uiState.value.consortiumValuation.toDouble().coerceAtLeast(0.0)
+    val depVal = (p.depositBalance + p.lockedDepositBalance).toDouble().coerceAtLeast(0.0)
+    val assets = (cash + depVal + facVal + invVal + conVal).coerceAtLeast(0.0)
 
     val currentHistory = _growthHistory.value.toMutableList()
 
@@ -1957,7 +2237,11 @@ fun GameViewModel.recordGrowthPointIfNeeded(isNewDay: Boolean = false) {
             dayLabel = "1. Gün",
             netWorth = nw,
             cashBalance = cash,
-            totalAssets = assets
+            totalAssets = assets,
+            depositBalance = depVal,
+            facilityValuation = facVal,
+            inventoryValuation = invVal,
+            consortiumValuation = conVal
         )
         _growthHistory.value = listOf(initialPoint)
     } else {
@@ -1968,7 +2252,11 @@ fun GameViewModel.recordGrowthPointIfNeeded(isNewDay: Boolean = false) {
                 dayLabel = "$dayIndex. Gün",
                 netWorth = nw,
                 cashBalance = cash,
-                totalAssets = assets
+                totalAssets = assets,
+                depositBalance = depVal,
+                facilityValuation = facVal,
+                inventoryValuation = invVal,
+                consortiumValuation = conVal
             )
             currentHistory.add(newPoint)
             if (currentHistory.size > 90) {
@@ -1981,7 +2269,11 @@ fun GameViewModel.recordGrowthPointIfNeeded(isNewDay: Boolean = false) {
             currentHistory[lastIdx] = lastPoint.copy(
                 netWorth = nw,
                 cashBalance = cash,
-                totalAssets = assets
+                totalAssets = assets,
+                depositBalance = depVal,
+                facilityValuation = facVal,
+                inventoryValuation = invVal,
+                consortiumValuation = conVal
             )
             _growthHistory.value = currentHistory
         }
@@ -2071,10 +2363,10 @@ fun GameViewModel.saveEconomicDataToDataStore(
             com.example.ui.components.SmartNotificationManager.show("Oyun kaydedildi.", com.example.ui.components.NotificationType.INFO)
         }
         val now = System.currentTimeMillis()
-        if (force || now - lastSupabaseSyncTimeMs > 30_000L) {
+        if (force) {
             lastSupabaseSyncTimeMs = now
             if (_isOnlineRegistered.value && _onlineEmail.value.isNotBlank() && _onlineEmail.value != "misafir_tuccar") {
-                syncCloudSaveToSupabase(force = force, immediate = immediate, customPlayer = customPlayer, customBusinesses = customBusinesses, isManual = false)
+                syncCloudSaveToSupabase(force = true, immediate = immediate, customPlayer = customPlayer, customBusinesses = customBusinesses, isManual = false)
             }
         }
     }
@@ -2120,6 +2412,13 @@ fun GameViewModel.syncCloudSaveToSupabase(
             }
             val p = customPlayer ?: player.value ?: return@launch
             
+            // Safeguard: Never automatically upload fresh empty beginner state in background
+            val localBizCount = (customBusinesses ?: businesses.value).size
+            if (!isManual && p.level <= 1 && p.money <= 200_000L && p.gems == 0 && localBizCount == 0 && p.totalProfit <= 0L) {
+                Log.d("GameViewModel", "Skipping automatic cloud sync: player state is at initial start (100k AL, 0 biz). Cloud remains protected.")
+                return@launch
+            }
+
             // Move heavy IO and Serialization work to Dispatchers.IO to prevent UI freezing
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 // Ensure research state flows and research levels map are synchronized
@@ -2198,17 +2497,35 @@ fun GameViewModel.syncCloudSaveToSupabase(
                     }
                 }
                 
+                // Backup heavy save JSON to Google Drive AppData Space to protect Supabase quotas
+                val rawJsonToUpload = rawSave
+                if (!rawJsonToUpload.isNullOrBlank()) {
+                    try {
+                        val token = com.example.data.GoogleDriveSaveManager.getAccessToken()
+                            ?: repository.economicDataStore?.context?.let { com.example.data.GoogleDriveSaveManager.resolveAccessToken(it) }
+                        if (!token.isNullOrBlank()) {
+                            com.example.data.GoogleDriveSaveManager.uploadSaveJson(rawJsonToUpload, token)
+                        }
+                    } catch (e: Exception) {
+                        Log.w("GameViewModel", "Failed to upload save JSON to Google Drive AppData", e)
+                    }
+                }
+                
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     if (success) {
-                        Log.i("GameViewModel", "Supabase sync succeeded after $attempts attempts!")
+                        _lastCloudBackupTimeMs.value = System.currentTimeMillis()
+                        val backupTimeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                        _lastCloudBackupStatus.value = backupTimeStr
+                        Log.i("GameViewModel", "Supabase sync succeeded after ${attempts + 1} attempts! ($backupTimeStr)")
                         if (isManual) {
                             com.example.ui.components.SmartNotificationManager.show(
-                                "🌐 Şirket ilerlemeniz buluta başarıyla yedeklendi!",
-                                "🌐 Your company progress has been successfully backed up to the cloud!",
+                                "🌐 Şirket ilerlemeniz buluta başarıyla yedeklendi! ($backupTimeStr)",
+                                "🌐 Your company progress has been successfully backed up to the cloud! ($backupTimeStr)",
                                 com.example.ui.components.NotificationType.SUCCESS
                             )
                         }
                     } else {
+                        _lastCloudBackupStatus.value = "Hata"
                         Log.e("GameViewModel", "Supabase sync failed completely after 3 attempts.")
                         if (isManual) {
                             com.example.ui.components.SmartNotificationManager.show(
@@ -2251,20 +2568,56 @@ fun GameViewModel.forceRestoreFromCloud(context: Context? = null, immediate: Boo
                 )
                 return@launch
             }
-            val cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(email)
-                ?: com.example.data.SupabaseManager.fetchPlayerSaveData(email.replace(".", "_"))
+            val cleanEmail = email.trim()
+            val resolvedId = cleanEmail.replace(".", "_")
+
+            var cloudSaveJson: String? = null
+
+            // 1. Önce Google Drive AppData Space kontrol et
+            try {
+                val token = com.example.data.GoogleDriveSaveManager.getAccessToken()
+                    ?: repository.economicDataStore?.context?.let { com.example.data.GoogleDriveSaveManager.resolveAccessToken(it) }
+                if (!token.isNullOrBlank()) {
+                    cloudSaveJson = com.example.data.GoogleDriveSaveManager.downloadSaveJson(token)
+                }
+            } catch (e: Exception) {
+                Log.w("GameViewModel", "Error downloading from Google Drive during forceRestore", e)
+            }
+
+            // 2. Drive'da yoksa Supabase'den çek
+            if (cloudSaveJson.isNullOrBlank()) {
+                var attempts = 0
+                while (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                    attempts++
+                    cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(cleanEmail)
+                        ?: com.example.data.SupabaseManager.fetchPlayerSaveData(resolvedId)
+                    if (cloudSaveJson.isNullOrBlank() && attempts < 3) {
+                        kotlinx.coroutines.delay(1000L)
+                    }
+                }
+            }
+
             if (!cloudSaveJson.isNullOrBlank()) {
                 val success = repository.economicDataStore?.importSaveJson(cloudSaveJson, force = true) ?: false
                 if (success) {
-                    val snapshot = repository.initializeGame(email.replace(".", "_"))
+                    val snapshot = repository.initializeGame(resolvedId)
                     if (snapshot != null) {
                         applySnapshotToState(snapshot)
+                        val parsedLevel = snapshot.level
+                        val parsedMoney = com.example.ui.components.formatMoney(snapshot.money)
+                        val parsedGems = snapshot.gems
+                        com.example.ui.components.SmartNotificationManager.show(
+                            "🌐 En güncel bulut kaydınız başarıyla geri yüklendi! (Seviye $parsedLevel | 💎 $parsedGems | ₳$parsedMoney)",
+                            "🌐 Your latest cloud save was restored! (Level $parsedLevel | 💎 $parsedGems | ₳$parsedMoney)",
+                            com.example.ui.components.NotificationType.SUCCESS
+                        )
+                    } else {
+                        com.example.ui.components.SmartNotificationManager.show(
+                            "🌐 Bulut kaydı yüklendi!",
+                            "🌐 Cloud save loaded!",
+                            com.example.ui.components.NotificationType.SUCCESS
+                        )
                     }
-                    com.example.ui.components.SmartNotificationManager.show(
-                        "🌐 En güncel bulut kaydınız başarıyla geri yüklendi!",
-                        "🌐 Your latest cloud save has been successfully restored!",
-                        com.example.ui.components.NotificationType.SUCCESS
-                    )
                 } else {
                     com.example.ui.components.SmartNotificationManager.show(
                         "⚠️ Bulut kaydı geri yüklenirken yerel veriler uyumsuzluk yaşadı.",
@@ -2274,7 +2627,7 @@ fun GameViewModel.forceRestoreFromCloud(context: Context? = null, immediate: Boo
                 }
             } else {
                 com.example.ui.components.SmartNotificationManager.show(
-                    "⚠️ Bulutta kayıtlı ilerlemeniz bulunamadı.",
+                    "⚠️ Bulutta kayıtlı şirket ilerlemeniz bulunamadı.",
                     "⚠️ No company progress found in the cloud.",
                     com.example.ui.components.NotificationType.ALERT
                 )
@@ -2553,7 +2906,11 @@ fun GameViewModel.syncPlayerToSupabaseOnAuth(
         }
     }
 }
-fun GameViewModel.checkOfflineMuseumAuctions() {}
+fun GameViewModel.checkOfflineMuseumAuctions() {
+    viewModelScope.launch {
+        com.example.data.MuseumHeritageManager.seedMissingArtifactsToSupabase()
+    }
+}
 fun GameViewModel.checkAndApplyRemoteAdminModifications() {}
 private val processedPurchaseOrders = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -2713,7 +3070,11 @@ fun GameViewModel.skipResearchWithGems(techId: String) {
 fun GameViewModel.resetManagerDisciplineWithGems(managerId: String) {}
 
 fun GameViewModel.onProductProduced(productId: String, quantity: Int, facilityId: String? = null) {}
-fun GameViewModel.addXp(amount: Int) {}
+fun GameViewModel.addXp(amount: Int) {
+    if (amount > 0) {
+        processXpGain(amount)
+    }
+}
 fun GameViewModel.maintainBusiness(facilityId: Int) {
     kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
         val biz = businesses.value.find { it.id == facilityId } ?: return@launch
@@ -2773,12 +3134,12 @@ fun GameViewModel.startAutomationLoop() {
                     }
                 }
 
-                // 2. Üretim (mgr_prod)
+                // 2. Üretim (mgr_prod - Üretim Müdürü)
                 if (isAutoProduceActive.value) {
                     for (b in businesses.value) {
                         val prod = com.example.data.Product.values().find { it.facilityId == b.type || it.id == b.type }
-                        if (prod != null && b.getRemainingStorageCapacity() >= 5) {
-                            if (!_productionProgress.value.containsKey(prod.id)) {
+                        if (prod != null && !b.isConstructing && b.getRemainingStorageCapacity() >= 5) {
+                            if (!_productionProgress.value.containsKey(prod.id) && _activeProductions.value.none { it.productId == prod.id }) {
                                 val batchQty = minOf(10, b.getRemainingStorageCapacity()).coerceAtLeast(1)
                                 produce(prod.id, batchQty, isSilent = true)
                             }
@@ -2788,14 +3149,12 @@ fun GameViewModel.startAutomationLoop() {
 
                 // 3. Depo Sevkiyatı ve Otomatik Satış (mgr_logistics - Depo Müdürü)
                 if (isAutoSellActive.value) {
-                    transferAllFacilityStockToCentral(isSilent = true)
-                    
                     val totalCap = player.value?.inventoryCapacity ?: 5000
                     val currentStock = inventory.value.sumOf { it.quantity }
                     val fillRatio = if (totalCap > 0) currentStock.toFloat() / totalCap.toFloat() else 0f
                     
-                    // Depo Müdürü merkez deposunda %50 veya üzeri doluluk oranı gördüğünde otomatik satış yapar
-                    if (fillRatio >= 0.50f) {
+                    // Depo Müdürü merkez deposunda %75 veya üzeri doluluk oranı gördüğünde otomatik satış yapar
+                    if (fillRatio >= 0.75f) {
                         val sellableItems = inventory.value.filter { it.quantity > 0 }
                         if (sellableItems.isNotEmpty()) {
                             // Öncelik: İşlenmiş ürünler, yoksa en çok stoğu olan ürün
@@ -2804,27 +3163,16 @@ fun GameViewModel.startAutomationLoop() {
                                 ?: sellableItems.maxByOrNull { it.quantity }
                                 
                             if (targetItem != null) {
-                                // Doluluğu %50 altına indirecek hedef satış miktarı
-                                val targetReduction = (currentStock - (totalCap * 0.45f).toInt()).coerceAtLeast(10)
+                                val targetReduction = (currentStock - (totalCap * 0.50f).toInt()).coerceAtLeast(10)
                                 val sellQty = minOf(targetItem.quantity, targetReduction)
                                 if (sellQty > 0) {
                                     sell(targetItem.itemId, sellQty, isSilent = true)
                                     val perc = (fillRatio * 100).toInt()
                                     logManagerAction(
                                         "mgr_logistics",
-                                        "Depo Müdürü merkez depo %$perc doluluğa ulaştığı için ${targetItem.itemId} otomatik satışı yaptı ($sellQty Ton)",
+                                        "Depo Müdürü: Merkez depo %$perc doluluğa ulaştığı için ${targetItem.itemId} x$sellQty Ton borsa satışı yapıldı.",
                                         0L
                                     )
-                                    val prod = com.example.data.Product.values().find { it.id == targetItem.itemId }
-                                    val prodName = prod?.getDisplayName() ?: targetItem.itemId.uppercase()
-                                    // Silenced automatic Warehouse Manager notification as per user request to avoid distraction and Binder IPC overhead
-                                    /*
-                                    com.example.ui.components.SmartNotificationManager.show(
-                                        "💼 Depo Müdürü (Zeynep Demir): Merkez depo %$perc doluluğa ulaştığı için $sellQty Ton $prodName otomatik olarak satıldı!",
-                                        "💼 Warehouse Manager: Automatically sold $sellQty Tons of $prodName due to %$perc warehouse occupancy!",
-                                        com.example.ui.components.NotificationType.SUCCESS
-                                    )
-                                    */
                                 }
                             }
                         }
@@ -2838,26 +3186,6 @@ fun GameViewModel.startAutomationLoop() {
                     }
                 }
                 
-                // 4. Borsa Alım (mgr_borsa) - Raw Materials
-                if (isAutoBuyActive.value) {
-                    val rawMaterials = com.example.data.Product.values().filter { it.recipe.isEmpty() }
-                    for (raw in rawMaterials) {
-                        val inv = inventory.value.find { it.itemId == raw.id }
-                        val currentStock = inv?.quantity ?: 0
-                        if (currentStock < 1000) {
-                            val toBuy = 1000 - currentStock
-                            // Buy silently using engine
-                            val price = marketPrices.value.find { it.itemId == raw.id }?.price ?: raw.basePrice
-                            val totalCost = price * toBuy
-                            val p = player.value
-                            if (p != null && p.money > totalCost * 2) { // Only buy if we have double the money needed
-                                repository.produceItem(raw.id, toBuy) // Buy adds to inventory
-                                repository.updatePlayer(p.copy(money = p.money - totalCost))
-                            }
-                        }
-                    }
-                }
-                
             } catch (e: Exception) {
                 android.util.Log.e("GameViewModel", "Automation loop error", e)
             }
@@ -2867,7 +3195,59 @@ fun GameViewModel.startAutomationLoop() {
 
 fun GameViewModel.startRealTimeEconomyLoop() {}
 fun GameViewModel.startMidnightResetLoop() {}
-fun GameViewModel.startDemoPlayerBotLoop() {}
+fun GameViewModel.startDemoPlayerBotLoop() {
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        // Initial sync to leaderboard
+        com.example.data.BotTycoonManager.syncBotsToMultiplayerLeaderboard()
+        kotlinx.coroutines.delay(2000L)
+
+        // Seed initial bot listings in market if needed
+        com.example.data.BotTycoonManager.processMarketTradingCycle(this@startDemoPlayerBotLoop)
+
+        var cycleCount = 0
+        while (true) {
+            try {
+                kotlinx.coroutines.delay(12000L) // Every 12 seconds
+                cycleCount++
+
+                // 1. Market Trading Cycle (Buys player's goods, posts fresh market offers, fulfills buy orders)
+                com.example.data.BotTycoonManager.processMarketTradingCycle(this@startDemoPlayerBotLoop)
+
+                // 2. Live Borsa Exchange Cycle (Bots trade Tier 1 commodities with Borsa pool)
+                com.example.data.BotTycoonManager.processBorsaTradingCycle(this@startDemoPlayerBotLoop)
+
+                // 3. Consortium Delivery Cycle (Every 24s)
+                if (cycleCount % 2 == 0) {
+                    com.example.data.BotTycoonManager.processConsortiumCycle(this@startDemoPlayerBotLoop)
+                }
+
+                // 4. R&D and Net Worth Progression Cycle (Every 36s)
+                if (cycleCount % 3 == 0) {
+                    com.example.data.BotTycoonManager.processBotProgressionCycle()
+                }
+
+                // 5. Foreclosure Auction Maintenance & Bot Bidding Cycle (Every 24s)
+                if (cycleCount % 2 == 0) {
+                    com.example.data.ForeclosureManager.generateBotAuctions()
+                    com.example.data.ForeclosureManager.processBotBiddingCycle()
+                }
+
+                // 6. Autopilot Smart Directives Execution Cycle (Every 24s)
+                if (cycleCount % 2 == 0) {
+                    com.example.data.automation.AutopilotEngine.evaluateLiveGameContext(this@startDemoPlayerBotLoop)
+                    val smartDirectives = com.example.data.automation.AutopilotEngine.directivesState.value
+                    for (d in smartDirectives) {
+                        if (d.isAutoPilotEnabled) {
+                            com.example.data.automation.AutopilotEngine.executeDirective(d.id, this@startDemoPlayerBotLoop)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GameViewModel", "DemoPlayerBotLoop error", e)
+            }
+        }
+    }
+}
 fun GameViewModel.startAutoSaveDataStoreLoop() {
     viewModelScope.launch {
         while (true) {
@@ -2876,14 +3256,103 @@ fun GameViewModel.startAutoSaveDataStoreLoop() {
         }
     }
 }
+fun GameViewModel.triggerMinuteAutoCloudBackup() {
+    val cal = java.util.Calendar.getInstance()
+    val minuteKey = cal.get(java.util.Calendar.DAY_OF_YEAR) * 1440 + cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+    if (lastAutoCloudBackupMinuteKey == minuteKey) {
+        return // Bu dakikada zaten yedekleme tetiklendi
+    }
+    lastAutoCloudBackupMinuteKey = minuteKey
+    val timeFormatted = String.format(
+        java.util.Locale.getDefault(),
+        "%02d:%02d:00",
+        cal.get(java.util.Calendar.HOUR_OF_DAY),
+        cal.get(java.util.Calendar.MINUTE)
+    )
+    Log.i("GameViewModel", "⏰ Her dakika başı otomatik bulut yedekleme tetiklendi: $timeFormatted")
+
+    // syncCloudSaveToSupabase arka planda onlineEmail/snapshot kontrolünü yapıp Supabase'e güvenle yedekler
+    syncCloudSaveToSupabase(force = true, immediate = true, isManual = false)
+}
+
+fun GameViewModel.checkAndTriggerHourlyBorsaPriceRecalculation(cal: java.util.Calendar) {
+    val currentMinute = cal.get(java.util.Calendar.MINUTE)
+    val currentHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val hourKey = "${cal.get(java.util.Calendar.DAY_OF_YEAR)}_$currentHour"
+
+    // Her saat başında (:00 dakikasında) veya uygulama yeni açıldığında bu saat için henüz hesaplanmamışsa
+    if ((currentMinute == 0 || lastHourlyBorsaRecalculationKey.isEmpty()) && lastHourlyBorsaRecalculationKey != hourKey) {
+        lastHourlyBorsaRecalculationKey = hourKey
+        _lastHourlyBorsaRecalculationTimeMs.value = System.currentTimeMillis()
+        recalculateAllBorsaPricesFromStocks(notifyUser = (currentMinute == 0))
+    }
+}
+
+fun GameViewModel.recalculateAllBorsaPricesFromStocks(notifyUser: Boolean = true) {
+    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        val currentPrices = marketPrices.value
+        if (currentPrices.isEmpty()) return@launch
+
+        val updatedPrices = currentPrices.map { p ->
+            val prod = Product.values().find { it.id == p.itemId }
+            val basePrice = prod?.basePrice ?: p.price
+            val recalculatedPrice = MacroEconomyEngine.calculatePriceFromStock(
+                stock = p.borsaStock,
+                basePrice = basePrice
+            )
+            p.copy(price = recalculatedPrice)
+        }
+
+        repository.updateMarketPrices(updatedPrices, syncToRemote = false)
+        repository.syncGlobalBorsaPricesToSupabase(updatedPrices, force = true)
+        MultiplayerManager.sendBroadcastBorsaPrices(updatedPrices)
+
+        if (notifyUser) {
+            val msgTr = "⏰ SAATLİK BORSA GÜNCELLEMESİ: Tüm emtiaların fiyatları güncel stok arz-talep formülüyle yenilendi! 📈"
+            val msgEn = "⏰ HOURLY EXCHANGE UPDATE: Commodity prices recalculated via real-time stock supply-demand formula! 📈"
+            _newsTickerMessage.value = "$msgTr | ${_newsTickerMessage.value}"
+            com.example.ui.components.SmartNotificationManager.show(msgTr, msgEn, com.example.ui.components.NotificationType.INFO)
+        }
+    }
+}
+
 fun GameViewModel.startSupabaseAutoSyncLoop() {
     viewModelScope.launch {
-        while (true) {
-            kotlinx.coroutines.delay(30000L) // Auto sync to Supabase every 30 seconds
-            val email = _onlineEmail.value
-            if (email.isNotBlank() && email != "misafir_tuccar" && !email.startsWith("guest")) {
-                syncCloudSaveToSupabase(force = false, immediate = true, isManual = false)
+        // Başlangıçta DataStore ve yerel durum yüklemesi için kısa süre bekle
+        kotlinx.coroutines.delay(3500L)
+
+        // Açılışta kullanıcı online ise ilk senkronizasyonu yap
+        try {
+            var email = _onlineEmail.value.trim()
+            if (email.isBlank() || email == "misafir_tuccar" || email.startsWith("guest")) {
+                val stored = repository.economicDataStore?.getEconomicSnapshot()
+                val candidate = stored?.onlineEmail.orEmpty().trim()
+                if (candidate.isNotBlank() && candidate != "misafir_tuccar" && !candidate.startsWith("guest")) {
+                    _onlineEmail.value = candidate
+                    _isOnlineRegistered.value = true
+                }
             }
+            if (_isOnlineRegistered.value && _onlineEmail.value.isNotBlank() && _onlineEmail.value != "misafir_tuccar") {
+                syncCloudSaveToSupabase(force = true, immediate = true, isManual = false)
+            }
+        } catch (e: Exception) {
+            Log.e("GameViewModel", "Initial Supabase sync error", e)
+        }
+
+        while (true) {
+            val now = System.currentTimeMillis()
+            // Dakika başına (:00 saniyesine) kalan milisaniyeyi kesin olarak hesapla
+            val millisInCurrentMinute = now % 60_000L
+            val millisUntilNextMinute = (60_000L - millisInCurrentMinute).coerceIn(100L, 60_000L)
+
+            // Tam dakika başına kadar bekle
+            kotlinx.coroutines.delay(millisUntilNextMinute)
+
+            // Dakika başı otomatik bulut yedeklemesini gerçekleştir
+            triggerMinuteAutoCloudBackup()
+
+            // Saat başı (:00) borsa stok-fiyat yeniden hesaplamasını gerçekleştir
+            checkAndTriggerHourlyBorsaPriceRecalculation(java.util.Calendar.getInstance())
         }
     }
 }

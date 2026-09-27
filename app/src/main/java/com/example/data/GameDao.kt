@@ -42,6 +42,9 @@ interface GameDao {
     @Query("SELECT * FROM market_prices")
     fun getMarketPrices(): Flow<List<MarketPriceEntity>>
 
+    @Query("SELECT * FROM market_prices")
+    suspend fun getMarketPricesDirect(): List<MarketPriceEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMarketPrices(prices: List<MarketPriceEntity>)
 

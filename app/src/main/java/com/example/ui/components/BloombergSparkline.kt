@@ -200,7 +200,7 @@ fun BloombergPriceBadge(
 
     val percentChange = remember(floatData) {
         if (floatData.size >= 2 && floatData.first() > 0f) {
-            ((floatData.last() - floatData.first()) / floatData.first()) * 100f
+            (((floatData.last() - floatData.first()) / floatData.first()) * 100f).coerceIn(-90f, 500f)
         } else 0f
     }
 

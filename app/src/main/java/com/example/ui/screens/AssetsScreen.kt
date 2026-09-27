@@ -22,6 +22,9 @@ import com.example.ui.components.SupplyChainAnalyzerDialog
 import com.example.ui.components.AntiqueMuseumSection
 import com.example.ui.components.AntiqueMuseumDialog
 import com.example.ui.components.OsbIsometricZoneView
+import com.example.ui.components.SynergyCraftingPanel
+import com.example.ui.components.QualityRatePreviewBar
+import com.example.ui.components.FacilityQualityPotentialBar
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -84,6 +87,12 @@ data class RecipeRequirementStatus(
     val isSufficient: Boolean
 )
 
+// View mode enum for Facilities Screen
+enum class FacilityViewMode {
+    LIST, // 🏭 Tesislerim (Liste)
+    FLOW  // 🔄 Tedarik Zinciri (Akış)
+}
+
 @Composable
 fun AssetsScreen(
     uiState: com.example.viewmodel.GameUiState,
@@ -112,6 +121,7 @@ fun AssetsContent(
 
     val haptic = LocalHapticFeedback.current
 
+    var selectedViewMode by remember { mutableStateOf(FacilityViewMode.LIST) }
     var showCityDialogFor by remember { mutableStateOf<Product?>(null) }
     var showProduceDialogFor by remember { mutableStateOf<Product?>(null) }
     var showSellDialogForBusiness by remember { mutableStateOf<BusinessEntity?>(null) }
@@ -140,31 +150,134 @@ fun AssetsContent(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        MeshBackground(gameState = uiState.gameStateObj, isCelebrating = false)
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Üst Kısım: Görünüm Değiştirici Segmented Tab Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF0F1726))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF162032),
+                border = BorderStroke(1.dp, Color(0xFF26354D)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // Tab 1: [ 🏭 Tesislerim (Liste) ]
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedViewMode = FacilityViewMode.LIST
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(3.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selectedViewMode == FacilityViewMode.LIST) Color(0xFF2563EB) else Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = tr("🏭 Tesislerim (Liste)", "🏭 Facilities (List)", isEnglish),
+                                fontWeight = if (selectedViewMode == FacilityViewMode.LIST) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.5.sp,
+                                color = if (selectedViewMode == FacilityViewMode.LIST) Color.White else Color(0xFF94A3B8)
+                            )
+                        }
+                    }
 
-        OsbIsometricZoneView(
-            uiState = uiState,
-            viewModel = viewModel,
-            onIntent = onIntent,
-            selectedCityFilter = selectedCityFilter,
-            onCityFilterChanged = { selectedCityFilter = it },
-            selectedTierFilter = selectedTierFilter,
-            onTierFilterChanged = { selectedTierFilter = it },
-            searchQuery = searchQuery,
-            onSearchQueryChanged = { searchQuery = it },
-            onOpenBuildNewFacility = { cityId ->
-                if (cityId != null) selectedCityFilter = cityId
-                showNewFacilityDialog = true
-            },
-            onOpenProduceDialog = { prod ->
-                showProduceDialogFor = prod
-            },
-            onOpenSellDialog = { biz ->
-                showSellDialogForBusiness = biz
-            },
-            onNavigateToRd = onNavigateToRd
-        )
+                    // Tab 2: [ 🔄 Tedarik Zinciri (Akış) ]
+                    Surface(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedViewMode = FacilityViewMode.FLOW
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(3.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selectedViewMode == FacilityViewMode.FLOW) Color(0xFF0D9488) else Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = tr("🔄 Tedarik Zinciri (Akış)", "🔄 Supply Chain (Flow)", isEnglish),
+                                fontWeight = if (selectedViewMode == FacilityViewMode.FLOW) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.5.sp,
+                                color = if (selectedViewMode == FacilityViewMode.FLOW) Color.White else Color(0xFF94A3B8)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            MeshBackground(gameState = uiState.gameStateObj, isCelebrating = false)
+
+            if (selectedViewMode == FacilityViewMode.LIST) {
+                OsbIsometricZoneView(
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    onIntent = onIntent,
+                    selectedCityFilter = selectedCityFilter,
+                    onCityFilterChanged = { selectedCityFilter = it },
+                    selectedTierFilter = selectedTierFilter,
+                    onTierFilterChanged = { selectedTierFilter = it },
+                    searchQuery = searchQuery,
+                    onSearchQueryChanged = { searchQuery = it },
+                    onOpenBuildNewFacility = { cityId ->
+                        if (cityId != null) selectedCityFilter = cityId
+                        showNewFacilityDialog = true
+                    },
+                    onOpenProduceDialog = { prod ->
+                        showProduceDialogFor = prod
+                    },
+                    onOpenSellDialog = { biz ->
+                        showSellDialogForBusiness = biz
+                    },
+                    onNavigateToRd = onNavigateToRd
+                )
+            } else {
+                SupplyChainFlowScreen(
+                    viewModel = viewModel,
+                    initialProductId = initialProductId ?: "ev",
+                    onNavigateBack = {
+                        selectedViewMode = FacilityViewMode.LIST
+                    },
+                    onNavigateToBuild = { targetProductId ->
+                        val prod = Product.values().find {
+                            it.id.equals(targetProductId, ignoreCase = true) ||
+                            it.facilityId.equals(targetProductId, ignoreCase = true)
+                        }
+                        if (prod != null) {
+                            showCityDialogFor = prod
+                        } else {
+                            showNewFacilityDialog = true
+                        }
+                    },
+                    onNavigateToWarehouse = { _ ->
+                        selectedViewMode = FacilityViewMode.LIST
+                    }
+                )
+            }
 
         // DIALOG: ŞEHİR SEÇİMİ VE TESİS İNŞASI
         if (showCityDialogFor != null) {
@@ -259,6 +372,7 @@ fun AssetsContent(
             )
         }
     }
+}
 }
 
 // ==========================================
@@ -464,26 +578,30 @@ fun ProduceControlDialog(
     }
 
     val ownedFacilityCount = productBusinesses.size
-    val facilityLimit = if (productBusinesses.isNotEmpty()) {
-        productBusinesses.sumOf { 50 + (it.level * 50) }
+    val facilityStorageRemaining = if (productBusinesses.isNotEmpty()) {
+        productBusinesses.sumOf { it.getRemainingStorageCapacity() }
     } else {
-        100
+        val totalCentral = inventory.sumOf { it.quantity }
+        ((viewModel.player.value?.inventoryCapacity ?: 1000) - totalCentral).coerceAtLeast(0)
     }
+    val isStorageFull = facilityStorageRemaining <= 0
 
     val maxProducingQuantity = minOf(
         maxByMoney.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
         if (autoProcureEnabled) Int.MAX_VALUE else (if (product.recipe.isEmpty()) Int.MAX_VALUE else maxByIngredients),
-        facilityLimit
+        facilityStorageRemaining
     ).coerceAtLeast(0)
 
     var inputQuantityText by remember { mutableStateOf(if (maxProducingQuantity > 0) "1" else "0") }
     val currentQty = inputQuantityText.toIntOrNull() ?: 0
     val totalCost = try { Math.multiplyExact(dynamicProductionCost, currentQty.toLong()) } catch(e: Exception) { Long.MAX_VALUE }
 
-    // If auto-procure is enabled, the actual cost will be higher, but we validate strictly in ViewModel
-    // Here we just allow the user to click if they have some money and qty is valid
-    val canProduce = currentQty > 0 && currentQty <= maxProducingQuantity && activeBalance >= totalCost
-    val invalidQtyMsg = "Lütfen geçerli miktar veya yeterli hammadde sağlayın!".trAuto()
+    val canProduce = !isStorageFull && currentQty > 0 && currentQty <= maxProducingQuantity && activeBalance >= totalCost
+    val invalidQtyMsg = if (isStorageFull) {
+        "Depo dolu olduğu için üretim yapılamaz! Lütfen deponun boşalmasını bekleyin.".trAuto()
+    } else {
+        "Lütfen geçerli miktar veya yeterli hammadde sağlayın!".trAuto()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -561,7 +679,21 @@ fun ProduceControlDialog(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             CurrencyText("Maksimum Üretim Limiti:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText("$maxProducingQuantity " + "Adet".trAuto(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                            CurrencyText("$maxProducingQuantity " + "Adet".trAuto(), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = if (isStorageFull) ThemeNegative else ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            CurrencyText("Kalan Depo Alanı:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText(
+                                if (isStorageFull) "0 Ton (DEPO DOLU)".trAuto() else "$facilityStorageRemaining Ton",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isStorageFull) ThemeNegative else ThemePositive,
+                                fontFamily = RobotoMonoFontFamily
+                            )
                         }
 
                         val avgWear = if (productBusinesses.isNotEmpty()) (productBusinesses.sumOf { it.wearLevel.toDouble() } / productBusinesses.size).toFloat() else 0f
@@ -592,6 +724,37 @@ fun ProduceControlDialog(
                     }
                 }
 
+                // Storage Full Warning Card
+                if (isStorageFull) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFFEF5350).copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, Color(0xFFEF5350)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Rounded.Warning, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(20.dp))
+                            Column {
+                                CurrencyText("⚠️ DEPO DOLU: Üretim Durduruldu".trAuto(), color = Color(0xFFEF5350), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                CurrencyText("Tesis deposu tamamen dolduğu için üretim devam edemez. Üretime devam etmek için lütfen deponun boşalmasını (satış veya transfer) bekleyin.".trAuto(), color = Color.White.copy(alpha = 0.9f), fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                // Kalite Potansiyeli Barı (Quality Potential Bar)
+                val activeFacilityLevel = productBusinesses.maxOfOrNull { it.level } ?: 1
+                val activeFacilityWear = productBusinesses.firstOrNull()?.wearLevel ?: 0.0f
+                FacilityQualityPotentialBar(
+                    facilityLevel = activeFacilityLevel,
+                    product = product,
+                    wearLevel = activeFacilityWear
+                )
+
                 // Recipe Checklist for Selected Quantity
                 if (product.recipe.isNotEmpty()) {
                     CurrencyText(
@@ -604,7 +767,7 @@ fun ProduceControlDialog(
                     
                     val dynamicRecipeDetails = product.recipe.map { req ->
                         val reqProd = Product.values().find { it.id == req.productId }
-                        val stock = inventory.find { it.itemId == req.productId }?.quantity ?: 0
+                        val stock = inventory.filter { it.baseProductId == req.productId }.sumOf { it.quantity }
                         val requiredTotal = req.amountPerUnit * currentQty
                         RecipeRequirementStatus(
                             productId = req.productId,
@@ -618,6 +781,13 @@ fun ProduceControlDialog(
                     ProductHolographicMatrix(
                         product = product,
                         recipeDetails = dynamicRecipeDetails
+                    )
+
+                    // 🏭 Kalite Mirası & Sinerji Üretimi (Synergy Crafting Panel)
+                    SynergyCraftingPanel(
+                        product = product,
+                        businesses = viewModel.businesses.value,
+                        playerLevel = viewModel.player.value?.level ?: 1
                     )
 
                     val hasMissingIngredients = dynamicRecipeDetails.any { !it.isSufficient }
@@ -805,7 +975,11 @@ fun ProduceControlDialog(
                 ),
                 shape = RoundedCornerShape(4.dp)
             ) {
-                CurrencyText("Üretimi Başlat".trAuto(), fontWeight = FontWeight.Bold, fontFamily = RobotoMonoFontFamily)
+                CurrencyText(
+                    if (isStorageFull) "⚠️ DEPO DOLU (Boşalması Bekleniyor)".trAuto() else "Üretimi Başlat".trAuto(),
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = RobotoMonoFontFamily
+                )
             }
         },
         dismissButton = {

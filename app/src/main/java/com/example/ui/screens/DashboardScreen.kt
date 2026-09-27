@@ -1353,15 +1353,23 @@ fun HeroPlayerCompanyCard(
     val themeOption = LocalAppThemeOption.current
     val isEng = isEnglishLanguage()
 
-    // Title & Level Calculations
-    val title = remember(player.level, isEng) { calculateTraderTitle(player.level, isEng) }
-    val currentLevelMinXp = remember(player.level) {
-        if (player.level <= 1) 0 else ((player.level - 1) * 1000)
+    // Title & Level Calculations from XpLevelEngine
+    val levelProgress = remember(player.xp) {
+        com.example.data.XpLevelEngine.getProgress(player.xp.toLong())
     }
-    val nextLevelTargetXp = remember(player.level) { player.level * 1000 }
-    val xpInLevel = (player.xp - currentLevelMinXp).coerceAtLeast(0)
-    val xpNeeded = (nextLevelTargetXp - currentLevelMinXp).coerceAtLeast(1)
-    val progressRatio = (xpInLevel.toFloat() / xpNeeded.toFloat()).coerceIn(0f, 1f)
+    val effectiveLevel = remember(player.level, levelProgress.level) {
+        maxOf(player.level, levelProgress.level)
+    }
+    val title = remember(effectiveLevel, isEng) { calculateTraderTitle(effectiveLevel, isEng) }
+    val xpInLevel = levelProgress.currentLevelXp
+    val xpNeeded = levelProgress.targetLevelXp
+    val progressRatio = levelProgress.progressFraction
+
+    val animatedProgressRatio by animateFloatAsState(
+        targetValue = progressRatio,
+        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        label = "xpAnimatedProgressBar"
+    )
 
     // Date Text
     val dateText = if (uiState.realTimeClockText.isNotBlank()) {
@@ -1478,7 +1486,7 @@ fun HeroPlayerCompanyCard(
                                     border = BorderStroke(0.6.dp, ThemeGold.copy(alpha = 0.70f))
                                 ) {
                                     CurrencyText(
-                                        text = "LVL ${player.level}",
+                                        text = "LVL $effectiveLevel",
                                         color = ThemeGold,
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Black,
@@ -1593,7 +1601,7 @@ fun HeroPlayerCompanyCard(
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .fillMaxWidth(progressRatio.coerceIn(0.02f, 1f))
+                                .fillMaxWidth(animatedProgressRatio.coerceIn(0.02f, 1f))
                                 .background(
                                     Brush.horizontalGradient(
                                         listOf(ThemeNeonCyan, ThemeGold)
@@ -1604,8 +1612,9 @@ fun HeroPlayerCompanyCard(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    val percent = (progressRatio * 100).toInt().coerceIn(0, 100)
                     CurrencyText(
-                        text = "${formatCompactNumber(xpInLevel.toLong())} / ${formatCompactNumber(xpNeeded.toLong())} XP (%${(progressRatio * 100).toInt()})",
+                        text = "${formatCompactNumber(xpInLevel)} / ${formatCompactNumber(xpNeeded)} XP (%$percent)",
                         color = Color(0xFF94A3B8),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
@@ -1619,13 +1628,14 @@ fun HeroPlayerCompanyCard(
                 val cashAndDeposit = (cash + deposit + player.lockedDepositBalance).coerceAtLeast(0L)
                 val facilityVal = uiState.facilityValuation.coerceAtLeast(0L)
                 val invVal = uiState.inventoryValuation.coerceAtLeast(0L)
+                val consortiumVal = uiState.consortiumValuation.coerceAtLeast(0L)
                 val guildSharesVal = remember(uiState.guildsState.playerGuildShares, uiState.guildsState.playerGuildBuyPrices) {
                     uiState.guildsState.playerGuildShares.entries.sumOf { (id, count) ->
                         val p = uiState.guildsState.playerGuildBuyPrices[id] ?: 1000.0
                         (count * p).toLong()
                     }
                 }
-                val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal)).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
+                val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal)).coerceAtLeast(consortiumVal).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
                 val totalAllocation = (cashAndDeposit + facilityVal + invVal + otherVal).coerceAtLeast(1L)
 
                 val pctCash = ((cashAndDeposit.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)

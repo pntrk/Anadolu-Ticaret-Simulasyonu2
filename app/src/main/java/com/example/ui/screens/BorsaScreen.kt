@@ -118,6 +118,10 @@ fun BorsaScreen(
     val activeDeliveries by viewModel.activeDeliveries.collectAsStateWithLifecycle()
     val limitOrders by viewModel.borsaLimitOrders.collectAsStateWithLifecycle()
     val activeLimitOrdersCount = remember(limitOrders) { limitOrders.count { it.isActive } }
+    val nextHourlySyncMs by viewModel.nextHourlyBorsaSyncRemainingMs.collectAsStateWithLifecycle()
+    val nextHourlyMinutes = (nextHourlySyncMs / 60000L).coerceAtLeast(0L)
+    val nextHourlySeconds = ((nextHourlySyncMs % 60000L) / 1000L).coerceAtLeast(0L)
+    val nextHourlyCountdownStr = String.format(java.util.Locale.US, "%02d:%02d", nextHourlyMinutes, nextHourlySeconds)
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedTierFilter by remember { mutableStateOf<ProductTier?>(null) } // null = All
@@ -132,7 +136,11 @@ fun BorsaScreen(
     val theme = LocalAppThemeOption.current
      
 
-    Column(modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = if (theme.isDark) listOf(Color(0xFF1E2638), theme.backgroundColor) else listOf(Color(0xFFE2E8F0), theme.backgroundColor), radius = 1200f))) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWidePcScreen = maxWidth >= 720.dp
+        val itemsPerRow = if (isWidePcScreen) 3 else 2
+
+        Column(modifier = Modifier.fillMaxSize().background(Brush.radialGradient(colors = if (theme.isDark) listOf(Color(0xFF1E2638), theme.backgroundColor) else listOf(Color(0xFFE2E8F0), theme.backgroundColor), radius = 1200f))) {
         // Top Live Marquee Ticker (Uzman Modda Aktif)
         if (isExpertModeState) {
             if (selectedBorsaTab == 0) {
@@ -289,7 +297,7 @@ fun BorsaScreen(
                     pricesState.mapNotNull { priceEntity -> val prod = Product.values().find { it.id == priceEntity.itemId }; if (prod != null) Pair(prod, priceEntity) else null }.filter { (prod, priceEntity) ->
                         val matchesSearch = searchQuery.isEmpty() || prod.getDisplayName().contains(searchQuery, ignoreCase = true) || prod.id.contains(searchQuery, ignoreCase = true)
                         val matchesTier = selectedTierFilter == null || prod.tier == selectedTierFilter
-                        val stock = inventoryState.find { it.itemId == prod.id }?.quantity ?: 0
+                        val stock = inventoryState.filter { it.baseProductId == prod.id }.sumOf { it.quantity }
                         val matchesStock = !showOnlyInStock || stock > 0
                         matchesSearch && matchesTier && matchesStock
                     }.sortedWith { a, b ->
@@ -297,8 +305,8 @@ fun BorsaScreen(
                         val (prodB, priceEntityB) = b
                         val priceA = priceEntityA.price
                         val priceB = priceEntityB.price
-                        val stockA = inventoryState.find { it.itemId == prodA.id }?.quantity ?: 0
-                        val stockB = inventoryState.find { it.itemId == prodB.id }?.quantity ?: 0
+                        val stockA = inventoryState.filter { it.baseProductId == prodA.id }.sumOf { it.quantity }
+                        val stockB = inventoryState.filter { it.baseProductId == prodB.id }.sumOf { it.quantity }
 
                         when (sortBy) {
                             "PRICE_DESC" -> priceB.compareTo(priceA)
@@ -310,8 +318,8 @@ fun BorsaScreen(
                 }
             }
 
-            val chunkedFiltered by remember(filteredProducts) {
-                derivedStateOf { filteredProducts.chunked(2) }
+            val chunkedFiltered by remember(filteredProducts, itemsPerRow) {
+                derivedStateOf { filteredProducts.chunked(itemsPerRow) }
             }
 
             LazyColumn(
@@ -530,7 +538,7 @@ fun BorsaScreen(
                     ) {
                         rowProducts.forEach { (product, priceEntity) ->
                             val currentPrice = priceEntity.price
-                            val ownedQuantity = inventoryState.find { it.itemId == product.id }?.quantity ?: 0
+                            val ownedQuantity = inventoryState.filter { it.baseProductId == product.id }.sumOf { it.quantity }
                             val borsaStock = priceEntity.borsaStock
                             val demandStock = ((borsaStock * 1.15) + 120.0).toLong().coerceAtMost(com.example.data.MacroEconomyEngine.MAX_BORSA_STOCK)
 
@@ -574,8 +582,10 @@ fun BorsaScreen(
                             )
                         }
 
-                        if (rowProducts.size == 1) {
-                            Spacer(modifier = Modifier.weight(1f))
+                        if (rowProducts.size < itemsPerRow) {
+                            repeat(itemsPerRow - rowProducts.size) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }
@@ -586,7 +596,7 @@ fun BorsaScreen(
         // Borsa Trade Modal Dialog
         val tradeProduct = selectedProductForTrade
         if (tradeProduct != null) {
-            val pStock = inventoryState.find { it.itemId == tradeProduct.id }?.quantity ?: 0
+            val pStock = inventoryState.filter { it.baseProductId == tradeProduct.id }.sumOf { it.quantity }
             val pMoney = playerState?.money ?: 0L
             val pCap = playerState?.inventoryCapacity ?: 5000
             val currentTotalInv = inventoryState.sumOf { it.quantity }
@@ -628,6 +638,7 @@ fun BorsaScreen(
             )
         }
     }
+}
 }
 
 @Composable
@@ -726,14 +737,17 @@ fun CommodityMarketCard(
     modifier: Modifier = Modifier
 ) {
     val isEng = isEnglishLanguage()
-    val effectiveBasePrice = product.basePrice
-    val isUp = remember(price, effectiveBasePrice) { (price - effectiveBasePrice) >= 0 }
-    val trendColor = remember(isUp) { if (isUp) ThemePositive else ThemeNegative }
-    val trendBg = remember(isUp) { if (isUp) ThemePositiveBg else ThemeNegativeBg }
-    val percentText = remember(price, effectiveBasePrice, isUp) {
-        val diff = price - effectiveBasePrice
-        val pct = ((diff.toDouble() / effectiveBasePrice.toDouble()) * 100.0)
-        if (isUp) "+${String.format(java.util.Locale.US, "%.1f", pct)}%" else "${String.format(java.util.Locale.US, "%.1f", pct)}%"
+    val effectiveBasePrice = product.basePrice.coerceAtLeast(10L)
+    val priceDiff = price - effectiveBasePrice
+    val isUp = priceDiff > 0
+    val isDown = priceDiff < 0
+    val trendColor = remember(isUp, isDown) { if (isUp) ThemePositive else if (isDown) ThemeNegative else Color.Gray }
+    val trendBg = remember(isUp, isDown) { if (isUp) ThemePositiveBg else if (isDown) ThemeNegativeBg else Color.Gray.copy(alpha = 0.12f) }
+    val percentText = remember(price, effectiveBasePrice, isUp, isDown) {
+        val pct = ((priceDiff.toDouble() / effectiveBasePrice.toDouble()) * 100.0).coerceIn(-90.0, 500.0)
+        if (isUp) "+${String.format(java.util.Locale.US, "%.1f", pct)}%"
+        else if (isDown) "${String.format(java.util.Locale.US, "%.1f", pct)}%"
+        else "0.0%"
     }
 
     val brandColor = remember(product.colorTint) { Color(product.colorTint) }
@@ -912,13 +926,26 @@ fun CommodityMarketCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    CurrencyText(
-                        text = tr("Borsa Kuru", "Exchange Rate"),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 8.5.sp,
-                        color = Color.Gray,
-                        maxLines = 1
-                    )
+                    val deltaPerTon = product.basePrice.toDouble() / 999999.0
+                    val deltaStr = String.format(java.util.Locale.US, "%.5f", deltaPerTon)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CurrencyText(
+                            text = tr("Kuru", "Rate"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.5.sp,
+                            color = Color.Gray,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        CurrencyText(
+                            text = "±₳$deltaStr/T",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.sp,
+                            color = ThemeNeonCyan,
+                            fontFamily = RobotoMonoFontFamily,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(2.dp))
@@ -1306,11 +1333,12 @@ fun BorsaTradeModal(
     }
     val maxSellable = ownedQuantity
 
-    val effectiveBasePrice = product.basePrice
+    val effectiveBasePrice = product.basePrice.coerceAtLeast(10L)
     val priceDiff = price - effectiveBasePrice
-    val isUp = priceDiff >= 0
-    val pct = ((priceDiff.toDouble() / effectiveBasePrice.toDouble()) * 100.0)
-    val percentText = if (isUp) "+${String.format(java.util.Locale.US, "%.1f", pct)}%" else "${String.format(java.util.Locale.US, "%.1f", pct)}%"
+    val isUp = priceDiff > 0
+    val isDown = priceDiff < 0
+    val pct = ((priceDiff.toDouble() / effectiveBasePrice.toDouble()) * 100.0).coerceIn(-90.0, 500.0)
+    val percentText = if (isUp) "+${String.format(java.util.Locale.US, "%.1f", pct)}%" else if (isDown) "${String.format(java.util.Locale.US, "%.1f", pct)}%" else "0.0%"
 
     val high24h = if (history.isNotEmpty()) maxOf(price, history.maxOrNull() ?: price) else (price * 1.05).toLong()
     val low24h = if (history.isNotEmpty()) minOf(price, history.minOrNull() ?: price) else (price * 0.95).toLong()
@@ -1459,7 +1487,7 @@ fun BorsaTradeModal(
                     }
                 }
 
-                // 🚨 KRİZ ORTAMI VE DEVLET TEŞVİK PRİMİ BANNERI (Borsa Stoğu <= 999.999 Ton ise)
+                // 🚨 KRİZ ORTAMI VE DEVLET TEŞVİK PRİMİ BANNERI (Borsa Stoğu <= 999 Ton ise)
                 if (borsaStock <= com.example.data.MacroEconomyEngine.CRISIS_STOCK_THRESHOLD) {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
@@ -1479,8 +1507,8 @@ fun BorsaTradeModal(
                             }
                             CurrencyText(
                                 text = tr(
-                                    "Borsa rezervleri kritik eşiğin altına indi ($borsaStock Ton <= 999.999)! Fiyat 2 katına fırladı. Devlet Hazine Teşviki ile bu üründe: ⚡ %50 Üretim Hızı Bonusu ve 🏛️ %25 Nakit Teşvik Primi aktiftir!",
-                                    "Reserves dropped below critical threshold ($borsaStock Tons <= 999,999)! Price doubled. State Treasury Incentive active: ⚡ 50% Production Speed Bonus & 🏛️ 25% Cash Subsidy Bonus!"
+                                    "Borsa rezervleri kritik eşiğin altına indi ($borsaStock Ton <= 999)! Fiyat 2 katına fırladı. Devlet Hazine Teşviki ile bu üründe: ⚡ %50 Üretim Hızı Bonusu ve 🏛️ %25 Nakit Teşvik Primi aktiftir!",
+                                    "Reserves dropped below critical threshold ($borsaStock Tons <= 999)! Price doubled. State Treasury Incentive active: ⚡ 50% Production Speed Bonus & 🏛️ 25% Cash Subsidy Bonus!"
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 fontSize = 11.sp,
@@ -1885,8 +1913,25 @@ fun BorsaTradeModal(
                     }
                 }
 
-                // Toplam Tutar ve İşlem Butonu
-                val totalCost = try { Math.multiplyExact(price.toLong(), quantity.toLong()) } catch(e: Exception) { Long.MAX_VALUE }
+                // Toplam Tutar ve İşlem Butonu (Satış modunda envanterdeki ürünlerin kalite çarpanı uygulanır)
+                val ownedItems = viewModel.inventory.value.filter { it.baseProductId == product.id && it.quantity > 0 }
+                val totalCost = if (tradeMode == TradeMode.SELL && ownedItems.isNotEmpty()) {
+                    var rem = quantity
+                    var income = 0L
+                    for (item in ownedItems) {
+                        if (rem <= 0) break
+                        val take = minOf(item.quantity, rem)
+                        val unitP = (price * item.quality.priceMultiplier).toLong()
+                        income += unitP * take
+                        rem -= take
+                    }
+                    if (rem > 0) income += (price * rem)
+                    income
+                } else {
+                    try { Math.multiplyExact(price.toLong(), quantity.toLong()) } catch(e: Exception) { Long.MAX_VALUE }
+                }
+
+                val maxOwnedQuality = ownedItems.maxByOrNull { it.quality.stars }?.quality
                 val isCrisisActive = borsaStock <= com.example.data.MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
                 val subsidyBonus = if (tradeMode == TradeMode.SELL && isCrisisActive) (totalCost * 0.25).toLong() else 0L
                 val grandTotal = if (tradeMode == TradeMode.BUY) totalCost + logisticsCostTry else (totalCost + subsidyBonus)
@@ -1920,6 +1965,85 @@ fun BorsaTradeModal(
                                 color = Color.White,
                                 fontFamily = RobotoMonoFontFamily
                             )
+                        }
+
+                        // Canlı Borsa Havuzu & Stok Etki Göstergesi (Reel Supabase Değişimi)
+                        HorizontalDivider(color = ThemeBorder.copy(alpha = 0.4f), modifier = Modifier.padding(vertical = 2.dp))
+                        val resultingStock = if (tradeMode == TradeMode.BUY) (borsaStock - quantity).coerceAtLeast(0L) else (borsaStock + quantity)
+                        val isCrisisWarning = resultingStock <= com.example.data.MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(6.dp).background(Color(0xFF00E676), CircleShape))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                CurrencyText(
+                                    text = if (tradeMode == TradeMode.BUY) tr("Borsa Rezerv Etkisi:", "Borsa Reserve Impact:") else tr("Borsa Havuzuna Giriş:", "Borsa Inflow Impact:"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.LightGray,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            CurrencyText(
+                                text = "${formatStockTons(borsaStock, isEng)} ➔ ${formatStockTons(resultingStock, isEng)}${if (isCrisisWarning) (if (isEng) " (CRISIS!)" else " (KRİZ!)") else ""}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isCrisisWarning) Color(0xFFFF5252) else ThemeNeonCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = RobotoMonoFontFamily,
+                                fontSize = 10.5.sp
+                            )
+                        }
+
+                        // Fiyat Değişim Etkisi (Otomatik Stok-Fiyat Formülü)
+                        val resultingPrice = com.example.data.MacroEconomyEngine.calculatePriceFromStock(resultingStock, product.basePrice)
+                        val priceImpact = resultingPrice - price
+                        val priceImpactPct = if (price > 0) ((priceImpact.toDouble() / price.toDouble()) * 100.0) else 0.0
+                        val impactPrefix = if (priceImpact >= 0) "+" else ""
+                        val impactColor = if (priceImpact > 0) Color(0xFFFF8A80) else if (priceImpact < 0) Color(0xFF69F0AE) else Color.Gray
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CurrencyText(
+                                text = tr("Borsa Fiyat Etkisi:", "Borsa Price Impact:"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.LightGray,
+                                fontSize = 10.sp
+                            )
+                            CurrencyText(
+                                text = "$impactPrefix₳${com.example.ui.components.formatCredit(priceImpact)} (${impactPrefix}${String.format(java.util.Locale.US, "%.2f", priceImpactPct)}%)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = impactColor,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = RobotoMonoFontFamily,
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        if (tradeMode == TradeMode.SELL && maxOwnedQuality != null && maxOwnedQuality.stars > 1) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CurrencyText(
+                                    text = tr("💎 Kalite Fiyat Primi:", "💎 Quality Price Bonus:"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = maxOwnedQuality.badgeColor,
+                                    fontSize = 11.sp
+                                )
+                                CurrencyText(
+                                    text = "${maxOwnedQuality.starsText} ${maxOwnedQuality.label} (x${maxOwnedQuality.priceMultiplier})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = maxOwnedQuality.badgeColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = RobotoMonoFontFamily,
+                                    fontSize = 11.sp
+                                )
+                            }
                         }
 
                         if (tradeMode == TradeMode.SELL && subsidyBonus > 0L) {
@@ -2447,17 +2571,8 @@ fun CompanyTickerTape(uiState: com.example.viewmodel.GameUiState) {
     }
     val sortedProjects = remember(activeProjects, playerSharesState) {
         activeProjects.map { proj ->
-            val owned = playerSharesState[proj.id] ?: 0
-            val initialPrice = proj.baseSharePrice
-            val sharePrice = initialPrice * (1.0 + (owned * 0.002))
-            
-            val prevPrice = proj.previousSharePrice
-            val changeVal = if (prevPrice > 0.0) {
-                ((sharePrice - prevPrice) / prevPrice) * 100.0
-            } else {
-                0.0 // Default to 0 change if no previous price recorded
-            }
-            
+            val sharePrice = proj.currentSharePrice
+            val changeVal = proj.sharePriceChangePercent
             Pair(proj, Pair(changeVal, sharePrice))
         }.sortedByDescending { it.second.first }
     }

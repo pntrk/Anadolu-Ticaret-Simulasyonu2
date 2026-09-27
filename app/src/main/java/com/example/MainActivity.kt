@@ -165,6 +165,8 @@ class MainActivity : ComponentActivity() {
         val repository = GameRepository(database.gameDao(), economicDataStore)
 
         gameViewModel = androidx.lifecycle.ViewModelProvider(this, GameViewModelFactory(repository))[GameViewModel::class.java]
+        com.example.data.SaveSyncCoordinator.bindViewModel(gameViewModel)
+        com.example.data.SaveSyncCoordinator.bindRepository(repository)
 
         try {
             com.example.utils.GoogleAuthHelper.checkAndRestoreGoogleSession(this, gameViewModel)
@@ -221,26 +223,26 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         try {
             if (::gameViewModel.isInitialized) {
-                gameViewModel.saveEconomicDataToDataStore(immediate = true)
-                gameViewModel.forceSyncCloudSaveToSupabase()
+                gameViewModel.setAppForegroundState(false)
             }
+            com.example.data.OfflineProgressManager.recordLogoutTimestamp(this)
         } catch (e: Throwable) {
-            android.util.Log.w("MainActivity", "onPause save warning", e)
+            android.util.Log.w("MainActivity", "onPause warning", e)
         }
     }
 
     override fun onStop() {
         super.onStop()
         try {
+            com.example.data.OfflineProgressManager.recordLogoutTimestamp(this)
             if (::gameViewModel.isInitialized) {
                 gameViewModel.setAppForegroundState(false)
-                gameViewModel.saveEconomicDataToDataStore(immediate = true)
-                gameViewModel.forceSyncCloudSaveToSupabase()
             }
+            com.example.data.SaveSyncCoordinator.flushImmediately()
             // Schedule intelligent retention push reminders (4h, 12h, 24h)
             com.example.notification.LocalGameNotificationManager.scheduleSmartRetentionPack()
         } catch (e: Throwable) {
-            android.util.Log.w("MainActivity", "onStop save warning", e)
+            android.util.Log.w("MainActivity", "onStop warning", e)
         }
     }
 
@@ -248,14 +250,6 @@ class MainActivity : ComponentActivity() {
         try {
             com.example.utils.InAppUpdateManager.onDestroy()
         } catch (_: Throwable) {}
-        try {
-            if (::gameViewModel.isInitialized) {
-                gameViewModel.saveEconomicDataToDataStore(immediate = true)
-                gameViewModel.forceSyncCloudSaveToSupabase()
-            }
-        } catch (e: Throwable) {
-            android.util.Log.w("MainActivity", "onDestroy save warning", e)
-        }
         super.onDestroy()
         if (currentActivity == this) {
             currentActivity = null

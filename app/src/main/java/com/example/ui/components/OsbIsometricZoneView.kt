@@ -2383,6 +2383,7 @@ fun OsbFacilityDetailDialog(
     val storedItems = business.getStoredItemsMap()
     val storedTotal = business.getStoredTotalQuantity()
     val capacity = business.getEffectiveStorageCapacity()
+    val isStorageFull = storedTotal >= capacity && capacity > 0
 
     var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(business.isConstructing, business.isUpgrading, business.constructionEndTime, business.upgradeEndTime) {
@@ -2409,8 +2410,9 @@ fun OsbFacilityDetailDialog(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .padding(16.dp),
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.92f)
+                .padding(vertical = 12.dp),
             shape = RoundedCornerShape(14.dp),
             color = Color(0xFF101726),
             border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.5f))
@@ -2565,6 +2567,7 @@ fun OsbFacilityDetailDialog(
                                 color = when {
                                     business.isConstructing -> Color(0xFFF59E0B).copy(alpha = 0.25f)
                                     isProducing -> ThemePositive.copy(alpha = 0.25f)
+                                    isStorageFull -> Color(0xFFEF5350).copy(alpha = 0.25f)
                                     wearPercent >= 70 -> ThemeNegative.copy(alpha = 0.25f)
                                     else -> Color(0xFF1E293B)
                                 },
@@ -2573,6 +2576,7 @@ fun OsbFacilityDetailDialog(
                                     when {
                                         business.isConstructing -> Color(0xFFF59E0B)
                                         isProducing -> ThemePositive
+                                        isStorageFull -> Color(0xFFEF5350)
                                         wearPercent >= 70 -> ThemeNegative
                                         else -> Color(0xFF475569)
                                     }
@@ -2587,6 +2591,7 @@ fun OsbFacilityDetailDialog(
                                         when {
                                             business.isConstructing -> Icons.Rounded.Construction
                                             isProducing -> Icons.Rounded.Bolt
+                                            isStorageFull -> Icons.Rounded.Inventory2
                                             wearPercent >= 70 -> Icons.Rounded.Warning
                                             else -> Icons.Rounded.Schedule
                                         },
@@ -2594,6 +2599,7 @@ fun OsbFacilityDetailDialog(
                                         tint = when {
                                             business.isConstructing -> Color(0xFFF59E0B)
                                             isProducing -> ThemePositive
+                                            isStorageFull -> Color(0xFFEF5350)
                                             wearPercent >= 70 -> ThemeNegative
                                             else -> Color.LightGray
                                         },
@@ -2603,6 +2609,7 @@ fun OsbFacilityDetailDialog(
                                         text = when {
                                             business.isConstructing -> tr("İNŞAAT", "CONSTRUCTING", isEnglish)
                                             isProducing -> tr("ÜRETİYOR", "PRODUCING", isEnglish)
+                                            isStorageFull -> tr("DEPO DOLU", "STORAGE FULL", isEnglish)
                                             wearPercent >= 70 -> tr("BAKIM!", "REPAIR!", isEnglish)
                                             else -> tr("BOŞTA", "IDLE", isEnglish)
                                         },
@@ -2612,6 +2619,7 @@ fun OsbFacilityDetailDialog(
                                         color = when {
                                             business.isConstructing -> Color(0xFFF59E0B)
                                             isProducing -> ThemePositive
+                                            isStorageFull -> Color(0xFFEF5350)
                                             wearPercent >= 70 -> ThemeNegative
                                             else -> Color.LightGray
                                         }
@@ -2676,9 +2684,20 @@ fun OsbFacilityDetailDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // Kalite Potansiyeli Barı (Quality Potential Bar)
+                    FacilityQualityPotentialBar(
+                        facilityLevel = business.level,
+                        product = product,
+                        isProducing = isProducing,
+                        productionProgress = currentProgress,
+                        wearLevel = business.wearLevel
+                    )
+
                     // 1. Live Production or Construction Card
                     if (business.isConstructing) {
                         val now = currentTimeMs
@@ -3024,7 +3043,25 @@ fun OsbFacilityDetailDialog(
                                     color = if (wearPercent >= 70) ThemeNegative else Color.White
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
+                            val wearPenaltyText = when {
+                                wearPercent <= 20 -> tr("Kaliteyi etkilemez (0-20%)", "No quality penalty (0-20%)", isEnglish)
+                                wearPercent <= 40 -> tr("Kalite: -1★ daha düşük ürün", "Quality: -1★ lower product", isEnglish)
+                                wearPercent <= 60 -> tr("Kalite: -2★ daha düşük ürün", "Quality: -2★ lower product", isEnglish)
+                                wearPercent <= 80 -> tr("Kalite: -3★ daha düşük ürün", "Quality: -3★ lower product", isEnglish)
+                                else -> tr("Kritik: -4★ kalite & üretim yavaşladı!", "Critical: -4★ quality & slow production!", isEnglish)
+                            }
+                            Text(
+                                text = wearPenaltyText,
+                                fontSize = 9.sp,
+                                fontWeight = if (wearPercent > 20) FontWeight.Bold else FontWeight.Normal,
+                                color = when {
+                                    wearPercent > 80 -> ThemeNegative
+                                    wearPercent > 40 -> Color(0xFFFFB74D)
+                                    wearPercent > 20 -> Color(0xFFFFE082)
+                                    else -> Color(0xFF81C784)
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
                             LinearProgressIndicator(
                                 progress = { business.wearLevel },
                                 modifier = Modifier
@@ -3211,17 +3248,51 @@ fun OsbFacilityDetailDialog(
                                 }
                             }
 
+                            if (isStorageFull) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFFEF5350).copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, Color(0xFFEF5350).copy(alpha = 0.6f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.Inventory2, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(16.dp))
+                                        Text(
+                                            text = tr("⚠️ Depo Dolu: Depo dolunca üretim durur, deponun boşalması beklenir.", "⚠️ Storage Full: Production stopped until storage is cleared.", isEnglish),
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFEF5350)
+                                        )
+                                    }
+                                }
+                            }
+
                             Button(
                                 onClick = onProduceClick,
-                                colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF00222B)),
+                                enabled = !isStorageFull,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isStorageFull) Color(0xFF334155) else ThemeNeonCyan,
+                                    contentColor = Color(0xFF00222B),
+                                    disabledContainerColor = Color(0xFF1E293B),
+                                    disabledContentColor = Color(0xFFEF5350)
+                                ),
                                 shape = RoundedCornerShape(6.dp),
                                 modifier = Modifier.fillMaxWidth(),
                                 contentPadding = PaddingValues(vertical = 8.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Rounded.FlashOn, contentDescription = null, tint = Color(0xFF00222B), modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        if (isStorageFull) Icons.Rounded.Inventory2 else Icons.Rounded.FlashOn,
+                                        contentDescription = null,
+                                        tint = if (isStorageFull) Color(0xFFEF5350) else Color(0xFF00222B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Text(
-                                        text = tr("⚡ Üretim Ayarla & Başlat", "⚡ Configure & Start Production", isEnglish),
+                                        text = if (isStorageFull) tr("⚠️ DEPO DOLU (Boşalması Bekleniyor)", "⚠️ STORAGE FULL (Waiting for Clearance)", isEnglish) else tr("⚡ Üretim Ayarla & Başlat", "⚡ Configure & Start Production", isEnglish),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = RobotoMonoFontFamily

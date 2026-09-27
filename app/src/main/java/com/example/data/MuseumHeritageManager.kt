@@ -54,6 +54,8 @@ data class AntiqueArtifact(
     val iconEmoji: String,
     val historicalLore: String
 ) {
+    val artifactId: String get() = id
+
     fun getLocalizedName(isEnglish: Boolean): String {
         return if (isEnglish) {
             when (id) {
@@ -396,8 +398,121 @@ object MuseumHeritageManager {
             prestigeScore = 9000,
             iconEmoji = "🗿",
             historicalLore = "Tarım öncesi avcı-toplayıcı toplulukların inanç merkezi olarak inşa ettiği Göbeklitepe, dünya arkeolojisindeki tüm ezberleri bozan en eski mabet parçasıdır."
+        ),
+        AntiqueArtifact(
+            id = "art_kultepe_clay_tablet",
+            name = "Kültepe Asur Ticaret Tableti",
+            era = "Eski Asur Ticaret Kolonileri (MÖ 1950)",
+            originCity = "Kayseri",
+            description = "Anadolu'nun ilk yazılı belgesi; kervan borçları, gümüş faizleri ve kâr paylarını belgeleyen çivi yazılı kil tablet.",
+            rarity = ArtifactRarity.HISTORIC,
+            baseValue = 160_000_00000L,
+            hourlyVisitorIncome = 580_000L,
+            prestigeScore = 1100,
+            iconEmoji = "🏺",
+            historicalLore = "Kaniş Karumu'nda bulunan bu tablet, Anadolu'da serbest piyasa ve sözleşme hukukunun en kadim köküdür."
+        ),
+        AntiqueArtifact(
+            id = "art_cezeri_elephant_clock",
+            name = "El-Cezeri Mekanik Fil Saati Parçası",
+            era = "Artuklu Mühendislik Çağı (1206)",
+            originCity = "Diyarbakır",
+            description = "Sibernetiğin babası Cezeri'nin su gücüyle çalışan efsanevi otomat fil saatinin bronz dişli mekanizması.",
+            rarity = ArtifactRarity.EPIC,
+            baseValue = 480_000_00000L,
+            hourlyVisitorIncome = 2_100_000L,
+            prestigeScore = 2900,
+            iconEmoji = "🐘",
+            historicalLore = "Mekanik saat ve otomasyon mühendisliğinin dünyadaki ilk zirve örneği olan bu şaheser, İslam altın çağının bilim mirasıdır."
+        ),
+        AntiqueArtifact(
+            id = "art_galata_bankers_ledger",
+            name = "Galata Bankerleri Kredi Defteri",
+            era = "Tanzimat Finans Dönemi (1860)",
+            originCity = "İstanbul",
+            description = "Havyar Hanı bankerlerinin Osmanlı borçlanma senetlerini ve mevduat faizlerini kaydettiği altın yaldızlı deri defter.",
+            rarity = ArtifactRarity.RARE,
+            baseValue = 190_000_00000L,
+            hourlyVisitorIncome = 690_000L,
+            prestigeScore = 1250,
+            iconEmoji = "📖",
+            historicalLore = "Galata rıhtımında Avrupa ve Doğu sermayesinin kesiştiği modern bankacılığın ve borsa spekülasyonlarının ilk kayıt defteridir."
+        ),
+        AntiqueArtifact(
+            id = "art_ulug_bey_astrolabe",
+            name = "Uluğ Bey Semerkand Usturlabı",
+            era = "Timur Rönesansı (1428)",
+            originCity = "Semerkand (Anadolu Mirası)",
+            description = "Yıldız haritaları ve enlem-boylam hesapları için pirinçten oyulmuş milimetrik astronomik gözlem cihazı.",
+            rarity = ArtifactRarity.MASTERPIECE,
+            baseValue = 950_000_00000L,
+            hourlyVisitorIncome = 4_600_000L,
+            prestigeScore = 6000,
+            iconEmoji = "🔭",
+            historicalLore = "Zîc-i Uluğ Bey kataloğunun hazırlanmasında kullanılan bu usturlap, Doğu'nun gök bilimindeki eşsiz dehasını temsil eder."
+        ),
+        AntiqueArtifact(
+            id = "art_mimar_sinan_compass",
+            name = "Mimar Sinan Pergel-i Mimari",
+            era = "Klasik Osmanlı Mimarisi (1560)",
+            originCity = "İstanbul",
+            description = "Koca Sinan'ın Selimiye ve Süleymaniye kubbelerinin statik dengesini çizdiği pirinç ve çelik usta pergeli.",
+            rarity = ArtifactRarity.EPIC,
+            baseValue = 540_000_00000L,
+            hourlyVisitorIncome = 2_400_000L,
+            prestigeScore = 3400,
+            iconEmoji = "📐",
+            historicalLore = "Yüzyıllardır dimdik ayakta duran kubbelerin harcındaki altın oran ve matematik dehası bu pergelin ucundan doğmuştur."
+        ),
+        AntiqueArtifact(
+            id = "art_barbaros_compass",
+            name = "Barbaros Hayreddin Akdeniz Pusulası",
+            era = "Preveze Zaferi Dönemi (1538)",
+            originCity = "İstanbul",
+            description = "Kaptan-ı Derya Barbaros'un kadırgasında Akdeniz'e hükmederken yön bulduğu bronz mahfazalı denizci pusulası.",
+            rarity = ArtifactRarity.MASTERPIECE,
+            baseValue = 820_000_00000L,
+            hourlyVisitorIncome = 3_900_000L,
+            prestigeScore = 4900,
+            iconEmoji = "🧭",
+            historicalLore = "Akdeniz'i bir Türk gölüne dönüştüren deniz zaferlerinin, açık deniz lojistiğinin ve cesaretin somut anıtıdır."
+        ),
+        AntiqueArtifact(
+            id = "art_troy_gold_diadem",
+            name = "Truva Kraliyet Altın Diyademi",
+            era = "Homeros / Troya II Dönemi (MÖ 2500)",
+            originCity = "Çanakkale",
+            description = "Saf altından binlerce yaprak ve halka zincirle işlenmiş, efsanevi Troya hazinesinin en görkemli tacı.",
+            rarity = ArtifactRarity.MASTERPIECE,
+            baseValue = 1_350_000_00000L,
+            hourlyVisitorIncome = 6_400_000L,
+            prestigeScore = 8200,
+            iconEmoji = "👑",
+            historicalLore = "İlyada destanına konu olan Çanakkale Boğazı'nın kadim ticaret ve deniz hakimiyeti gücünü simgeleyen paha biçilmez altın taçtır."
         )
     )
+
+    suspend fun seedMissingArtifactsToSupabase() {
+        val allBuffs = ArtifactBuffRegistry.buffs.map { it.artifactId }
+        val currentArtifacts = SupabaseManager.fetchMuseumArtifactsFromSupabase() // Mevcut eserleri çeken Supabase çağrısı
+        val currentIds = currentArtifacts.map { it.artifactId }
+        
+        val missingIds = allBuffs.filterNot { currentIds.contains(it) }
+        
+        missingIds.forEach { missingId ->
+            val newArtifactName = missingId.replace("art_", "").replace("_", " ").uppercase()
+            val newArtifact = MuseumArtifactOwnershipEntity(
+                artifactId = missingId,
+                ownerId = null,
+                ownerName = "Hazine-i Amire",
+                status = "UNCLAIMED_TREASURY",
+                activeAuctionId = null,
+                lastPrice = 250000L,
+                updatedAtMs = System.currentTimeMillis()
+            )
+            SupabaseManager.syncMuseumArtifactToSupabase(newArtifact)
+        }
+    }
 
     fun getUniquePlayerId(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

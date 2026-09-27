@@ -709,6 +709,7 @@ fun HoldingIpoSection(viewModel: GameViewModel) {
 @Composable
 fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
     val haptic = LocalHapticFeedback.current
+    val isEng = isEnglishLanguage()
 
     val initialTitle = tr("PORTFÖY ONAYLANDI", "PORTFOLIO APPROVED")
     val initialSubtitle = tr("BORA HALKA ARZ & HİSSE SERTİFİKASI", "BIST PUBLIC OFFERING & SHARE CERTIFICATE")
@@ -722,65 +723,196 @@ fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
     val pMoney = player?.money ?: 0L
     val pDeposit = player?.depositBalance ?: 0L
 
-    val activeProjects = megaProjects
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableIntStateOf(0) } // 0 = Tümü, 1 = Portföyümdekiler, 2 = Yükselenler
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.Storefront,
-                    contentDescription = null,
-                    tint = ThemeNeonCyan,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                CurrencyText(
-                    text = tr("KONSORSİYUM MARKALARI & ÜRÜN BORSASI", "CONSORTIUM BRANDS & PRODUCT EXCHANGE"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = RobotoMonoFontFamily,
-                    color = Color.White
-                )
-            }
+    // Toplam Portföy Değeri Hesabı
+    val totalPortfolioValue = remember(megaProjects, playerShares) {
+        megaProjects.sumOf { proj ->
+            val count = playerShares[proj.id] ?: 0
+            (proj.currentSharePrice * count).toLong()
         }
+    }
+    val totalSharesCount = remember(playerShares) {
+        playerShares.values.sum()
+    }
 
+    val filteredProjects = remember(megaProjects, playerShares, searchQuery, selectedFilter) {
+        megaProjects.filter { proj ->
+            val owned = playerShares[proj.id] ?: 0
+            val matchesSearch = searchQuery.isBlank() || 
+                proj.brandName.contains(searchQuery, ignoreCase = true) ||
+                proj.targetProductName.contains(searchQuery, ignoreCase = true)
+            
+            val matchesFilter = when (selectedFilter) {
+                1 -> owned > 0
+                2 -> proj.sharePriceChangePercent > 0.0
+                else -> true
+            }
+            matchesSearch && matchesFilter
+        }.sortedByDescending { proj ->
+            val owned = playerShares[proj.id] ?: 0
+            if (owned > 0) 1000 + owned else proj.currentSharePrice.toInt()
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 1. ÜST FİNANSAL PORTFÖY ÖZET ÇUBUĞU
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(4.dp),
-            color = Color(0xFF1E293B).copy(alpha = 0.6f),
-            border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.3f))
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFF0F172A),
+            border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.35f))
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CurrencyText(tr("💼 Nakit:", "💼 Cash:"), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    CurrencyText("₳${formatMoney(pMoney)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ThemeGold, fontFamily = RobotoMonoFontFamily)
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Rounded.CandlestickChart, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(20.dp))
+                        CurrencyText(
+                            text = tr("KONSORSİYUM HİSSE BORSASI", "CONSORTIUM STOCK EXCHANGE"),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = Color.White
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = ThemePositive.copy(alpha = 0.15f),
+                        border = BorderStroke(0.5.dp, ThemePositive)
+                    ) {
+                        CurrencyText(
+                            text = tr("CANLI PİYASA", "LIVE MARKET"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ThemePositive,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CurrencyText(tr("🏦 Banka:", "🏦 Bank:"), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    CurrencyText("₳${formatMoney(pDeposit)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Nakit
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                        border = BorderStroke(0.5.dp, Color(0xFF334155))
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            CurrencyText(tr("💼 Serbest Nakit", "💼 Cash"), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = Color.LightGray)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            CurrencyText("₳${formatMoney(pMoney)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ThemeGold, fontFamily = RobotoMonoFontFamily)
+                        }
+                    }
+
+                    // Banka
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                        border = BorderStroke(0.5.dp, Color(0xFF334155))
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            CurrencyText(tr("🏦 Banka Mevduat", "🏦 Bank Deposit"), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = Color.LightGray)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            CurrencyText("₳${formatMoney(pDeposit)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                        }
+                    }
+
+                    // Portföy Değeri
+                    Surface(
+                        modifier = Modifier.weight(1.2f),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                        border = BorderStroke(0.5.dp, if (totalSharesCount > 0) ThemePositive.copy(alpha = 0.5f) else Color(0xFF334155))
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            CurrencyText(tr("📈 Hisse Portföyü ($totalSharesCount)", "📈 Stock Portfolio ($totalSharesCount)"), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp, color = Color.LightGray)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            CurrencyText("₳${formatMoney(totalPortfolioValue)}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = if (totalSharesCount > 0) ThemePositive else Color.White, fontFamily = RobotoMonoFontFamily)
+                        }
+                    }
                 }
             }
         }
 
-        if (activeProjects.isEmpty()) {
+        // 2. ARAMA VE FİLTRELEME ÇUBUĞU
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { CurrencyText(tr("Şirket veya ürün ara...", "Search brand or product..."), color = Color.Gray, fontSize = 11.sp) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(18.dp)) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(8.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ThemeNeonCyan,
+                    unfocusedBorderColor = Color(0xFF334155),
+                    focusedContainerColor = Color(0xFF0F172A),
+                    unfocusedContainerColor = Color(0xFF0F172A),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                )
+            )
+
+            // Filtre Butonları
+            listOf(
+                tr("Tümü", "All") to 0,
+                tr("Portföyüm", "Owned") to 1,
+                tr("Yükselenler", "Gainers") to 2
+            ).forEach { (label, filterIdx) ->
+                val isSel = selectedFilter == filterIdx
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isSel) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                    border = BorderStroke(1.dp, if (isSel) ThemeNeonCyan else Color(0xFF334155)),
+                    modifier = Modifier.clickable { selectedFilter = filterIdx }
+                ) {
+                    CurrencyText(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSel) ThemeNeonCyan else Color.LightGray,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+
+        // 3. ŞİRKET LİSTESİ VEYA BOŞ DURUM
+        if (filteredProjects.isEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(10.dp),
                 color = Color(0xFF101726),
                 border = BorderStroke(1.dp, Color(0xFF1E293B))
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -788,17 +920,17 @@ fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
                         imageVector = Icons.Rounded.Analytics,
                         contentDescription = null,
                         tint = Color.Gray,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     )
                     CurrencyText(
-                        text = tr("Henüz Borsaya Arz Edilmiş Ürün Bulunmuyor", "No Publicly Offered Products Yet"),
+                        text = if (searchQuery.isNotEmpty()) tr("Aramanıza uygun şirket hissesi bulunamadı.", "No company shares found matching search.") else tr("Henüz Borsaya Arz Edilmiş Konsorsiyum Bulunmuyor", "No Publicly Offered Consortium Brands Yet"),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                     CurrencyText(
-                        text = tr("Hisse senedi ticareti yapabilmek için Mega Proje Yönetim Merkezi'nden en az bir parti üretimi tamamlamanız ve borsaya ürün arz etmeniz gerekir.", "To trade stocks, you must complete at least one production batch from the Mega Project Management Center and supply products to the exchange."),
+                        text = tr("Mega Proje Yönetim Merkezi'nden üretim slotlarını tamamlayıp borsaya ürün arz ettiğinizde şirketler burada otomatik listelenir ve canlı hisse değerlemesi başlar.", "When you complete consortium slots and supply products to the exchange, brands are automatically listed here for live public share trading."),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -807,153 +939,216 @@ fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
                 }
             }
         } else {
-            activeProjects.forEach { proj ->
+            filteredProjects.forEach { proj ->
                 val owned = playerShares[proj.id] ?: 0
                 val initialPrice = proj.baseSharePrice
-                val sharePrice = initialPrice * (1.0 + (owned * 0.002))
+                val currentPrice = proj.currentSharePrice
+                val changePct = proj.sharePriceChangePercent
+                val isPositiveTrend = changePct >= 0.0
+                val trendColor = if (isPositiveTrend) ThemePositive else ThemeNegative
+                val trendSign = if (isPositiveTrend) "+" else ""
+                val trendArrow = if (isPositiveTrend) "▲" else "▼"
+
                 val totalSharesVolume = (proj.totalItemsProduced.coerceAtLeast(1)) * 1000
+                val marketCap = (currentPrice * totalSharesVolume).toLong()
+                val positionValuation = (currentPrice * owned).toLong()
+
                 val stampTitle5 = tr("BORA PORTFÖY ONAYLANDI", "BORA PORTFOLIO APPROVED")
                 val stampSubtitle5 = tr("${proj.brandName} • 5 ADET HİSSE EDİNİLDİ", "${proj.brandName} • 5 SHARES ACQUIRED")
+
+                // Dinamik Kıvılcım Verisi (Sparkline Trend Simülasyonu)
+                val sparkData = remember(proj.id, currentPrice, proj.sharePriceMultiplier) {
+                    val p = currentPrice.toFloat()
+                    val m = proj.sharePriceMultiplier.toFloat()
+                    if (isPositiveTrend) {
+                        listOf(p * (0.92f / m.coerceAtLeast(0.5f)), p * 0.95f, p * 0.94f, p * 0.98f, p)
+                    } else {
+                        listOf(p * 1.06f, p * 1.04f, p * 1.05f, p * 1.02f, p)
+                    }
+                }
 
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .luxeShimmerBorder(
-                            enabled = owned > 0 || proj.baseSharePrice > 500000,
-                            shape = RoundedCornerShape(8.dp),
+                            enabled = owned > 0 || currentPrice > 1_000_000,
+                            shape = RoundedCornerShape(10.dp),
                             borderWidth = 1.dp
                         ),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(10.dp),
                     color = Color(0xFF101726),
-                    border = BorderStroke(1.dp, Color(0xFF1E293B))
+                    border = BorderStroke(1.dp, if (owned > 0) ThemeNeonCyan.copy(alpha = 0.5f) else Color(0xFF1E293B))
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // KART BAŞLIĞI & CANLI HİSSE FİYATI
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (owned > 0) ThemeNeonCyan.copy(alpha = 0.15f) else Color(0xFF1E293B),
+                                    border = BorderStroke(1.dp, if (owned > 0) ThemeNeonCyan else Color(0xFF334155)),
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = when {
+                                                proj.targetProductId.contains("auto") || proj.targetProductId.contains("car") || proj.targetProductId.contains("vehicle") -> Icons.Rounded.ElectricCar
+                                                proj.targetProductId.contains("energy") || proj.targetProductId.contains("solar") || proj.targetProductId.contains("wind") -> Icons.Rounded.Bolt
+                                                proj.targetProductId.contains("rocket") || proj.targetProductId.contains("satellite") || proj.targetProductId.contains("space") -> Icons.Rounded.RocketLaunch
+                                                proj.targetProductId.contains("ship") || proj.targetProductId.contains("yacht") -> Icons.Rounded.DirectionsBoat
+                                                proj.targetProductId.contains("chip") || proj.targetProductId.contains("computer") || proj.targetProductId.contains("ai") -> Icons.Rounded.Memory
+                                                else -> Icons.Rounded.Business
+                                            },
+                                            contentDescription = null,
+                                            tint = if (owned > 0) ThemeNeonCyan else Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        CurrencyText(
+                                            text = proj.brandName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(3.dp),
+                                            color = Color(0xFF1E293B),
+                                            border = BorderStroke(0.5.dp, Color(0xFF475569))
+                                        ) {
+                                            CurrencyText(
+                                                text = proj.qualityTier.name.replace("_", " "),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ThemeGold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    CurrencyText(
+                                        text = tr("Arz Edilen Ürün: ${proj.targetProductName}", "Offered Product: ${proj.targetProductName}"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
+                                        color = Color.LightGray
+                                    )
+                                }
+                            }
+
+                            // Fiyat ve Değişim Rozeti
+                            Column(horizontalAlignment = Alignment.End) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF0B132B),
+                                    border = BorderStroke(1.dp, if (isPositiveTrend) ThemePositive.copy(alpha = 0.6f) else ThemeNegative.copy(alpha = 0.6f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        CurrencyText(
+                                            text = "₳${formatMoney(currentPrice.toLong())}",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Black,
+                                            fontFamily = RobotoMonoFontFamily,
+                                            color = Color.White
+                                        )
+                                        CurrencyText(
+                                            text = "$trendArrow $trendSign${String.format(java.util.Locale.US, "%.1f", changePct)}%",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = RobotoMonoFontFamily,
+                                            color = trendColor
+                                        )
+                                    }
+                                }
                                 CurrencyText(
-                                    text = proj.brandName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                CurrencyText(
-                                    text = tr("Arz Edilen Ürün: ${proj.targetProductName}", "Offered Product: ${proj.targetProductName}"),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    text = tr("Birim Hisse Fiyatı", "Per Share Price"),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 9.sp,
                                     color = Color.Gray
                                 )
                             }
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = ThemeNeonCyan.copy(alpha = 0.15f),
-                                border = BorderStroke(1.dp, ThemeNeonCyan)
+                        }
+
+                        // ORTA BÖLÜM: 4'LÜ FİNANSAL GÖSTERGE VE MİNİ SPARKLINE
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFF090D16),
+                            border = BorderStroke(0.5.dp, Color(0xFF1E293B))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                CurrencyText(
-                                    text = tr("₳${String.format(java.util.Locale.US, "%,.0f", sharePrice)} / Hisse", "₳${String.format(java.util.Locale.US, "%,.0f", sharePrice)} / Share"),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ThemeNeonCyan,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    CurrencyText(tr("BAŞLANGIÇ", "START PRICE"), style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                                    CurrencyText("₳${formatMoney(initialPrice.toLong())}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeGold, fontFamily = RobotoMonoFontFamily)
+                                }
+                                Column(modifier = Modifier.weight(1.1f)) {
+                                    CurrencyText(tr("PİYASA DEĞERİ", "MARKET CAP"), style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                                    CurrencyText("₳${formatMoney(marketCap)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    CurrencyText(tr("TOPLAM HACİM", "TOTAL VOLUME"), style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                                    CurrencyText("$totalSharesVolume Adet", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = RobotoMonoFontFamily)
+                                }
+                                Column(modifier = Modifier.weight(1.2f), horizontalAlignment = Alignment.End) {
+                                    CurrencyText(tr("PORTFÖYÜNÜZ", "YOUR HOLDING"), style = MaterialTheme.typography.labelSmall, fontSize = 8.sp, color = Color.Gray)
+                                    CurrencyText(
+                                        text = if (owned > 0) "$owned Adet (₳${formatMoney(positionValuation)})" else tr("0 Adet", "0 Shares"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (owned > 0) ThemePositive else Color.LightGray,
+                                        fontFamily = RobotoMonoFontFamily
+                                    )
+                                }
                             }
                         }
 
+                        // ALIM VE SATIM BUTONLARI (Minimum 48dp ergonomik dokunma alanı)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f, fill = false)) {
-                                CurrencyText(
-                                    text = tr("BAŞLANGIÇ", "START PRICE"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
-                                    color = Color.Gray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = "₳${String.format(java.util.Locale.US, "%,.0f", initialPrice)}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = ThemeGold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f, fill = false)
-                            ) {
-                                CurrencyText(
-                                    text = tr("TOPLAM HACİM", "TOTAL VOLUME"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
-                                    color = Color.Gray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = tr("$totalSharesVolume Adet", "$totalSharesVolume Units"),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Column(
-                                horizontalAlignment = Alignment.End,
-                                modifier = Modifier.weight(1f, fill = false)
-                            ) {
-                                CurrencyText(
-                                    text = tr("HİSSELERİNİZ", "YOUR SHARES"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
-                                    color = Color.Gray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = tr("$owned Adet", "$owned Units"),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (owned > 0) ThemePositive else Color.LightGray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
+                            val canBuy1 = owned + 1 <= totalSharesVolume && pMoney >= currentPrice
+                            val canBuy5 = owned + 5 <= totalSharesVolume && pMoney >= currentPrice * 5
+                            val canSell1 = owned >= 1
+                            val canSell5 = owned >= 1
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
                             Button(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.buyGuildShares(proj.id, 1)
                                 },
-                                enabled = (owned + 1 <= totalSharesVolume && pMoney >= sharePrice),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = ThemePositive, contentColor = Color.Black),
-                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                                enabled = canBuy1,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ThemePositive,
+                                    contentColor = Color.Black,
+                                    disabledContainerColor = Color(0xFF1E293B),
+                                    disabledContentColor = Color.DarkGray
+                                ),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
-                                CurrencyText(
-                                    text = tr("+1 Al", "+1 Buy"),
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    CurrencyText(text = tr("1 Al", "1 Buy"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, fontSize = 11.sp)
+                                }
                             }
 
                             Button(
@@ -964,21 +1159,24 @@ fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
                                     stampSubtitle = stampSubtitle5
                                     showStampOverlay = true
                                 },
-                                enabled = (owned + 5 <= totalSharesVolume && pMoney >= sharePrice * 5),
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(4.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B), contentColor = ThemeNeonCyan),
-                                border = BorderStroke(1.dp, ThemeNeonCyan),
-                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                                enabled = canBuy5,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF102A36),
+                                    contentColor = ThemeNeonCyan,
+                                    disabledContainerColor = Color(0xFF1E293B),
+                                    disabledContentColor = Color.DarkGray
+                                ),
+                                border = BorderStroke(1.dp, if (canBuy5) ThemeNeonCyan else Color.Transparent),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
-                                CurrencyText(
-                                    text = tr("+5 Al", "+5 Buy"),
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    CurrencyText(text = tr("5 Al", "5 Buy"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, fontSize = 11.sp)
+                                }
                             }
 
                             OutlinedButton(
@@ -986,44 +1184,47 @@ fun OtherCompaniesMarketSection(viewModel: GameViewModel) {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.sellGuildShares(proj.id, 1)
                                 },
-                                enabled = owned >= 1,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(4.dp),
-                                border = BorderStroke(1.dp, if (owned >= 1) Color(0xFFEF5350) else Color.Gray),
-                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                                enabled = canSell1,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, if (canSell1) Color(0xFFEF5350) else Color(0xFF334155)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = Color(0xFFEF5350),
+                                    disabledContentColor = Color.DarkGray
+                                ),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
-                                CurrencyText(
-                                    text = tr("-1 Sat", "-1 Sell"),
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = if (owned >= 1) Color(0xFFEF5350) else Color.Gray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Icon(Icons.Rounded.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    CurrencyText(text = tr("1 Sat", "1 Sell"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, fontSize = 11.sp)
+                                }
                             }
 
                             OutlinedButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    viewModel.sellGuildShares(proj.id, if (owned >= 5) 5 else owned)
+                                    val sellQty = if (owned in 1..4) owned else 5
+                                    viewModel.sellGuildShares(proj.id, sellQty)
                                 },
-                                enabled = owned >= 1,
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(4.dp),
-                                border = BorderStroke(1.dp, if (owned >= 1) Color(0xFFEF5350) else Color.Gray),
-                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                                enabled = canSell5,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp),
+                                shape = RoundedCornerShape(6.dp),
+                                border = BorderStroke(1.dp, if (canSell5) Color(0xFFEF5350) else Color(0xFF334155)),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = Color(0xFFEF5350),
+                                    disabledContentColor = Color.DarkGray
+                                ),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
                             ) {
                                 val sellQty = if (owned in 1..4) owned else 5
-                                CurrencyText(
-                                    text = tr("-$sellQty Sat", "-$sellQty Sell"),
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    color = if (owned >= 1) Color(0xFFEF5350) else Color.Gray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Icon(Icons.Rounded.Remove, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    CurrencyText(text = tr("$sellQty Sat", "$sellQty Sell"), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, fontSize = 11.sp)
+                                }
                             }
                         }
                     }

@@ -163,8 +163,8 @@ fun BoardroomBriefingDialog(
                         icon = Icons.Rounded.Factory,
                         reportText = if (crisisItems.isNotEmpty()) {
                             tr(
-                                "🚨 Borsa rezervlerinde ${crisisProductNames.joinToString(", ")} kritik seviyenin altında (< 999.999 Ton)! Hükümet Milli Üretim Seferberliği ilan etti. Bu ürünlerde tesislerimize %50 Üretim Hızı Bonusu ve borsaya satışta %25 Devlet Teşvik Primi veriliyor. Maden ve tesisleri acilen tam kapasiteye almalıyız!",
-                                "🚨 ${crisisProductNames.joinToString(", ")} reserves on exchange are critical (< 999,999 Tons)! National Mobilization declared. Factories receive 50% Speed Bonus & 25% State Subsidy Bonus for selling to exchange. Mobilize production capacity now!"
+                                "🚨 Borsa rezervlerinde ${crisisProductNames.joinToString(", ")} kritik seviyenin altında (≤ 999 Ton)! Hükümet Milli Üretim Seferberliği ilan etti. Bu ürünlerde tesislerimize %50 Üretim Hızı Bonusu ve borsaya satışta %25 Devlet Teşvik Primi veriliyor. Maden ve tesisleri acilen tam kapasiteye almalıyız!",
+                                "🚨 ${crisisProductNames.joinToString(", ")} reserves on exchange are critical (≤ 999 Tons)! National Mobilization declared. Factories receive 50% Speed Bonus & 25% State Subsidy Bonus for selling to exchange. Mobilize production capacity now!"
                             )
                         } else {
                             tr(

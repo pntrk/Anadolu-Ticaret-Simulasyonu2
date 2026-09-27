@@ -25,6 +25,9 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -454,11 +457,69 @@ object SupabaseManager {
         return default
     }
 
+    private val unsupportedPlayerColumns = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val missingColumnRegex = Regex("""Could not find the '([^']+)' column of 'players' in the schema cache""", RegexOption.IGNORE_CASE)
+    private val genericColumnRegex = Regex("""column "([^"]+)" of relation "players" does not exist""", RegexOption.IGNORE_CASE)
+    private val genericColNotExistRegex = Regex("""column "([^"]+)" does not exist""", RegexOption.IGNORE_CASE)
+
+    private suspend fun upsertPlayerDoc(initialObj: JsonObject): Boolean = withContext(Dispatchers.IO) {
+        val currentMap = initialObj.toMutableMap()
+        for (col in unsupportedPlayerColumns) {
+            currentMap.remove(col)
+        }
+
+        var attempt = 0
+        val maxAttempts = 10
+
+        while (attempt < maxAttempts) {
+            attempt++
+            val requestBody = JsonObject(currentMap).toString().toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/players?on_conflict=id")
+                .addHeader("apikey", SUPABASE_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "resolution=merge-duplicates")
+                .post(requestBody)
+                .build()
+
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.i(TAG, "[players_upsert] Successfully synced player to Supabase on attempt $attempt")
+                        return@withContext true
+                    }
+                    val body = response.body?.string().orEmpty()
+                    Log.w(TAG, "[players_upsert] Attempt $attempt failed with code ${response.code}: $body")
+
+                    val match = missingColumnRegex.find(body)
+                        ?: genericColumnRegex.find(body)
+                        ?: genericColNotExistRegex.find(body)
+
+                    if (match != null) {
+                        val missingCol = match.groupValues[1]
+                        Log.w(TAG, "[players_upsert] Column '$missingCol' not found in schema cache. Pruning and retrying...")
+                        unsupportedPlayerColumns.add(missingCol)
+                        currentMap.remove(missingCol)
+                        continue
+                    } else {
+                        Log.e(TAG, "[players_upsert] Terminal error from Supabase: $body")
+                        return@withContext false
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "[players_upsert] Network exception on attempt $attempt: ${e.message}", e)
+                return@withContext false
+            }
+        }
+        false
+    }
+
     /**
      * Oyuncu kaydını SupabasePlayerPayload nesnesi ile Supabase PostgreSQL tablosuna Upsert eder.
      */
     suspend fun syncPlayerToSupabase(payload: SupabasePlayerPayload): Boolean = withContext(Dispatchers.IO) {
-        val effectiveEmail = payload.onlineEmail.ifBlank { if (payload.id != "local_player" && payload.id != "p_local") payload.id else "" }
+        val effectiveEmail = payload.onlineEmail.trim().ifBlank { if (payload.id != "local_player" && payload.id != "p_local") payload.id else "" }
         val effectiveUid = if (payload.id.isNotBlank() && payload.id != "local_player" && payload.id != "p_local") {
             payload.id
         } else {
@@ -469,33 +530,77 @@ object SupabaseManager {
             return@withContext false
         }
         try {
-            val businessesElem = safeParseJsonElement(payload.businessesJson) ?: JsonArray(emptyList())
-            val inventoryElem = safeParseJsonElement(payload.inventoryJson) ?: JsonArray(emptyList())
-            val managersElem = safeParseJsonElement(payload.managersJson) ?: JsonArray(emptyList())
-            val activeResearchesElem = safeParseJsonElement(payload.activeResearchesJson) ?: JsonObject(emptyMap())
-            val researchLevelsElem = safeParseJsonElement(payload.researchLevelsJson) ?: JsonObject(emptyMap())
-            val guildSharesElem = safeParseJsonElement(payload.guildSharesJson) ?: JsonObject(emptyMap())
-            val guildBuyPricesElem = safeParseJsonElement(payload.guildBuyPricesJson) ?: JsonObject(emptyMap())
+            // Anti-Degradation Guard: Fetch existing remote state to prevent lower progress from overwriting higher progress
+            val remoteExisting = try {
+                fetchPlayerFromSupabase(effectiveEmail) ?: fetchPlayerFromSupabase(effectiveUid)
+            } catch (_: Exception) { null }
+
+            val finalPayload = if (remoteExisting != null) {
+                val remoteLevel = remoteExisting.level
+                val remoteGems = remoteExisting.gems
+                val remoteProfit = remoteExisting.totalProfit
+                val remoteMoney = remoteExisting.money
+                val remoteBusinessesCount = safeParseJsonElement(remoteExisting.businessesJson)?.let { (it as? JsonArray)?.size } ?: 0
+                val localBusinessesCount = safeParseJsonElement(payload.businessesJson)?.let { (it as? JsonArray)?.size } ?: 0
+
+                val isLocalDegraded = payload.level <= 1 && payload.money <= 250_000L && payload.gems == 0 && localBusinessesCount == 0
+                val remoteHasSubstantialProgress = remoteLevel > 1 || remoteGems > 0 || remoteProfit > 0L || remoteBusinessesCount > 0 || remoteMoney > 200_000L
+
+                if (isLocalDegraded && remoteHasSubstantialProgress) {
+                    Log.w(TAG, "[DataProtection] Refusing to overwrite rich cloud save with beginner state! (Cloud: Lvl $remoteLevel, Gems $remoteGems, Biz $remoteBusinessesCount, Money $remoteMoney)")
+                    payload.copy(
+                        level = maxOf(payload.level, remoteLevel),
+                        xp = maxOf(payload.xp, remoteExisting.xp),
+                        gems = maxOf(payload.gems, remoteGems),
+                        money = if (remoteMoney > payload.money) remoteMoney else payload.money,
+                        depositBalance = maxOf(payload.depositBalance, remoteExisting.depositBalance),
+                        totalProfit = maxOf(payload.totalProfit, remoteProfit),
+                        businessesJson = if (localBusinessesCount == 0 && remoteBusinessesCount > 0) remoteExisting.businessesJson else payload.businessesJson,
+                        inventoryJson = if (payload.inventoryJson.length < 10 && remoteExisting.inventoryJson.length >= 10) remoteExisting.inventoryJson else payload.inventoryJson,
+                        managersJson = if (remoteExisting.managersJson.length > payload.managersJson.length) remoteExisting.managersJson else payload.managersJson,
+                        researchLevelsJson = if (remoteExisting.researchLevelsJson.length > payload.researchLevelsJson.length) remoteExisting.researchLevelsJson else payload.researchLevelsJson,
+                        rawSaveJson = remoteExisting.rawSaveJson ?: payload.rawSaveJson
+                    )
+                } else {
+                    payload.copy(
+                        level = maxOf(payload.level, remoteLevel),
+                        gems = maxOf(payload.gems, remoteGems),
+                        totalProfit = maxOf(payload.totalProfit, remoteProfit),
+                        xp = maxOf(payload.xp, remoteExisting.xp)
+                    )
+                }
+            } else {
+                payload
+            }
+
+            val businessesElem = safeParseJsonElement(finalPayload.businessesJson) ?: JsonArray(emptyList())
+            val inventoryElem = safeParseJsonElement(finalPayload.inventoryJson) ?: JsonArray(emptyList())
+            val managersElem = safeParseJsonElement(finalPayload.managersJson) ?: JsonArray(emptyList())
+            val activeResearchesElem = safeParseJsonElement(finalPayload.activeResearchesJson) ?: JsonObject(emptyMap())
+            val researchLevelsElem = safeParseJsonElement(finalPayload.researchLevelsJson) ?: JsonObject(emptyMap())
+            val guildSharesElem = safeParseJsonElement(finalPayload.guildSharesJson) ?: JsonObject(emptyMap())
+            val guildBuyPricesElem = safeParseJsonElement(finalPayload.guildBuyPricesJson) ?: JsonObject(emptyMap())
+            val rawSaveElem = if (!finalPayload.rawSaveJson.isNullOrBlank()) safeParseJsonElement(finalPayload.rawSaveJson) else null
 
             val jsonObject = buildJsonObject {
                 put("id", effectiveUid)
-                put("name", payload.name)
-                put("company_name", payload.companyName)
-                put("money", payload.money)
-                put("loan_amount", payload.loanAmount)
-                put("deposit_balance", payload.depositBalance)
-                put("daily_income", payload.dailyIncome)
-                put("daily_expense", payload.dailyExpense)
-                put("total_profit", payload.totalProfit)
-                put("xp", payload.xp)
-                put("level", payload.level)
-                put("inventory_capacity", payload.inventoryCapacity)
-                put("current_city", migrateLegacyCity(payload.currentCity))
-                put("is_vip", payload.isVip)
-                put("gems", payload.gems)
-                put("last_daily_reward_ms", payload.lastDailyRewardMs)
-                put("login_streak", payload.loginStreak)
-                put("is_online_registered", payload.isOnlineRegistered)
+                put("name", finalPayload.name)
+                put("company_name", finalPayload.companyName)
+                put("money", finalPayload.money)
+                put("loan_amount", finalPayload.loanAmount)
+                put("deposit_balance", finalPayload.depositBalance)
+                put("daily_income", finalPayload.dailyIncome)
+                put("daily_expense", finalPayload.dailyExpense)
+                put("total_profit", finalPayload.totalProfit)
+                put("xp", finalPayload.xp)
+                put("level", finalPayload.level)
+                put("inventory_capacity", finalPayload.inventoryCapacity)
+                put("current_city", migrateLegacyCity(finalPayload.currentCity))
+                put("is_vip", finalPayload.isVip)
+                put("gems", finalPayload.gems)
+                put("last_daily_reward_ms", finalPayload.lastDailyRewardMs)
+                put("login_streak", finalPayload.loginStreak)
+                put("is_online_registered", finalPayload.isOnlineRegistered)
                 put("online_email", effectiveEmail)
                 put("businesses", businessesElem)
                 put("inventory", inventoryElem)
@@ -504,23 +609,21 @@ object SupabaseManager {
                 put("research_levels", researchLevelsElem)
                 put("guild_shares", guildSharesElem)
                 put("guild_buy_prices", guildBuyPricesElem)
-                if (!payload.rawSaveJson.isNullOrBlank()) {
-                    put("raw_save_json", payload.rawSaveJson)
+                if (rawSaveElem != null) {
+                    put("raw_save_json", rawSaveElem)
                 }
+                // Optional columns adaptively handled
+                safeParseJsonElement(finalPayload.activeDeliveriesJson)?.let { put("active_deliveries", it) }
+                safeParseJsonElement(finalPayload.activeProductionsJson)?.let { put("active_productions", it) }
+                safeParseJsonElement(finalPayload.dailyQuestStateJson)?.let { put("daily_quest_state", it) }
+                put("dollar_balance", finalPayload.dollarBalance)
+                put("dollar_deposit_balance", finalPayload.dollarDepositBalance)
+                put("dollar_loan_amount", finalPayload.dollarLoanAmount)
+                put("last_saved_time", if (finalPayload.lastSavedTime > 0L) finalPayload.lastSavedTime else System.currentTimeMillis())
                 put("updated_at", getCurrentIsoTimestamp())
             }
 
-            val requestBody = jsonObject.toString().toRequestBody(JSON_MEDIA_TYPE)
-            val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/players?on_conflict=id")
-                .addHeader("apikey", SUPABASE_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "resolution=merge-duplicates")
-                .post(requestBody)
-                .build()
-
-            executeAndLog(request, "syncPlayerPayloadToSupabase")
+            upsertPlayerDoc(jsonObject)
         } catch (e: Exception) {
             Log.e(TAG, "Exception syncing player payload to Supabase", e)
             false
@@ -611,140 +714,80 @@ object SupabaseManager {
         guildBuyPricesJson: String,
         rawSaveJson: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
-        val effectiveEmail = onlineEmail.ifBlank { if (uid != "local_player" && uid != "p_local") uid else "" }
-        val effectiveUid = if (uid.isNotBlank() && uid != "local_player" && uid != "p_local") {
-            uid
-        } else {
-            effectiveEmail.replace(".", "_")
-        }
-        if (!isOnlineRegistered || effectiveEmail.isBlank() || effectiveEmail == "misafir_tuccar" || effectiveEmail == "local_trader" || effectiveUid.isBlank()) {
-            Log.d(TAG, "Skipping Supabase sync for offline / guest player: $uid")
-            return@withContext false
-        }
-        try {
-            val bArray = buildJsonArray {
-                businesses.forEach { b ->
-                    add(buildJsonObject {
-                        put("id", b.id)
-                        put("type", b.type)
-                        put("level", b.level)
-                        put("cityId", migrateLegacyCity(b.cityId))
-                        put("wearLevel", b.wearLevel.toDouble())
-                        put("storageCapacity", b.getEffectiveStorageCapacity())
-                        put("storedItemsJson", b.storedItemsJson)
-                        put("isUpgrading", b.isUpgrading)
-                        put("is_upgrading", b.isUpgrading)
-                        if (b.upgradeEndTime != null) {
-                            put("upgradeEndTime", b.upgradeEndTime)
-                            put("upgrade_end_time", b.upgradeEndTime)
-                        }
-                        put("isConstructing", b.isConstructing)
-                        put("is_constructing", b.isConstructing)
-                        if (b.constructionEndTime != null) {
-                            put("constructionEndTime", b.constructionEndTime)
-                            put("construction_end_time", b.constructionEndTime)
-                        }
-                    })
-                }
-            }
-
-            val invArray = buildJsonArray {
-                inventory.forEach { inv ->
-                    add(buildJsonObject {
-                        put("itemId", inv.itemId)
-                        put("quantity", inv.quantity)
-                    })
-                }
-            }
-
-            val managersElem = safeParseJsonElement(managersJson) ?: JsonArray(emptyList())
-            val activeResearchesElem = safeParseJsonElement(activeResearchesJson) ?: JsonObject(emptyMap())
-            val researchLevelsElem = safeParseJsonElement(researchLevelsJson) ?: JsonObject(emptyMap())
-            val guildSharesElem = safeParseJsonElement(guildSharesJson) ?: JsonObject(emptyMap())
-            val guildBuyPricesElem = safeParseJsonElement(guildBuyPricesJson) ?: JsonObject(emptyMap())
-            val activeDeliveriesElem = safeParseJsonElement(activeDeliveriesJson) ?: JsonArray(emptyList())
-            val activeProductionsElem = try {
-                val prods = AppJson.decodeFromString<List<ActiveProduction>>(activeProductionsJson)
-                buildJsonArray {
-                    prods.forEach { ap ->
-                        add(buildJsonObject {
-                            put("id", ap.id)
-                            put("productId", ap.productId)
-                            put("product_id", ap.productId)
-                            put("quantity", ap.quantity)
-                            put("facilityId", ap.facilityId)
-                            put("facility_id", ap.facilityId)
-                            put("businessId", ap.businessId)
-                            put("cityId", ap.cityId)
-                            put("targetCityId", ap.targetCityId)
-                            put("startTimeMs", ap.startTimeMs)
-                            put("start_time_ms", ap.startTimeMs)
-                            put("totalDurationMs", ap.totalDurationMs)
-                            put("total_duration_ms", ap.totalDurationMs)
-                            put("endTimeMs", ap.effectiveEndTimeMs)
-                            put("end_time_ms", ap.effectiveEndTimeMs)
-                            put("isAgriProduct", ap.isAgriProduct)
-                            put("originCountry", ap.originCountry)
-                        })
+        val bArray = buildJsonArray {
+            businesses.forEach { b ->
+                add(buildJsonObject {
+                    put("id", b.id)
+                    put("type", b.type)
+                    put("level", b.level)
+                    put("wearLevel", b.wearLevel.toDouble())
+                    put("wear_level", b.wearLevel.toDouble())
+                    put("storageCapacity", b.getEffectiveStorageCapacity())
+                    put("storage_capacity", b.getEffectiveStorageCapacity())
+                    put("storedItemsJson", b.storedItemsJson)
+                    put("isUpgrading", b.isUpgrading)
+                    put("is_upgrading", b.isUpgrading)
+                    if (b.upgradeEndTime != null) {
+                        put("upgradeEndTime", b.upgradeEndTime)
+                        put("upgrade_end_time", b.upgradeEndTime)
                     }
-                }
-            } catch (_: Exception) {
-                safeParseJsonElement(activeProductionsJson) ?: JsonArray(emptyList())
+                    put("isConstructing", b.isConstructing)
+                    put("is_constructing", b.isConstructing)
+                    if (b.constructionEndTime != null) {
+                        put("constructionEndTime", b.constructionEndTime)
+                        put("construction_end_time", b.constructionEndTime)
+                    }
+                })
             }
-            val dailyQuestElem = safeParseJsonElement(dailyQuestStateJson)
-
-            val jsonObject = buildJsonObject {
-                put("id", effectiveUid)
-                put("name", name)
-                put("company_name", companyName)
-                put("money", money)
-                put("loan_amount", loanAmount)
-                put("deposit_balance", depositBalance)
-                put("daily_income", dailyIncome)
-                put("daily_expense", dailyExpense)
-                put("total_profit", totalProfit)
-                put("xp", xp)
-                put("level", level)
-                put("inventory_capacity", inventoryCapacity)
-                put("current_city", migrateLegacyCity(currentCity))
-                put("is_vip", isVip)
-                put("gems", gems)
-                put("last_daily_reward_ms", lastDailyRewardMs)
-                put("login_streak", loginStreak)
-                put("is_online_registered", isOnlineRegistered)
-                put("online_email", effectiveEmail)
-                put("businesses", bArray)
-                put("inventory", invArray)
-                put("managers", managersElem)
-                put("active_researches", activeResearchesElem)
-                put("research_levels", researchLevelsElem)
-                put("guild_shares", guildSharesElem)
-                put("guild_buy_prices", guildBuyPricesElem)
-                if (!rawSaveJson.isNullOrBlank()) {
-                    put("raw_save_json", rawSaveJson)
-                }
-                put("updated_at", getCurrentIsoTimestamp())
-            }
-
-            val requestBody = jsonObject.toString().toRequestBody(JSON_MEDIA_TYPE)
-            
-            // Send to 'players' table
-            val req1 = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/players?on_conflict=id")
-                .addHeader("apikey", SUPABASE_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "resolution=merge-duplicates")
-                .post(requestBody)
-                .build()
-            val success = executeAndLog(req1, "players_upsert")
-
-            Log.d(TAG, "Successfully synced player $uid to Supabase (players table)")
-            success
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception syncing player to Supabase", e)
-            false
         }
+
+        val invArray = buildJsonArray {
+            inventory.forEach { inv ->
+                add(buildJsonObject {
+                    put("itemId", inv.itemId)
+                    put("quantity", inv.quantity)
+                })
+            }
+        }
+
+        val payload = SupabasePlayerPayload(
+            id = uid,
+            name = name,
+            companyName = companyName,
+            money = money,
+            loanAmount = loanAmount,
+            depositBalance = depositBalance,
+            dailyIncome = dailyIncome,
+            dailyExpense = dailyExpense,
+            totalProfit = totalProfit,
+            xp = xp,
+            level = level,
+            inventoryCapacity = inventoryCapacity,
+            currentCity = currentCity,
+            isVip = isVip,
+            gems = gems,
+            lastDailyRewardMs = lastDailyRewardMs,
+            loginStreak = loginStreak,
+            dollarBalance = dollarBalance,
+            dollarDepositBalance = dollarDepositBalance,
+            dollarLoanAmount = dollarLoanAmount,
+            isOnlineRegistered = isOnlineRegistered,
+            onlineEmail = onlineEmail,
+            businessesJson = bArray.toString(),
+            inventoryJson = invArray.toString(),
+            activeDeliveriesJson = activeDeliveriesJson,
+            activeProductionsJson = activeProductionsJson,
+            managersJson = managersJson,
+            dailyQuestStateJson = dailyQuestStateJson,
+            activeResearchesJson = activeResearchesJson,
+            researchLevelsJson = researchLevelsJson,
+            guildSharesJson = guildSharesJson,
+            guildBuyPricesJson = guildBuyPricesJson,
+            rawSaveJson = rawSaveJson,
+            lastSavedTime = System.currentTimeMillis()
+        )
+
+        syncPlayerToSupabase(payload)
     }
 
     /**
@@ -756,37 +799,96 @@ object SupabaseManager {
         }
         try {
             val cleanUid = uid.trim()
-            val candidates = mutableListOf<String>()
+            val rawEmail = cleanUid
+            val lowerEmail = cleanUid.lowercase()
+
+            val candidates = mutableSetOf<String>()
             candidates.add(cleanUid)
-            candidates.add(cleanUid.lowercase())
+            candidates.add(lowerEmail)
+
+            // Gmail dot normalization: john.doe@gmail.com == johndoe@gmail.com
+            if (lowerEmail.contains("@gmail.com") || lowerEmail.contains("@googlemail.com")) {
+                val userPart = lowerEmail.substringBefore("@").replace(".", "")
+                val domainPart = lowerEmail.substringAfter("@")
+                val dotless = "$userPart@$domainPart"
+                candidates.add(dotless)
+                candidates.add(dotless.replace(".", "_"))
+                candidates.add(dotless.replace("@", "_").replace(".", "_"))
+            }
+
             if (cleanUid.contains(".")) {
                 candidates.add(cleanUid.replace(".", "_"))
-                candidates.add(cleanUid.lowercase().replace(".", "_"))
+                candidates.add(lowerEmail.replace(".", "_"))
             }
             if (cleanUid.contains("@")) {
                 candidates.add(cleanUid.replace("@", "_").replace(".", "_"))
-                candidates.add(cleanUid.lowercase().replace("@", "_").replace(".", "_"))
+                candidates.add(lowerEmail.replace("@", "_").replace(".", "_"))
+                val nameOnly = cleanUid.substringBefore("@")
+                if (nameOnly.isNotBlank()) candidates.add(nameOnly)
             }
             if (cleanUid.contains("_gmail_com")) {
                 candidates.add(cleanUid.replace("_gmail_com", "@gmail.com"))
-                candidates.add(cleanUid.lowercase().replace("_gmail_com", "@gmail.com"))
+                candidates.add(lowerEmail.replace("_gmail_com", "@gmail.com"))
             }
-            val distinctCandidates = candidates.filter { it.isNotBlank() }.distinct()
 
+            val distinctCandidates = candidates.filter { it.isNotBlank() }.distinct()
             val foundPayloads = mutableListOf<SupabasePlayerPayload>()
 
-            for (target in distinctCandidates) {
-                // 1. Try querying by online_email (exact and case-insensitive)
-                foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = false))
-                foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = true))
+            // 1. First attempt: Super-fast combined PostgREST OR query (1 network roundtrip)
+            try {
+                val orClauses = distinctCandidates.take(8).flatMap { cand ->
+                    listOf(
+                        "online_email.ilike.$cand",
+                        "id.ilike.$cand",
+                        "id.ilike.${cand}_backup"
+                    )
+                }.joinToString(",")
 
-                // 2. Try querying by email column fallback
-                foundPayloads.addAll(queryPlayerRecords("email", target, isIlike = false))
-                foundPayloads.addAll(queryPlayerRecords("email", target, isIlike = true))
+                val httpUrl = ("$SUPABASE_URL/rest/v1/players").toHttpUrlOrNull()?.newBuilder()
+                    ?.addQueryParameter("or", "($orClauses)")
+                    ?.addQueryParameter("select", "*")
+                    ?.addQueryParameter("limit", "20")
+                    ?.build()
 
-                // 3. Try querying by id (exact and case-insensitive)
-                foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = false))
-                foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = true))
+                if (httpUrl != null) {
+                    val request = Request.Builder()
+                        .url(httpUrl)
+                        .addHeader("apikey", SUPABASE_KEY)
+                        .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                        .get()
+                        .build()
+
+                    httpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string() ?: ""
+                            val jsonElement = safeParseJsonElement(body) as? JsonArray
+                            if (jsonElement != null) {
+                                for (docElem in jsonElement) {
+                                    val doc = docElem as? JsonObject ?: continue
+                                    foundPayloads.add(parsePlayerDoc(doc))
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Batch OR query failed, will fallback to targeted queries: ${e.message}")
+            }
+
+            // 2. Fallback: targeted exact and ilike queries if batch didn't find anything
+            if (foundPayloads.isEmpty()) {
+                val topCandidates = distinctCandidates.take(4)
+                for (target in topCandidates) {
+                    foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = false))
+                    if (foundPayloads.isEmpty()) {
+                        foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = true))
+                    }
+                    foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = false))
+                    if (foundPayloads.isEmpty()) {
+                        foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = true))
+                    }
+                    if (foundPayloads.isNotEmpty()) break
+                }
             }
 
             if (foundPayloads.isEmpty()) {
@@ -794,16 +896,17 @@ object SupabaseManager {
                 return@withContext null
             }
 
-            // Return the best record by level/profit/money first (to protect actual progress from empty overwrites), then timestamp
-            val bestPayload = foundPayloads.distinctBy { it.id + "_" + it.onlineEmail + "_" + it.level + "_" + it.money }.maxWithOrNull(
+            // Return the BEST record by Level, Gems, Total Profit, Money, and Timestamp to ensure highest progress is always restored
+            val bestPayload = foundPayloads.distinctBy { it.id + "_" + it.onlineEmail + "_" + it.level + "_" + it.gems + "_" + it.money }.maxWithOrNull(
                 compareBy<SupabasePlayerPayload> { it.level }
+                    .thenBy { it.gems }
                     .thenBy { it.totalProfit }
                     .thenBy { it.money }
                     .thenBy { it.lastSavedTime }
             )
 
             if (bestPayload != null) {
-                Log.i(TAG, "Selected best Supabase player record: ${bestPayload.name} (Lvl ${bestPayload.level}, Money ${bestPayload.money}, email=${bestPayload.onlineEmail})")
+                Log.i(TAG, "Selected best Supabase player record: ${bestPayload.name} (Lvl ${bestPayload.level}, Gems ${bestPayload.gems}, Money ${bestPayload.money}, Profit ${bestPayload.totalProfit}, email=${bestPayload.onlineEmail})")
             }
             bestPayload
         } catch (e: Exception) {
@@ -953,9 +1056,9 @@ object SupabaseManager {
             gems = doc.optInt("gems", 0),
             lastDailyRewardMs = doc.optLong("last_daily_reward_ms", 0L),
             loginStreak = doc.optInt("login_streak", 0),
-            dollarBalance = rawMoney,
-            dollarDepositBalance = rawDeposit,
-            dollarLoanAmount = rawLoan,
+            dollarBalance = doc.optLong("dollar_balance", 0L),
+            dollarDepositBalance = doc.optLong("dollar_deposit_balance", 0L),
+            dollarLoanAmount = doc.optLong("dollar_loan_amount", 0L),
             isOnlineRegistered = doc.optBoolean("is_online_registered", true),
             onlineEmail = doc.optString("online_email", ""),
             businessesJson = doc.optJsonString("businesses", "businesses_json", "[]"),
@@ -1013,33 +1116,24 @@ object SupabaseManager {
     }
 
     /**
-     * Borsa Fiyatlarını Supabase'e günceller (Bulk Upsert & Fallback Direct Patch)
+     * Tekil Borsa Ürün Fiyat ve Stok Değişimini Supabase'e Tek İstekte Gönderir (Single Upsert)
      */
-    suspend fun syncMarketPrices(prices: List<MarketPriceEntity>): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncSingleMarketPrice(price: MarketPriceEntity): Boolean = withContext(Dispatchers.IO) {
         try {
-            val sanitized = sanitizeMarketPrices(prices)
-            val jsonArray = buildJsonArray {
-                sanitized.forEach { entity ->
-                    add(buildJsonObject {
-                        put("id", entity.itemId)
-                        put("item_id", entity.itemId)
-                        put("symbol", entity.itemId)
-                        put("item_name", entity.itemId)
-                        put("base_price", entity.price)
-                        put("current_price", entity.price)
-                        put("stock", entity.borsaStock)
-                        put("borsa_stock", entity.borsaStock)
-                        put("origin_country", entity.originCountry)
-                        put("origin_city_id", entity.originCityId)
-                        put("is_usd", entity.isUsd)
-                    })
-                }
+            val payload = buildJsonObject {
+                put("item_id", price.itemId)
+                put("item_name", price.itemId)
+                put("base_price", price.price)
+                put("current_price", price.price)
+                put("stock", price.borsaStock)
+                put("borsa_stock", price.borsaStock)
+                put("origin_country", price.originCountry)
+                put("is_usd", price.isUsd)
+                put("updated_at", getCurrentIsoTimestamp())
             }
+            val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
 
-            val requestBody = jsonArray.toString().toRequestBody(JSON_MEDIA_TYPE)
-            
-            // 1. Try Upsert with on_conflict=item_id
-            val request1 = Request.Builder()
+            val request = Request.Builder()
                 .url("$SUPABASE_URL/rest/v1/market_prices?on_conflict=item_id")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
@@ -1048,99 +1142,84 @@ object SupabaseManager {
                 .post(requestBody)
                 .build()
 
-            var success = httpClient.newCall(request1).execute().use { response -> response.isSuccessful }
-            
-            // 2. If failed, try on_conflict=id
-            if (!success) {
-                val request2 = Request.Builder()
-                    .url("$SUPABASE_URL/rest/v1/market_prices?on_conflict=id")
-                    .addHeader("apikey", SUPABASE_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-                    .post(requestBody)
-                    .build()
-                success = httpClient.newCall(request2).execute().use { response -> response.isSuccessful }
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
             }
-            
-            // 3. Guaranteed direct PATCH for every single product row
-            sanitized.forEach { entity ->
-                updateSingleMarketPriceInSupabase(
-                    itemId = entity.itemId,
-                    newStock = entity.borsaStock,
-                    newPrice = entity.price,
-                    originCountry = entity.originCountry
-                )
-            }
-            
-            true
         } catch (e: Exception) {
-            Log.e(TAG, "Exception syncing market prices to Supabase", e)
+            Log.e(TAG, "Exception syncing single market price for ${price.itemId} to Supabase", e)
             false
         }
     }
 
     /**
-     * Tekil Borsa Ürün Stok ve Fiyatını Anlık Olarak Supabase'e İşler (Direct SQL PATCH)
+     * Toplu Borsa Fiyatlarını Supabase'e Tek İstekte (Batch Upsert: Prefer resolution=merge-duplicates) Gönderir
+     */
+    suspend fun syncMarketPricesBatch(prices: List<MarketPriceEntity>): Boolean = withContext(Dispatchers.IO) {
+        if (prices.isEmpty()) return@withContext true
+        try {
+            val sanitized = sanitizeMarketPrices(prices)
+            val jsonArray = buildJsonArray {
+                sanitized.forEach { entity ->
+                    add(buildJsonObject {
+                        put("item_id", entity.itemId)
+                        put("item_name", entity.itemId)
+                        put("base_price", entity.price)
+                        put("current_price", entity.price)
+                        put("stock", entity.borsaStock)
+                        put("borsa_stock", entity.borsaStock)
+                        put("origin_country", entity.originCountry)
+                        put("is_usd", entity.isUsd)
+                        put("updated_at", getCurrentIsoTimestamp())
+                    })
+                }
+            }
+
+            val requestBody = jsonArray.toString().toRequestBody(JSON_MEDIA_TYPE)
+
+            val request = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/market_prices?on_conflict=item_id")
+                .addHeader("apikey", SUPABASE_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(requestBody)
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception syncing market prices batch to Supabase", e)
+            false
+        }
+    }
+
+    /**
+     * Borsa Fiyatlarını Supabase'e günceller (Tek İstekli Batch Upsert delegasyonu)
+     */
+    suspend fun syncMarketPrices(prices: List<MarketPriceEntity>): Boolean {
+        return syncMarketPricesBatch(prices)
+    }
+
+    /**
+     * Tekil Borsa Ürün Stok ve Fiyatını Anlık Olarak Supabase'e İşler (Tek İstek)
      */
     suspend fun updateSingleMarketPriceInSupabase(
         itemId: String,
         newStock: Long,
         newPrice: Long,
         originCountry: String = "Türkiye"
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val payload = buildJsonObject {
-                put("id", itemId)
-                put("item_id", itemId)
-                put("symbol", itemId)
-                put("stock", newStock)
-                put("borsa_stock", newStock)
-                put("current_price", newPrice)
-                put("base_price", newPrice)
-            }
-            val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
-
-            // 1. Direct PATCH by item_id
-            val patchReq1 = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/market_prices?item_id=eq.$itemId")
-                .addHeader("apikey", SUPABASE_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Content-Type", "application/json")
-                .patch(requestBody)
-                .build()
-
-            var success = httpClient.newCall(patchReq1).execute().use { it.isSuccessful }
-
-            // 2. If not matched, try PATCH by id
-            if (!success) {
-                val patchReq2 = Request.Builder()
-                    .url("$SUPABASE_URL/rest/v1/market_prices?id=eq.$itemId")
-                    .addHeader("apikey", SUPABASE_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                    .addHeader("Content-Type", "application/json")
-                    .patch(requestBody)
-                    .build()
-                success = httpClient.newCall(patchReq2).execute().use { it.isSuccessful }
-            }
-
-            // 3. If row does not exist, insert via POST
-            if (!success) {
-                val upsertReq = Request.Builder()
-                    .url("$SUPABASE_URL/rest/v1/market_prices?on_conflict=item_id")
-                    .addHeader("apikey", SUPABASE_KEY)
-                    .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Prefer", "resolution=merge-duplicates")
-                    .post(requestBody)
-                    .build()
-                success = httpClient.newCall(upsertReq).execute().use { it.isSuccessful }
-            }
-            success
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception updating single market price for $itemId to Supabase", e)
-            false
-        }
+    ): Boolean {
+        return syncSingleMarketPrice(
+            MarketPriceEntity(
+                itemId = itemId,
+                originCountry = originCountry,
+                originCityId = "istanbul",
+                price = newPrice,
+                borsaStock = newStock,
+                isUsd = false
+            )
+        )
     }
 
     /**
@@ -1441,7 +1520,7 @@ object SupabaseManager {
                     val id = item.optString("item_id").ifBlank { item.optString("id").ifBlank { item.optString("symbol") } }
                     val price = item.optLong("current_price", item.optLong("base_price", 0L))
                     val rawStock = item.optLong("borsa_stock", item.optLong("stock", MacroEconomyEngine.DEFAULT_BORSA_STOCK))
-                    val stock = if (rawStock <= 50_000L || rawStock > MacroEconomyEngine.DEFAULT_BORSA_STOCK) {
+                    val stock = if (rawStock <= 0L || rawStock == 999_999_999L || rawStock == 50_000L || rawStock == 5_000L) {
                         hasLegacyValues = true
                         MacroEconomyEngine.DEFAULT_BORSA_STOCK
                     } else {
@@ -1463,7 +1542,7 @@ object SupabaseManager {
                 }
                 val sanitized = sanitizeMarketPrices(resultList)
                 if (hasLegacyValues || resultList.size < Product.values().size) {
-                    // Supabase'deki eski 50.000L kalıntılarını ve eksik ürünleri 999.999.999.999L stok ile Supabase'e geri yaz
+                    // Supabase'deki eski kalıntıları ve eksik ürünleri standart 999.999L stok ile Supabase'e geri yaz
                     syncMarketPrices(sanitized)
                 }
                 if (sanitized.isNotEmpty()) sanitized else null
@@ -1516,6 +1595,12 @@ object SupabaseManager {
                     } catch (e: Exception) { System.currentTimeMillis() }
                 } else System.currentTimeMillis()
 
+                val qualityLevel = item.optInt("quality_level", 0).let { q ->
+                    if (q in 1..5) q else com.example.data.ItemQuality.extractQuality(itemId).stars
+                }
+                val qualityTier = item.optString("quality_tier").takeIf { it.isNotBlank() }
+                    ?: com.example.data.ItemQuality.fromStars(qualityLevel).label
+
                 if (id.startsWith("fc_") || sellerName.startsWith("FUTURES:")) {
                     // Vadeli Sözleşme
                     var durationDays = 30
@@ -1539,6 +1624,7 @@ object SupabaseManager {
                             lockedPricePerUnit = pricePerUnit,
                             durationDays = durationDays,
                             cityId = city,
+                            qualityLevel = qualityLevel,
                             createdAt = parsedCreatedAt
                         )
                     )
@@ -1547,6 +1633,8 @@ object SupabaseManager {
                     val buyerName = if (sellerName.startsWith("BUY_ORDER:")) {
                         sellerName.removePrefix("BUY_ORDER:")
                     } else sellerName
+
+                    val minQ = item.optInt("min_quality_level", qualityLevel)
 
                     buyOrders.add(
                         com.example.data.BuyOrder(
@@ -1557,6 +1645,8 @@ object SupabaseManager {
                             quantity = quantity,
                             pricePerUnit = pricePerUnit,
                             destinationCityId = city,
+                            qualityLevel = qualityLevel,
+                            minQualityLevel = minQ,
                             createdAt = parsedCreatedAt
                         )
                     )
@@ -1571,7 +1661,8 @@ object SupabaseManager {
                             quantity = quantity,
                             pricePerUnit = pricePerUnit,
                             originCityId = city,
-                            qualityTier = "Standart",
+                            qualityLevel = qualityLevel,
+                            qualityTier = qualityTier,
                             createdAt = parsedCreatedAt
                         )
                     )
@@ -1610,6 +1701,10 @@ object SupabaseManager {
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body?.string() ?: ""
+                    Log.e(TAG, "syncMarketListingToSupabase failed: code=${response.code} body=$errBody")
+                }
                 response.isSuccessful
             }
         } catch (e: Exception) {
@@ -1766,10 +1861,13 @@ object SupabaseManager {
             for (i in 0 until jsonArray.size) {
                 val doc = jsonArray[i] as? JsonObject ?: continue
                 val id = doc.optString("id", "")
+                val name = doc.optString("name", "Tüccar")
                 val isOnlineReg = doc.optBoolean("is_online_registered", false)
+                val botIds = setOf("BOT-KAYA-01", "BOT-NOVA-02", "BOT-TOROS-03", "BOT-EGE-04", "BOT-AVRASYA-05", "BOT-ANADOLU-05")
+                val botNames = setOf("Selim Kaya", "Dr. Aylin Soylu", "Burak Demirci", "Zehra Aydın", "Hakan Erkin", "Defne Aras", "Kaan Yıldırım")
 
-                // Only include authentic registered players who signed in (skip offline/guest entries)
-                if (id.isBlank() || id == "local" || id == "misafir_tuccar" || id.startsWith("guest") || (!id.contains("@") && !id.contains("_") && !isOnlineReg)) {
+                // Only include authentic registered players who signed in (skip offline/guest entries and bot entries)
+                if (id.isBlank() || id == "local" || id == "misafir_tuccar" || id.startsWith("guest", ignoreCase = true) || id.startsWith("BOT-", ignoreCase = true) || id.startsWith("BOT_", ignoreCase = true) || id.contains("bot", ignoreCase = true) || id in botIds || name in botNames || (!id.contains("@") && !id.contains("_") && !isOnlineReg)) {
                     continue
                 }
 
@@ -1800,7 +1898,21 @@ object SupabaseManager {
                     )
                 )
             }
-            resultList.sortedByDescending { it.netWorth }
+            resultList
+                .groupBy { player ->
+                    val cleanId = player.id.lowercase().trim().removeSuffix("_backup").removePrefix("vault_").replace(".", "_")
+                    val emailKey = if (cleanId.contains("@")) cleanId.substringBefore("@") else ""
+                    val cleanName = player.name.lowercase().trim().replace(" ", "").replace("_", "")
+                    when {
+                        emailKey.isNotBlank() -> "email_$emailKey"
+                        cleanName.isNotBlank() && cleanName != "tüccar" && cleanName != "tuccar" -> "name_$cleanName"
+                        else -> "id_$cleanId"
+                    }
+                }
+                .map { (_, duplicates) ->
+                    duplicates.maxByOrNull { it.netWorth }!!
+                }
+                .sortedByDescending { it.netWorth }
         } catch (e: Exception) {
             Log.e(TAG, "Exception fetching leaderboard from Supabase", e)
             null
@@ -1968,6 +2080,21 @@ object SupabaseManager {
             Log.e(TAG, "Exception fetching museum registry from Supabase", e)
             null
         }
+    }
+
+    suspend fun fetchMuseumArtifactsFromSupabase(): List<MuseumArtifactOwnershipEntity> {
+        return fetchMuseumRegistryFromSupabase() ?: emptyList()
+    }
+
+    suspend fun syncMuseumArtifactToSupabase(artifact: MuseumArtifactOwnershipEntity): Boolean {
+        return syncMuseumArtifactOwnershipToSupabase(
+            artifactId = artifact.artifactId,
+            ownerId = artifact.ownerId,
+            ownerName = artifact.ownerName,
+            status = artifact.status,
+            activeAuctionId = artifact.activeAuctionId,
+            lastPrice = artifact.lastPrice
+        )
     }
 
     /**
@@ -2338,6 +2465,109 @@ object SupabaseManager {
 
     suspend fun executeRpc(functionName: String, params: JsonObject): Pair<Boolean, String?> =
         executeRpc(functionName, params.toString())
+
+    data class RemoteBorsaBuyResult(
+        val success: Boolean,
+        val itemId: String = "",
+        val quantity: Int = 0,
+        val unitPrice: Long = 0L,
+        val totalCost: Long = 0L,
+        val newStock: Long = 0L,
+        val newPrice: Long = 0L,
+        val errorMessage: String? = null
+    )
+
+    /**
+     * Oyuncu Meta verilerini hafif UPSERT ile 'player_meta' tablosuna senkronize eder.
+     * Supabase kotalarını korumak için sadece liderlik tablosu ve hile koruma verisini taşır.
+     */
+    suspend fun syncPlayerMeta(
+        playerId: String,
+        name: String,
+        level: Int,
+        netWorth: Long,
+        hash: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val payload = buildJsonObject {
+                put("player_id", playerId)
+                put("name", name)
+                put("level", level)
+                put("net_worth", netWorth)
+                put("anti_cheat_hash", hash)
+                put("updated_at", getCurrentIsoTimestamp())
+            }
+
+            val requestBody = payload.toString().toRequestBody(JSON_MEDIA_TYPE)
+            val request = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/player_meta?on_conflict=player_id")
+                .addHeader("apikey", SUPABASE_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+                .post(requestBody)
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Player meta synced to player_meta successfully for $playerId")
+                    true
+                } else {
+                    Log.w(TAG, "Failed to sync player_meta for $playerId: code=${response.code}")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during syncPlayerMeta", e)
+            false
+        }
+    }
+
+    /**
+     * Supabase RPC execute_borsa_buy çağrısı ile PostgreSQL FOR UPDATE kilidi üzerinden
+     * yarış durumu (race condition) ve stok çakışması olmaksızın borsa alımını atomik gerçekleştirir.
+     */
+    suspend fun executeRemoteBorsaBuy(
+        playerId: String,
+        itemId: String,
+        quantity: Int,
+        maxAcceptablePrice: Long = 0L
+    ): RemoteBorsaBuyResult = withContext(Dispatchers.IO) {
+        try {
+            val params = buildJsonObject {
+                put("p_player_id", playerId)
+                put("p_item_id", itemId)
+                put("p_quantity", quantity)
+                put("p_max_acceptable_price", maxAcceptablePrice)
+            }
+            val (success, body) = executeRpc("execute_borsa_buy", params)
+            if (success && !body.isNullOrBlank()) {
+                val json = Json.parseToJsonElement(body).jsonObject
+                val isSuccess = json["success"]?.jsonPrimitive?.booleanOrNull ?: false
+                if (isSuccess) {
+                    RemoteBorsaBuyResult(
+                        success = true,
+                        itemId = json["item_id"]?.jsonPrimitive?.content ?: itemId,
+                        quantity = json["quantity"]?.jsonPrimitive?.intOrNull ?: quantity,
+                        unitPrice = json["unit_price"]?.jsonPrimitive?.longOrNull ?: 0L,
+                        totalCost = json["total_cost"]?.jsonPrimitive?.longOrNull ?: 0L,
+                        newStock = json["new_stock"]?.jsonPrimitive?.longOrNull ?: 0L,
+                        newPrice = json["new_price"]?.jsonPrimitive?.longOrNull ?: 0L
+                    )
+                } else {
+                    val err = json["message"]?.jsonPrimitive?.content
+                        ?: json["error"]?.jsonPrimitive?.content
+                        ?: "Borsa alım işlemi başarısız"
+                    RemoteBorsaBuyResult(success = false, errorMessage = err)
+                }
+            } else {
+                RemoteBorsaBuyResult(success = false, errorMessage = body ?: "Ağ bağlantı hatası")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during executeRemoteBorsaBuy", e)
+            RemoteBorsaBuyResult(success = false, errorMessage = e.localizedMessage)
+        }
+    }
 
     /**
      * Müzayedeyi Supabase'den siler (iptal veya transfer tamamlandığında).

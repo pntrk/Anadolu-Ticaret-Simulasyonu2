@@ -35,8 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.lazy.LazyRow
 import com.example.data.MuseumHeritageManager
+import com.example.data.ArtifactBuffRegistry
+import com.example.data.ArtifactBuffType
 import com.example.data.PlayerEntity
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.billing.findActivity
 import com.example.data.cities
 import com.example.ui.theme.*
@@ -96,23 +100,26 @@ fun TraderProfileDialog(
     val currentCityObj = cities.find { it.id == player.currentCity }
     val cityName = currentCityObj?.name ?: if (player.currentCity.isBlank() || player.currentCity == "-") "Çanakkale" else player.currentCity.replaceFirstChar { it.uppercase() }
 
-    // Level Title Calculator
-    val traderTitle = remember(player.level) {
-        when {
-            player.level >= 50 -> if (isEn) "Empire Industrialist" else "Holding İmparatoru"
-            player.level >= 30 -> if (isEn) "Magnate Merchant" else "Borsa & Ticaret Baronu"
-            player.level >= 20 -> if (isEn) "Senior Industrialist" else "Kıdemli Sanayici"
-            player.level >= 10 -> if (isEn) "Master Trader" else "Usta Tacir"
-            player.level >= 5 -> if (isEn) "Journeyman Merchant" else "Kalfalık Taciri"
-            else -> if (isEn) "Apprentice Trader" else "Çırak Tüccar"
-        }
-    }
-
-    // XP Progress
+    // XP Progress & Level Calculations
     val levelProgress = remember(player.xp) {
         com.example.data.XpLevelEngine.getProgress(player.xp.toLong())
     }
+    val effectiveLevel = remember(player.level, levelProgress.level) {
+        maxOf(player.level, levelProgress.level)
+    }
     val xpProgress = levelProgress.progressFraction
+
+    // Level Title Calculator
+    val traderTitle = remember(effectiveLevel) {
+        when {
+            effectiveLevel >= 50 -> if (isEn) "Empire Industrialist" else "Holding İmparatoru"
+            effectiveLevel >= 30 -> if (isEn) "Magnate Merchant" else "Borsa & Ticaret Baronu"
+            effectiveLevel >= 20 -> if (isEn) "Senior Industrialist" else "Kıdemli Sanayici"
+            effectiveLevel >= 10 -> if (isEn) "Master Trader" else "Usta Tacir"
+            effectiveLevel >= 5 -> if (isEn) "Journeyman Merchant" else "Kalfalık Taciri"
+            else -> if (isEn) "Apprentice Trader" else "Çırak Tüccar"
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -307,7 +314,7 @@ fun TraderProfileDialog(
                                             border = BorderStroke(0.5.dp, ThemeNeonCyan.copy(alpha = 0.4f))
                                         ) {
                                             Text(
-                                                text = "LVL ${player.level}",
+                                                text = "LVL $effectiveLevel",
                                                 fontSize = 9.5.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = ThemeNeonCyan,
@@ -341,8 +348,19 @@ fun TraderProfileDialog(
                                             trackColor = Color(0xFF1E293B)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
+                                        val currentXpCompact = when {
+                                            levelProgress.currentLevelXp >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", levelProgress.currentLevelXp / 1_000_000.0)
+                                            levelProgress.currentLevelXp >= 1_000L -> String.format(java.util.Locale.US, "%.1fK", levelProgress.currentLevelXp / 1_000.0)
+                                            else -> levelProgress.currentLevelXp.toString()
+                                        }
+                                        val targetXpCompact = when {
+                                            levelProgress.targetLevelXp >= 1_000_000L -> String.format(java.util.Locale.US, "%.1fM", levelProgress.targetLevelXp / 1_000_000.0)
+                                            levelProgress.targetLevelXp >= 1_000L -> String.format(java.util.Locale.US, "%.1fK", levelProgress.targetLevelXp / 1_000.0)
+                                            else -> levelProgress.targetLevelXp.toString()
+                                        }
+                                        val percent = (xpProgress * 100).toInt().coerceIn(0, 100)
                                         Text(
-                                            text = "${levelProgress.currentLevelXp} / ${levelProgress.targetLevelXp}",
+                                            text = "$currentXpCompact / $targetXpCompact XP (%$percent)",
                                             fontSize = 9.sp,
                                             color = Color.Gray,
                                             fontFamily = RobotoMonoFontFamily
@@ -607,7 +625,7 @@ fun TraderProfileDialog(
                                 )
                             }
                             ProfileTab.MUSEUM -> {
-                                ProfileMuseumTab(context = context)
+                                ProfileMuseumTab(context = context, viewModel = viewModel)
                             }
                             ProfileTab.APPEARANCE -> {
                                 ProfileAppearanceTab(
@@ -622,7 +640,8 @@ fun TraderProfileDialog(
                                     isOnlineRegistered = isOnlineRegistered,
                                     onlineEmail = onlineEmail,
                                     onForceSyncCloud = onForceSyncCloud,
-                                    onForceRestoreCloud = onForceRestoreCloud
+                                    onForceRestoreCloud = onForceRestoreCloud,
+                                    viewModel = viewModel
                                 )
                             }
                         }
@@ -944,7 +963,10 @@ private fun FinancialRow(label: String, value: String, color: Color) {
 // TAB 2: AHİLİK MİRASI MÜZESİ & PRESTİJ
 // ----------------------------------------------------
 @Composable
-private fun ProfileMuseumTab(context: android.content.Context) {
+private fun ProfileMuseumTab(
+    context: android.content.Context,
+    viewModel: com.example.viewmodel.GameViewModel? = null
+) {
     val ownedArtifacts = remember { MuseumHeritageManager.getOwnedArtifacts(context) }
     val museumPrestige = remember { MuseumHeritageManager.getTotalMuseumPrestige(context) }
     val hourlyVisitorIncome = remember { MuseumHeritageManager.getTotalHourlyVisitorIncome(context) }
@@ -952,10 +974,85 @@ private fun ProfileMuseumTab(context: android.content.Context) {
     val profileBonusRevenue = remember { MuseumHeritageManager.getUnclaimedProfileVisitRevenue(context) }
     val isEn = isEnglishLanguage()
 
+    val activeBuffs = if (viewModel != null) {
+        val vmBuffs by viewModel.activeArtifactBuffs.collectAsStateWithLifecycle()
+        vmBuffs
+    } else {
+        remember(ownedArtifacts) {
+            ArtifactBuffRegistry.getActiveBuffs(ownedArtifacts.map { it.id })
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Aktif Şirket Güçleri (Artifact Buffs)
+        if (activeBuffs.isNotEmpty()) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFF0F1E33),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "✨ " + tr("AKTİF ŞİRKET GÜÇLERİ", "ACTIVE COMPANY BUFFS"),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = Color(0xFFFBBF24),
+                            letterSpacing = 0.5.sp
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(activeBuffs.entries.toList(), key = { it.key.name }) { (buffType, value) ->
+                                val label = when (buffType) {
+                                    ArtifactBuffType.LOAN_INTEREST_DISCOUNT -> "Kredi Faizi: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.DEPOSIT_INTEREST_BONUS -> "Mevduat: +%${String.format(java.util.Locale.US, "%.1f", value * 100)}"
+                                    ArtifactBuffType.LOGISTICS_COST_DISCOUNT -> "Lojistik: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.LOGISTICS_SPEED_BONUS -> "Lojistik Hız: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.CONSTRUCTION_SPEED_BONUS -> "İnşaat Hızı: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.UPGRADE_COST_DISCOUNT -> "Yükseltme: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.WEAR_LEVEL_REDUCTION -> "Aşınma: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.MAINTENANCE_COST_DISCOUNT -> "Bakım: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.TIER1_PRODUCTION_BONUS -> "Tier 1 Üretim: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.TIER4_PRODUCTION_BONUS -> "Tier 4 Üretim: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.BORSA_SELL_BONUS -> "Borsa Satış: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.BORSA_BUY_DISCOUNT -> "Borsa Alım: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.MANAGER_SALARY_DISCOUNT -> "Yönetici Maaşı: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.RD_RESEARCH_SPEED -> "Ar-Ge Hızı: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.CONSORTIUM_PRESTIGE_BONUS -> "Prestij: +%${(value * 100).toInt()}"
+                                }
+                                AssistChip(
+                                    onClick = {},
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                    ),
+                                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Visitor Analytics Card
         item {
             Surface(
@@ -1102,6 +1199,21 @@ private fun ProfileMuseumTab(context: android.content.Context) {
                                     fontSize = 10.sp,
                                     color = Color.LightGray
                                 )
+                                val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.id }
+                                if (buff != null) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "✨ Pasif Güç: ${buff.loreDescription}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -1189,11 +1301,13 @@ private fun ProfileSettingsTab(
     isOnlineRegistered: Boolean = false,
     onlineEmail: String = "",
     onForceSyncCloud: () -> Unit = {},
-    onForceRestoreCloud: () -> Unit = {}
+    onForceRestoreCloud: () -> Unit = {},
+    viewModel: com.example.viewmodel.GameViewModel? = null
 ) {
     val haptic = LocalHapticFeedback.current
     var hapticEnabled by remember { mutableStateOf(com.example.utils.HapticManager.isHapticEnabled) }
     var animationsEnabled by remember { mutableStateOf(com.example.utils.HapticManager.isAnimationsEnabled) }
+    val backupStatus by (viewModel?.lastCloudBackupStatus?.collectAsState() ?: remember { mutableStateOf("") })
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -1238,13 +1352,67 @@ private fun ProfileSettingsTab(
 
                     Text(
                         text = if (isOnlineRegistered) {
-                            tr("Şirket verileriniz Supabase bulut veritabanına otomatik olarak yedeklenir ($onlineEmail).", "Your company data is automatically backed up to Supabase cloud ($onlineEmail).")
+                            tr("Şirket verileriniz her dakika başında Supabase bulutuna otomatik olarak yedeklenir ($onlineEmail).", "Your company data is automatically backed up to Supabase cloud at the start of every minute ($onlineEmail).")
                         } else {
-                            tr("Bulut yedeklemesini etkinleştirmek için yukarıdaki Google Girişi veya E-posta ile oturum açın.", "Sign in with Google or Email above to activate automatic cloud backup.")
+                            tr("Her dakika başı otomatik bulut yedeklemesini etkinleştirmek için yukarıdaki Google Girişi veya E-posta ile oturum açın.", "Sign in with Google or Email above to activate automatic cloud backup at the start of every minute.")
                         },
                         fontSize = 10.5.sp,
                         color = Color.LightGray
                     )
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF1E293B).copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, Color(0xFF334155)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = ThemeNeonCyan,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = tr("Otomatik Yedekleme: Her Dakika Başı (:00)", "Auto Backup: Every Minute (:00)"),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ThemeNeonCyan
+                                )
+                            }
+                            if (backupStatus.isNotBlank() && backupStatus != "Hata") {
+                                Text(
+                                    text = tr("Son: $backupStatus ✓", "Last: $backupStatus ✓"),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ThemePositive
+                                )
+                            } else if (backupStatus == "Hata") {
+                                Text(
+                                    text = tr("Yeniden deneniyor...", "Retrying..."),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ThemeNegative
+                                )
+                            } else {
+                                Text(
+                                    text = tr("⏱️ Aktif", "⏱️ Active"),
+                                    fontSize = 10.sp,
+                                    color = Color.LightGray
+                                )
+                            }
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

@@ -79,6 +79,9 @@ import com.example.ui.components.ConsortiumRadioSosBroadcastBar
 import com.example.ui.components.OneTapWarehouseSyncBadge
 import com.example.ui.components.ConsortiumHonorPodium
 import com.example.ui.components.ConsortiumBoardVotingCard
+import com.example.ui.components.ConsortiumSynergyPanel
+import com.example.ui.components.QualityBadge
+import com.example.ui.theme.RobotoMonoFontFamily
 import com.example.ui.theme.ThemeBorder
 import com.example.ui.theme.ThemeGold
 import com.example.ui.theme.ThemeNeonCyan
@@ -713,6 +716,12 @@ fun MegaProjectHubScreen(
 
     // ================= CONSORTIUM CHAT DIALOG =================
     activeChatProject?.let { proj ->
+        DisposableEffect(proj.id) {
+            viewModel.handleIntent(com.example.viewmodel.GameIntent.ListenToConsortiumChat(proj.id))
+            onDispose {
+                viewModel.handleIntent(com.example.viewmodel.GameIntent.StopListeningToConsortiumChat(proj.id))
+            }
+        }
         val chatMsgs = consortiumChatMessages[proj.id] ?: emptyList()
         ConsortiumChatDialog(
             project = proj,
@@ -720,7 +729,8 @@ fun MegaProjectHubScreen(
             onSendMessage = { text ->
                 viewModel.handleIntent(com.example.viewmodel.GameIntent.SendConsortiumChatMessage(proj.id, text))
             },
-            onDismiss = { activeChatProject = null }
+            onDismiss = { activeChatProject = null },
+            viewModel = viewModel
         )
     }
 
@@ -747,16 +757,18 @@ fun MegaProjectHubScreen(
         )
     }
 
-    // ================= DELIVER MATERIAL DIALOG =================
     selectedDeliverySlotProject?.let { (project, slot) ->
-        val userStock = inventory.find { it.itemId == slot.productId }?.quantity ?: 0
+        val allProductInv = inventory.filter { com.example.data.ItemQuality.extractBaseProductId(it.itemId) == slot.productId && it.quantity > 0 }
+        val eligibleStock = allProductInv.filter { project.qualityTier.isQualityAllowed(it.quality) }.sumOf { it.quantity }
         DeliverMaterialDialog(
             uiState = uiState,
             onIntent = onIntent,
             project = project,
             slot = slot,
-            userStock = userStock,
+            userStock = eligibleStock,
             onDismiss = { selectedDeliverySlotProject = null },
+            onNavigateToMarket = onNavigateToMarket,
+            onNavigateToFacilities = onNavigateToFacilities,
             onDeliver = { deliverQty ->
                 viewModel.handleIntent(com.example.viewmodel.GameIntent.DeliverMaterialsToConsortium(project.id, slot.slotId, deliverQty))
                 selectedDeliverySlotProject = null
@@ -792,8 +804,10 @@ fun ConsortiumSlotItemCard(
     val isUnassigned = slot.assignedPartnerId == null
     val isSlotFinished = slot.isFullyDelivered
 
-    val invItem = uiState.inventoryState.items.find { it.itemId == slot.productId }
-    val availableInInventory = invItem?.quantity ?: 0
+    val allProductInv = uiState.inventoryState.items.filter { com.example.data.ItemQuality.extractBaseProductId(it.itemId) == slot.productId && it.quantity > 0 }
+    val eligibleInv = allProductInv.filter { project.qualityTier.isQualityAllowed(it.quality) }
+    val availableInInventory = eligibleInv.sumOf { it.quantity }
+    val ineligibleCount = (allProductInv - eligibleInv.toSet()).sumOf { it.quantity }
     val remainingRequired = (slot.quantityRequired - slot.quantityDelivered).coerceAtLeast(0)
     val oneTapAmount = minOf(availableInInventory, remainingRequired)
 
@@ -816,6 +830,32 @@ fun ConsortiumSlotItemCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Quality Standard Indicator
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = Color(project.qualityTier.badgeColor).copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, Color(project.qualityTier.badgeColor).copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "🛡️ ${project.qualityTier.titleTr} Standardı",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(project.qualityTier.badgeColor)
+                    )
+                    Text(
+                        text = "Girdi: ${project.qualityTier.allowedQualityRangeTextTr}",
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
+            }
             // Header Row: Product info & Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -938,6 +978,48 @@ fun ConsortiumSlotItemCard(
                     color = if (isSlotFinished) Color(0xFF10B981) else ThemeNeonCyan,
                     trackColor = Color(0xFF1E293B)
                 )
+
+                // Zanaatkarlık & Kalite Mirası Rozeti
+                if (slot.quantityDelivered > 0 || isMySlot) {
+                    val userBiz = uiState.businesses.find { it.type == slot.productId || it.type == (Product.values().find { p -> p.id == slot.productId }?.facilityId ?: "") }
+                    val supplierLvl = userBiz?.level ?: 1
+                    val craftQuality = if (slot.quantityDelivered > 0) {
+                        ProductQuality.fromTier(slot.deliveredQualityTier.coerceIn(1, 5))
+                    } else {
+                        QualityCraftingService.evaluateConsortiumSlotCraftsmanship(supplierLvl, Product.values().find { it.id == slot.productId }?.tier ?: ProductTier.TIER_1)
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF1E293B).copy(alpha = 0.5f))
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = if (slot.quantityDelivered > 0) tr("Teslim Zanaatı:", "Delivered Craft:") else tr("Tedarik Potansiyeli:", "Supply Quality:"),
+                                fontSize = 8.5.sp,
+                                color = Color.Gray
+                            )
+                            if (userBiz != null) {
+                                Text(
+                                    text = "Sv.${userBiz.level}",
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ThemeNeonCyan,
+                                    fontFamily = RobotoMonoFontFamily
+                                )
+                            }
+                        }
+                        QualityBadge(quality = craftQuality, size = 9.dp, showLabel = true, fontSize = 8)
+                    }
+                }
             }
 
             // Action Buttons Section
@@ -1727,6 +1809,9 @@ fun MegaProjectCard(
                                     }
                                 }
                             }
+
+                            // 👑 Konsorsiyum Kalite Mirası & Sinerji Paneli
+                            ConsortiumSynergyPanel(project = project)
 
                             // Seri Üretim Bandı Durumu
                             ConsortiumProductionLineCard(project = project)
@@ -3238,15 +3323,28 @@ fun CreateConsortiumDialog(
                                         )
                                         CurrencyText(
                                             text = tr("${tier.requirementMultiplier}x İhtiyaç", "${tier.requirementMultiplier}x Required"),
-                                            fontSize = 8.5.sp,
+                                            fontSize = 8.sp,
                                             color = Color.LightGray
                                         )
                                         CurrencyText(
                                             text = tr("${tier.borsaValueMultiplier}x Borsa", "${tier.borsaValueMultiplier}x Exchange Value"),
-                                            fontSize = 8.5.sp,
+                                            fontSize = 8.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = ThemeGold
                                         )
+                                        Surface(
+                                            shape = RoundedCornerShape(3.dp),
+                                            color = tierColor.copy(alpha = 0.25f),
+                                            modifier = Modifier.padding(top = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = tier.allowedQualityRangeTextTr,
+                                                fontSize = 7.5.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -3461,6 +3559,9 @@ fun CreateConsortiumDialog(
 // ==========================================
 // DIALOG: DELIVER MATERIAL
 // ==========================================
+// ==========================================
+// DIALOG: DELIVER MATERIAL
+// ==========================================
 @Composable
 fun DeliverMaterialDialog(
     uiState: com.example.viewmodel.GameUiState,
@@ -3469,132 +3570,264 @@ fun DeliverMaterialDialog(
     slot: ConsortiumSupplierSlot,
     userStock: Int,
     onDismiss: () -> Unit,
+    onNavigateToMarket: () -> Unit = {},
+    onNavigateToFacilities: () -> Unit = {},
     onDeliver: (quantity: Int) -> Unit
 ) {
-    var deliverAmountText by remember { mutableStateOf(slot.remainingQuantity.coerceAtMost(userStock).toString()) }
+    val allProductInv = uiState.inventoryState.items.filter { 
+        com.example.data.ItemQuality.extractBaseProductId(it.itemId) == slot.productId && it.quantity > 0 
+    }
+    val eligibleItems = allProductInv.filter { project.qualityTier.isQualityAllowed(it.quality) }
+    val ineligibleItems = allProductInv.filter { !project.qualityTier.isQualityAllowed(it.quality) }
+    val effectiveEligibleStock = eligibleItems.sumOf { it.quantity }
+
+    var deliverAmountText by remember { mutableStateOf(slot.remainingQuantity.coerceAtMost(effectiveEligibleStock).toString()) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF111A2E).copy(alpha = 0.85f),
-            border = BorderStroke(1.dp, ThemeNeonCyan),
-            modifier = Modifier.fillMaxWidth()
+            color = Color(0xFF111A2E).copy(alpha = 0.95f),
+            border = BorderStroke(1.dp, Color(project.qualityTier.badgeColor)),
+            modifier = Modifier.fillMaxWidth().padding(4.dp)
         ) {
             Column(
                 modifier = Modifier
                     .padding(16.dp)
-                    .fillMaxWidth()
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    CurrencyText(
-                        text = "📦 Tedarik Şantiyesine Teslimat",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White
-                    )
+                    Column {
+                        CurrencyText(
+                            text = "📦 Tedarik Şantiyesine Teslimat",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                        CurrencyText(
+                            text = "Proje: ${project.consortiumName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.LightGray
+                        )
+                    }
                     IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
                         Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.White)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
+                // 🛡️ Konsorsiyum Kalite Standardı Kural Kartı
                 Surface(
                     shape = RoundedCornerShape(10.dp),
+                    color = Color(project.qualityTier.badgeColor).copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, Color(project.qualityTier.badgeColor).copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "🛡️ ${project.qualityTier.titleTr}",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(project.qualityTier.badgeColor)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF0F172A)
+                            ) {
+                                Text(
+                                    text = project.qualityTier.allowedQualityRangeTextTr,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = when (project.qualityTier) {
+                                ConsortiumQualityTier.GRADE_A -> "⚠️ Bu konsorsiyum A Kalite standardındadır. Yalnızca 4★ (Seçkin) ve 5★ (Kusursuz) kalitedeki hammaddeler kabul edilir."
+                                ConsortiumQualityTier.GRADE_B -> "ℹ️ Bu konsorsiyum B Kalite standardındadır. Yalnızca 2★ (Seçme), 3★ (Usta İşi) ve 4★ (Seçkin) kalitedeki hammaddeler kabul edilir."
+                                ConsortiumQualityTier.GRADE_C -> "ℹ️ Bu konsorsiyum C Kalite standardındadır. Yalnızca 1★ (Standart) ve 2★ (Seçme) kalitedeki temel hammaddeler kabul edilir."
+                            },
+                            fontSize = 8.5.sp,
+                            color = Color(0xFFCBD5E1),
+                            lineHeight = 11.sp
+                        )
+                    }
+                }
+
+                // Slot Info
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
                     color = Color(0xFF131D31),
                     border = BorderStroke(1.dp, Color(0xFF233554)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier.padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ProjectDynamicIcon(project = project, size = 42.dp, iconSize = 22.dp)
-                        Spacer(modifier = Modifier.width(10.dp))
+                        SlotDynamicIcon(productId = slot.productId, isUserSlot = true, isFullyDelivered = slot.isFullyDelivered, size = 26.dp, iconSize = 16.dp)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             CurrencyText(
-                                text = "Proje: ${project.consortiumName}",
-                                style = MaterialTheme.typography.bodySmall,
+                                text = slot.productName,
+                                fontSize = 11.sp,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                SlotDynamicIcon(productId = slot.productId, isUserSlot = true, isFullyDelivered = slot.isFullyDelivered, size = 20.dp, iconSize = 12.dp)
-                                Spacer(modifier = Modifier.width(4.dp))
-                                CurrencyText(
-                                    text = "${slot.productName} • Kalan Kota: ${slot.remainingQuantity} Ton",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ThemeGold
-                                )
+                            CurrencyText(
+                                text = "Kalan Kota: ${slot.remainingQuantity} Ton • Kabul Edilen Depo Stoğu: $effectiveEligibleStock Ton",
+                                fontSize = 9.sp,
+                                color = if (effectiveEligibleStock > 0) ThemeNeonCyan else Color(0xFFF87171)
+                            )
+                        }
+                    }
+                }
+
+                // Depo Kalite Detay Listesi
+                if (allProductInv.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Deponuzdaki ${slot.productName} Kalite Dağılımı:",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.LightGray
+                        )
+                        allProductInv.forEach { invItem ->
+                            val isAccepted = project.qualityTier.isQualityAllowed(invItem.quality)
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isAccepted) Color(0xFF064E3B).copy(alpha = 0.4f) else Color(0xFF7F1D1D).copy(alpha = 0.3f),
+                                border = BorderStroke(1.dp, if (isAccepted) Color(0xFF10B981) else Color(0xFFEF4444)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(
+                                            text = invItem.quality.label,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "(${invItem.quantity} Ton)",
+                                            fontSize = 9.sp,
+                                            color = Color.LightGray
+                                        )
+                                    }
+                                    Text(
+                                        text = if (isAccepted) "✅ Kabul Edilir" else "❌ Uygun Değil",
+                                        fontSize = 8.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isAccepted) Color(0xFF34D399) else Color(0xFFFCA5A5)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                // 4. HIZLI SEVKİYAT ROZETİ (One-Tap Warehouse Sync)
-                OneTapWarehouseSyncBadge(
-                    userStock = userStock,
-                    remainingNeeded = slot.remainingQuantity,
-                    onOneTapSync = {
-                        val toTransfer = minOf(userStock, slot.remainingQuantity)
-                        if (toTransfer > 0) {
-                            onDeliver(toTransfer)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
-                )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (effectiveEligibleStock > 0) {
+                    // Miktar Girişi ve Yüzde Butonları
+                    OutlinedTextField(
+                        value = deliverAmountText,
+                        onValueChange = { deliverAmountText = it.filter { c -> c.isDigit() } },
+                        label = { CurrencyText("Teslim Edilecek Miktar (Ton)") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = ThemeNeonCyan,
+                            unfocusedBorderColor = Color(0xFF233554),
+                            focusedLabelColor = ThemeNeonCyan
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                OutlinedTextField(
-                    value = deliverAmountText,
-                    onValueChange = { deliverAmountText = it.filter { c -> c.isDigit() } },
-                    label = { CurrencyText("Teslim Edilecek Miktar (Ton)") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ThemeNeonCyan,
-                        unfocusedBorderColor = Color(0xFF233554),
-                        focusedLabelColor = ThemeNeonCyan
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AppButton(
+                            onClick = { deliverAmountText = (effectiveEligibleStock / 2).coerceAtMost(slot.remainingQuantity).toString() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A), contentColor = Color.White),
+                            modifier = Modifier.weight(1f)
+                        ) { CurrencyText("%50", fontSize = 10.sp) }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                        AppButton(
+                            onClick = { deliverAmountText = effectiveEligibleStock.coerceAtMost(slot.remainingQuantity).toString() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A), contentColor = Color.White),
+                            modifier = Modifier.weight(1f)
+                        ) { CurrencyText("MAX UYGUN STOK", fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                    }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val qty = deliverAmountText.toIntOrNull() ?: 0
                     AppButton(
-                        onClick = { deliverAmountText = (userStock / 2).coerceAtMost(slot.remainingQuantity).toString() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A), contentColor = Color.White),
-                        modifier = Modifier.weight(1f)
-                    ) { CurrencyText("%50", fontSize = 10.sp) }
-
-                    AppButton(
-                        onClick = { deliverAmountText = userStock.coerceAtMost(slot.remainingQuantity).toString() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E2D4A), contentColor = Color.White),
-                        modifier = Modifier.weight(1f)
-                    ) { CurrencyText("MAX STOK", fontSize = 10.sp) }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                val qty = deliverAmountText.toIntOrNull() ?: 0
-                AppButton(
-                    onClick = {
-                        if (qty <= 0) {
-                            SmartNotificationManager.show("Lütfen geçerli miktar giriniz", NotificationType.ALERT)
-                        } else if (qty > userStock) {
-                            SmartNotificationManager.show("Deponuzda yeterli stok bulunmuyor!", NotificationType.ALERT)
-                        } else {
-                            onDeliver(qty)
+                        onClick = {
+                            if (qty <= 0) {
+                                SmartNotificationManager.show("Lütfen geçerli miktar giriniz", NotificationType.ALERT)
+                            } else if (qty > effectiveEligibleStock) {
+                                SmartNotificationManager.show("Yeterli uygun kalitede stok bulunmuyor!", NotificationType.ALERT)
+                            } else {
+                                onDeliver(qty)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(project.qualityTier.badgeColor), contentColor = Color(0xFF002026)),
+                        modifier = Modifier.fillMaxWidth().height(42.dp)
+                    ) {
+                        CurrencyText("ŞANTİYEYE TESLİM ET ($qty TON)", fontWeight = FontWeight.Black)
+                    }
+                } else {
+                    // Uygun stok yoksa yönlendirme
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF450A0A).copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, Color(0xFFDC2626)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "⚠️ Deponuzda bu projenin kabul ettiği kalitede (${project.qualityTier.allowedQualityRangeTextTr}) ürün bulunmuyor.",
+                                fontSize = 9.sp,
+                                color = Color(0xFFFCA5A5),
+                                lineHeight = 12.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                AppButton(
+                                    onClick = {
+                                        onDismiss()
+                                        onNavigateToMarket()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
+                                    modifier = Modifier.weight(1f).height(32.dp)
+                                ) {
+                                    Text("🛒 Pazardan Al", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                                AppButton(
+                                    onClick = {
+                                        onDismiss()
+                                        onNavigateToFacilities()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
+                                    modifier = Modifier.weight(1f).height(32.dp)
+                                ) {
+                                    Text("🏭 Tesisime Git", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    CurrencyText("ŞANTİYEYE TESLİM ET", fontWeight = FontWeight.Black)
+                    }
                 }
             }
         }
@@ -3609,8 +3842,17 @@ fun ConsortiumChatDialog(
     project: MegaProject,
     messages: List<ConsortiumChatMessage>,
     onSendMessage: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    viewModel: GameViewModel? = null
 ) {
+    // Just-in-time soket yaşam döngüsü: Ekran açıkken dinle, kapandığında durdur
+    DisposableEffect(project.id) {
+        viewModel?.handleIntent(com.example.viewmodel.GameIntent.ListenToConsortiumChat(project.id))
+        onDispose {
+            viewModel?.handleIntent(com.example.viewmodel.GameIntent.StopListeningToConsortiumChat(project.id))
+        }
+    }
+
     var messageInput by remember { mutableStateOf("") }
     val haptic = LocalHapticFeedback.current
     val listState = rememberLazyListState()

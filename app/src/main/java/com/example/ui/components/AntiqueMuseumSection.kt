@@ -34,8 +34,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import com.example.data.AntiqueArtifact
 import com.example.data.MuseumHeritageManager
+import com.example.data.ArtifactBuffRegistry
+import com.example.data.ArtifactBuffType
 import com.example.ui.theme.*
 import com.example.viewmodel.GameViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +56,7 @@ fun AntiqueMuseumSection(
     val onlineEmail by viewModel.onlineEmail.collectAsStateWithLifecycle()
     val onlineUid = remember(onlineEmail) { if (onlineEmail.isNotBlank() && onlineEmail != "misafir_tuccar") onlineEmail.replace(".", "_") else "" }
     val isEnglish = isEnglishLanguage()
+    val activeBuffs by viewModel.activeArtifactBuffs.collectAsStateWithLifecycle()
 
     var refreshKey by remember { mutableIntStateOf(0) }
     var showFullMuseumDialog by remember { mutableStateOf(false) }
@@ -90,6 +95,69 @@ fun AntiqueMuseumSection(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Aktif Şirket Güçleri (Artifact Buffs)
+        if (activeBuffs.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF0F1E33),
+                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "✨ " + tr("AKTİF ŞİRKET GÜÇLERİ", "ACTIVE COMPANY BUFFS"),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = RobotoMonoFontFamily,
+                        color = Color(0xFFFBBF24),
+                        letterSpacing = 0.5.sp
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(activeBuffs.entries.toList(), key = { it.key.name }) { (buffType, value) ->
+                            val label = when (buffType) {
+                                ArtifactBuffType.LOAN_INTEREST_DISCOUNT -> "Kredi Faizi: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.DEPOSIT_INTEREST_BONUS -> "Mevduat: +%${String.format(java.util.Locale.US, "%.1f", value * 100)}"
+                                ArtifactBuffType.LOGISTICS_COST_DISCOUNT -> "Lojistik: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.LOGISTICS_SPEED_BONUS -> "Lojistik Hız: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.CONSTRUCTION_SPEED_BONUS -> "İnşaat Hızı: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.UPGRADE_COST_DISCOUNT -> "Yükseltme: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.WEAR_LEVEL_REDUCTION -> "Aşınma: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.MAINTENANCE_COST_DISCOUNT -> "Bakım: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.TIER1_PRODUCTION_BONUS -> "Tier 1 Üretim: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.TIER4_PRODUCTION_BONUS -> "Tier 4 Üretim: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.BORSA_SELL_BONUS -> "Borsa Satış: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.BORSA_BUY_DISCOUNT -> "Borsa Alım: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.MANAGER_SALARY_DISCOUNT -> "Yönetici Maaşı: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.RD_RESEARCH_SPEED -> "Ar-Ge Hızı: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.CONSORTIUM_PRESTIGE_BONUS -> "Prestij: +%${(value * 100).toInt()}"
+                            }
+                            AssistChip(
+                                onClick = {},
+                                label = {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                ),
+                                border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+                            )
+                        }
+                    }
+                }
+            }
+        }
         // Hero Header Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -285,6 +353,21 @@ fun AntiqueMuseumSection(
                                 fontSize = 10.sp,
                                 color = Color.LightGray
                             )
+                            val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == auctionArtifact.artifactId }
+                            if (buff != null) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "✨ Pasif Güç: ${buff.loreDescription}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 

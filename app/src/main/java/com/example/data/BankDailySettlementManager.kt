@@ -86,9 +86,19 @@ object BankDailySettlementManager {
      * Vadeli mevduatın 1 gerçek zamanlı gün içindeki net getirisini hesaplar.
      * Günlük Faiz = Mevduat Bakiyesi * (Yıllık Politika Faizi / 365)
      */
-    fun calculateDailyDepositYield(depositBalance: Long, annualDepositRate: Float): Long {
+    /**
+     * Vadeli mevduatın 1 gerçek zamanlı gün içindeki net getirisini hesaplar.
+     * Günlük Faiz = Mevduat Bakiyesi * (Yıllık Politika Faizi / 365)
+     */
+    fun calculateDailyDepositYield(
+        depositBalance: Long,
+        annualDepositRate: Float,
+        activeArtifactBuffs: Map<ArtifactBuffType, Float> = emptyMap()
+    ): Long {
         if (depositBalance <= 0L) return 0L
-        val effectiveRate = if (annualDepositRate <= 0.01f) 0.15f else annualDepositRate
+        val depositBonus = activeArtifactBuffs[ArtifactBuffType.DEPOSIT_INTEREST_BONUS] ?: 0f
+        val boostedRate = annualDepositRate + depositBonus
+        val effectiveRate = if (boostedRate <= 0.01f) 0.15f else boostedRate
         return (depositBalance * (effectiveRate / 365.0f)).toLong().coerceAtLeast(0L)
     }
 
@@ -99,7 +109,11 @@ object BankDailySettlementManager {
      * Günlük Anapara Taksiti = Anapara Borcu / 30 gün
      * Toplam Günlük Taksit = Anapara Taksiti + Günlük Faiz
      */
-    fun calculateDailyLoanInstallment(loanAmount: Long, annualLoanRate: Float): LoanInstallmentBreakdown {
+    fun calculateDailyLoanInstallment(
+        loanAmount: Long,
+        annualLoanRate: Float,
+        activeArtifactBuffs: Map<ArtifactBuffType, Float> = emptyMap()
+    ): LoanInstallmentBreakdown {
         if (loanAmount <= 0L) {
             return LoanInstallmentBreakdown(
                 principalInstallment = 0L,
@@ -109,7 +123,9 @@ object BankDailySettlementManager {
             )
         }
 
-        val effectiveRate = if (annualLoanRate <= 0.01f) 0.20f else annualLoanRate
+        val loanDiscount = activeArtifactBuffs[ArtifactBuffType.LOAN_INTEREST_DISCOUNT] ?: 0f
+        val discountedRate = (annualLoanRate - loanDiscount).coerceAtLeast(0.0f)
+        val effectiveRate = if (discountedRate <= 0.01f) 0.01f else discountedRate
         val dailyInterest = (loanAmount * (effectiveRate / 365.0f)).toLong().coerceAtLeast(1L)
         val dailyPrincipal = ((loanAmount + DEFAULT_LOAN_TERM_DAYS - 1) / DEFAULT_LOAN_TERM_DAYS)
             .coerceIn(100L, loanAmount)
@@ -136,6 +152,7 @@ object BankDailySettlementManager {
         player: PlayerEntity,
         annualDepositRate: Float,
         annualLoanRate: Float,
+        activeArtifactBuffs: Map<ArtifactBuffType, Float>,
         isEnglish: Boolean = false
     ): Pair<PlayerEntity, BankDailySettlementReceipt?> {
         val prefs = getPrefs(context)
@@ -189,14 +206,14 @@ object BankDailySettlementManager {
         for (day in 1..daysElapsed) {
             // 1. Günlük Vadeli Mevduat Getirisi (Bileşik büyüme)
             if (curDeposit > 0L) {
-                val dayYield = calculateDailyDepositYield(curDeposit, annualDepositRate)
+                val dayYield = calculateDailyDepositYield(curDeposit, annualDepositRate, activeArtifactBuffs)
                 curDeposit += dayYield
                 totalDepositYield += dayYield
             }
 
             // 2. Günlük Kurumsal Kredi Taksiti Tahsili
             if (curLoan > 0L) {
-                val installmentBreakdown = calculateDailyLoanInstallment(curLoan, annualLoanRate)
+                val installmentBreakdown = calculateDailyLoanInstallment(curLoan, annualLoanRate, activeArtifactBuffs)
                 val interestDue = installmentBreakdown.dailyInterestCost
                 val principalDue = installmentBreakdown.principalInstallment
                 val totalInstallmentDue = principalDue + interestDue

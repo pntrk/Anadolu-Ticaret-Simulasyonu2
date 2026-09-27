@@ -20,6 +20,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import com.example.data.network.AppJson
 import com.example.data.network.PhoenixChannelJoinDto
+import com.example.data.network.PhoenixChannelLeaveDto
+import java.util.concurrent.ConcurrentHashMap
 import com.example.data.network.PhoenixChannelJoinPayloadDto
 import com.example.data.network.PhoenixConfigDto
 import com.example.data.network.PhoenixHeartbeatDto
@@ -116,100 +118,33 @@ object MultiplayerManager {
     private val _hasPendingSync = MutableStateFlow(false)
     val hasPendingSync: StateFlow<Boolean> = _hasPendingSync.asStateFlow()
 
-    private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(
-        listOf(
-            OnlinePlayer(
-                id = "TR-982",
-                name = "Ahmet Yılmaz",
-                companyName = "Marmara Lojistik A.Ş.",
-                netWorth = 15200000L,
-                city = "İstanbul",
-                level = 18,
-                isOnline = true,
-                badge = "CEO",
-                monthlyScore = 3800000L,
-                xp = 51200,
-                centralWarehouseLocation = "İstanbul (Ambarlı Mega Lojistik Hub)",
-                facilities = listOf(
-                    PlayerFacilityInfo("Marmara Ağır Sanayi Fabrikası", "İstanbul", 4, "Ağır Sanayi"),
-                    PlayerFacilityInfo("Kuzey Ege Otomotiv Montaj", "Bursa", 3, "Otomotiv"),
-                    PlayerFacilityInfo("Trakya Çelik Döküm Tesisi", "Tekirdağ", 3, "Metal"),
-                    PlayerFacilityInfo("Boğaziçi Ambalaj Entegre", "Kocaeli", 2, "Paketleme")
-                )
-            ),
-            OnlinePlayer(
-                id = "TR-431",
-                name = "Mehmet Demir",
-                companyName = "Ege Zeytincilik",
-                netWorth = 11400000L,
-                city = "İzmir",
-                level = 14,
-                isOnline = true,
-                badge = "LİDER",
-                monthlyScore = 2850000L,
-                xp = 38400,
-                centralWarehouseLocation = "İzmir (Alsancak Liman Ana Deposu)",
-                facilities = listOf(
-                    PlayerFacilityInfo("Ege Sızma Zeytinyağı Fabrikası", "İzmir", 4, "Gıda"),
-                    PlayerFacilityInfo("Gediz Ambalaj & Şişeleme", "Manisa", 3, "Paketleme"),
-                    PlayerFacilityInfo("Körfez Lojistik Transfer Hanı", "Balıkesir", 2, "Lojistik")
-                )
-            ),
-            OnlinePlayer(
-                id = "TR-712",
-                name = "Fatma Kaya",
-                companyName = "Çukurova Pamuk Sanayi",
-                netWorth = 8900000L,
-                city = "Adana",
-                level = 12,
-                isOnline = true,
-                badge = "TÜCCAR",
-                monthlyScore = 2200000L,
-                xp = 29600,
-                centralWarehouseLocation = "Adana (Çukurova Sanayi Deposu)",
-                facilities = listOf(
-                    PlayerFacilityInfo("Çukurova İplik & Dokuma Fabrikası", "Adana", 3, "Tekstil"),
-                    PlayerFacilityInfo("Toros Kimya & Boya Tesisi", "Mersin", 2, "Kimya"),
-                    PlayerFacilityInfo("Seyhan Ambalaj Atölyesi", "Hatay", 2, "Paketleme")
-                )
-            ),
-            OnlinePlayer(
-                id = "TR-105",
-                name = "Zeynep Şahin",
-                companyName = "Konya Genetik Tarım",
-                netWorth = 6500000L,
-                city = "Konya",
-                level = 9,
-                isOnline = true,
-                badge = "TÜCCAR",
-                monthlyScore = 1600000L,
-                xp = 21500,
-                centralWarehouseLocation = "Konya (Anadolu Lojistik Hub)",
-                facilities = listOf(
-                    PlayerFacilityInfo("Anadolu Un & Yem Fabrikası", "Konya", 3, "Gıda"),
-                    PlayerFacilityInfo("Göksu Ambalaj Sanayi", "Karaman", 2, "Paketleme")
-                )
-            ),
-            OnlinePlayer(
-                id = "TR-554",
-                name = "Mustafa Arslan",
-                companyName = "Karadeniz Fındık Entegre",
-                netWorth = 4200000L,
-                city = "Trabzon",
-                level = 7,
-                isOnline = false,
-                badge = "GİRİŞİMCİ",
-                monthlyScore = 950000L,
-                xp = 14800,
-                centralWarehouseLocation = "Trabzon (Liman Serbest Bölge Deposu)",
-                facilities = listOf(
-                    PlayerFacilityInfo("Karadeniz Fındık Entegre Tesisi", "Trabzon", 2, "Gıda"),
-                    PlayerFacilityInfo("Doğu Lojistik Deposu", "Rize", 1, "Lojistik")
-                )
-            )
-        )
-    )
+    private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(emptyList())
     val onlinePlayers: StateFlow<List<OnlinePlayer>> = _onlinePlayers.asStateFlow()
+
+    fun setOnlinePlayers(players: List<OnlinePlayer>) {
+        val botIds = setOf("BOT-KAYA-01", "BOT-NOVA-02", "BOT-TOROS-03", "BOT-EGE-04", "BOT-AVRASYA-05", "BOT-ANADOLU-05")
+        val botNames = setOf("Selim Kaya", "Dr. Aylin Soylu", "Burak Demirci", "Zehra Aydın", "Hakan Erkin", "Defne Aras", "Kaan Yıldırım")
+        val filtered = players.filter { player ->
+            player.id.isNotBlank() &&
+            !player.id.startsWith("BOT-", ignoreCase = true) &&
+            !player.id.startsWith("BOT_", ignoreCase = true) &&
+            !player.id.contains("bot", ignoreCase = true) &&
+            player.id !in botIds &&
+            player.name !in botNames
+        }
+
+        val deduplicated = filtered
+            .groupBy { player ->
+                val cleanId = player.id.lowercase().replace(".", "_").removeSuffix("_backup")
+                if (cleanId.contains("@")) cleanId.substringBefore("@") else cleanId
+            }
+            .map { (_, duplicates) ->
+                duplicates.maxByOrNull { it.netWorth }!!
+            }
+            .sortedByDescending { it.netWorth }
+
+        _onlinePlayers.value = deduplicated
+    }
 
     private val _pastMonthLeaderboard = MutableStateFlow<List<OnlinePlayer>>(
         listOf(
@@ -429,20 +364,10 @@ object MultiplayerManager {
                 retryCount.set(0)
                 _connectionStatus.value = "🟢 SUPABASE CANLI (Broadcast & Realtime)"
 
-                // 1. Join Chat Broadcast channel
-                val joinChatBroadcast = PhoenixChannelJoinDto(
-                    topic = "realtime:chat",
-                    event = "phx_join",
-                    payload = PhoenixChannelJoinPayloadDto(
-                        config = PhoenixConfigDto(
-                            broadcast = PhoenixBroadcastConfigDto(self = true, ack = true),
-                            presence = PhoenixPresenceConfigDto(key = "player-client"),
-                            postgresChanges = emptyList()
-                        )
-                    ),
-                    ref = "chat-broadcast-1"
-                )
-                webSocket.send(AppJson.encodeToString(joinChatBroadcast))
+                // 1. Join Chat Broadcast channel JIT (only if chat is currently open)
+                if (activeChatProjects.isNotEmpty()) {
+                    sendJoinChatBroadcast(webSocket)
+                }
 
                 // 2. Join Auctions Broadcast channel
                 val joinAuctionsBroadcast = PhoenixChannelJoinDto(
@@ -765,6 +690,67 @@ object MultiplayerManager {
             Log.d(TAG, "Broadcast auction listed transmitted via WebSocket: ${event.artifactName} by ${event.sellerName}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send broadcast auction listed", e)
+        }
+    }
+
+    private val activeChatProjects = ConcurrentHashMap.newKeySet<String>()
+
+    private fun sendJoinChatBroadcast(ws: WebSocket) {
+        try {
+            val joinChatBroadcast = PhoenixChannelJoinDto(
+                topic = "realtime:chat",
+                event = "phx_join",
+                payload = PhoenixChannelJoinPayloadDto(
+                    config = PhoenixConfigDto(
+                        broadcast = PhoenixBroadcastConfigDto(self = true, ack = true),
+                        presence = PhoenixPresenceConfigDto(key = "player-client"),
+                        postgresChanges = emptyList()
+                    )
+                ),
+                ref = "chat-broadcast-join-${System.currentTimeMillis()}"
+            )
+            ws.send(AppJson.encodeToString(joinChatBroadcast))
+            Log.d(TAG, "Joined Realtime chat channel JIT")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to join Realtime chat channel JIT", e)
+        }
+    }
+
+    /**
+     * Just-In-Time (JIT) Konsorsiyum sohbet kanalına abone olur.
+     * İlk abone geldiğinde realtime:chat kanalına phx_join gönderir.
+     */
+    fun subscribeToChatChannel(projectId: String) {
+        val wasEmpty = activeChatProjects.isEmpty()
+        activeChatProjects.add(projectId)
+        if (wasEmpty) {
+            val ws = activeWebSocket
+            if (ws != null) {
+                sendJoinChatBroadcast(ws)
+            }
+        }
+    }
+
+    /**
+     * Just-In-Time (JIT) Konsorsiyum sohbet kanalından ayrılır (unsubscribe).
+     * Aktif dinleyici kalmadığında phx_leave göndererek Realtime soket kotasını serbest bırakır.
+     */
+    fun unsubscribeFromChatChannel(projectId: String) {
+        activeChatProjects.remove(projectId)
+        if (activeChatProjects.isEmpty()) {
+            val ws = activeWebSocket ?: return
+            try {
+                val leaveChat = PhoenixChannelLeaveDto(
+                    topic = "realtime:chat",
+                    event = "phx_leave",
+                    payload = emptyMap(),
+                    ref = "chat-leave-${System.currentTimeMillis()}"
+                )
+                ws.send(AppJson.encodeToString(leaveChat))
+                Log.d(TAG, "Unsubscribed from Realtime chat channel JIT (phx_leave sent)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to leave Realtime chat channel JIT", e)
+            }
         }
     }
 

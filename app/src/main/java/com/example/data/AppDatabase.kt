@@ -198,9 +198,11 @@ abstract class AppDatabase : RoomDatabase() {
                         `quantity` INTEGER NOT NULL,
                         `pricePerUnit` INTEGER NOT NULL,
                         `originCityId` TEXT NOT NULL,
+                        `qualityLevel` INTEGER NOT NULL DEFAULT 1,
                         `createdAt` INTEGER NOT NULL
                     )
                 """.trimIndent())
+                safeAddColumn(db, "pending_sales", "qualityLevel", "INTEGER NOT NULL DEFAULT 1")
 
                 // Museum artifacts table
                 db.execSQL("""
@@ -254,6 +256,7 @@ abstract class AppDatabase : RoomDatabase() {
                 migrateToVersion23(db)
                 safeAddColumn(db, "businesses", "isConstructing", "INTEGER NOT NULL DEFAULT 0")
                 safeAddColumn(db, "businesses", "constructionEndTime", "INTEGER DEFAULT NULL")
+                safeAddColumn(db, "pending_sales", "qualityLevel", "INTEGER NOT NULL DEFAULT 1")
             } catch (e: Exception) {
                 android.util.Log.e("AppDatabase", "Error during migration to v24", e)
             }

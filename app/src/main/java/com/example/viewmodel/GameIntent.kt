@@ -74,6 +74,7 @@ sealed interface GameIntent {
     data class ProduceConsortiumBrandItem(val projectId: String) : GameIntent
     data class ResetConsortiumNewBatch(val projectId: String) : GameIntent
     data class ListenToConsortiumChat(val projectId: String) : GameIntent
+    data class StopListeningToConsortiumChat(val projectId: String) : GameIntent
     data class DisbandConsortium(val projectId: String) : GameIntent
     data class SendConsortiumChatMessage(val projectId: String, val text: String) : GameIntent
     data class CreateNewMegaProject(

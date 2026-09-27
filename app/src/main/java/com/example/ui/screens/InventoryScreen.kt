@@ -50,10 +50,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.InventoryEntity
+import com.example.data.ItemQuality
 import com.example.data.Product
 import com.example.data.ProductTier
 import com.example.ui.components.AppButton
 import com.example.ui.components.InventoryScreenSkeleton
+import com.example.ui.components.QualityBadge
 import com.example.ui.components.NotificationType
 import com.example.ui.components.ParticleManager
 import com.example.ui.components.SmartNotificationManager
@@ -121,21 +123,21 @@ fun InventoryScreen(
             val act = inventory.filter { it.quantity > 0 }
             val tons = inventory.sumOf { it.quantity }
             val valuation = act.sumOf { item ->
-                val product = Product.values().find { it.id == item.itemId }
-                val price = marketPrices.find { it.itemId == item.itemId }?.price ?: product?.basePrice ?: 100L
-                price * item.quantity
+                val product = Product.values().find { it.id == item.baseProductId }
+                val basePrice = marketPrices.find { it.itemId == item.baseProductId }?.price ?: product?.basePrice ?: 100L
+                (basePrice * item.quality.priceMultiplier * item.quantity).toLong()
             }
 
             val filtered = act.filter { item ->
-                val product = Product.values().find { it.id == item.itemId }
+                val product = Product.values().find { it.id == item.baseProductId }
                 val matchesTier = selectedFilterTier == null || product?.tier == selectedFilterTier
-                val matchesSearch = searchQuery.isEmpty() || item.itemId.contains(searchQuery, ignoreCase = true)
+                val matchesSearch = searchQuery.isEmpty() || item.itemId.contains(searchQuery, ignoreCase = true) || product?.getDisplayName()?.contains(searchQuery, ignoreCase = true) == true
                 matchesTier && matchesSearch
             }.sortedWith { a, b ->
-                val productA = Product.values().find { it.id == a.itemId }
-                val productB = Product.values().find { it.id == b.itemId }
-                val priceA = marketPrices.find { it.itemId == a.itemId }?.price ?: productA?.basePrice ?: 100L
-                val priceB = marketPrices.find { it.itemId == b.itemId }?.price ?: productB?.basePrice ?: 100L
+                val productA = Product.values().find { it.id == a.baseProductId }
+                val productB = Product.values().find { it.id == b.baseProductId }
+                val priceA = ((marketPrices.find { it.itemId == a.baseProductId }?.price ?: productA?.basePrice ?: 100L) * a.quality.priceMultiplier).toLong()
+                val priceB = ((marketPrices.find { it.itemId == b.baseProductId }?.price ?: productB?.basePrice ?: 100L) * b.quality.priceMultiplier).toLong()
                 val valA = priceA * a.quantity
                 val valB = priceB * b.quantity
 
@@ -710,14 +712,17 @@ fun InventoryScreen(
             } else {
                 itemsIndexed(filteredItems, key = { _, it -> it.itemId }) { index, item ->
                     com.example.ui.components.AnimatedListItem(index = index) {
-                        val product = Product.values().find { it.id == item.itemId }
-                        val itemName = product?.displayName ?: item.itemId
+                        val baseProductId = item.baseProductId
+                        val quality = item.quality
+                        val product = Product.values().find { it.id == baseProductId }
+                        val itemName = product?.displayName ?: baseProductId
                         val itemIcon = product?.icon ?: Icons.Rounded.Inventory2
-                        val resolvedCountry = viewModel.resolveNaturalBorsaCountry(item.itemId, player?.currentCity)
-                        val priceEntity = marketPrices.find { it.itemId == item.itemId && it.originCountry == resolvedCountry }
-                        val spotPrice = priceEntity?.price ?: product?.basePrice ?: 100L
+                        val resolvedCountry = viewModel.resolveNaturalBorsaCountry(baseProductId, player?.currentCity)
+                        val priceEntity = marketPrices.find { it.itemId == baseProductId && it.originCountry == resolvedCountry }
+                        val baseSpotPrice = priceEntity?.price ?: product?.basePrice ?: 100L
+                        val calculatedSpotPrice = (baseSpotPrice * quality.priceMultiplier).toLong()
                         val isUsd = priceEntity?.effectiveIsUsd ?: (resolvedCountry != "Türkiye" && resolvedCountry != "Türkiye")
-                        val totalValuationItem = spotPrice * item.quantity
+                        val totalValuationItem = calculatedSpotPrice * item.quantity
                         val brandColor = if (product != null) Color(product.colorTint) else ThemeNeonCyan
 
                         CommodityStockCard(
@@ -726,11 +731,12 @@ fun InventoryScreen(
                             itemIcon = itemIcon,
                             quantity = item.quantity,
                             reservedQuantity = reservedInventory[item.itemId] ?: 0,
-                            spotPrice = spotPrice,
+                            spotPrice = calculatedSpotPrice,
                             totalValuation = totalValuationItem,
                             brandColor = brandColor,
                             compact = gridColumnCount >= 3,
                             isUsd = isUsd,
+                            quality = quality,
                             onListOnMarket = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 selectedItemForSale = item
@@ -738,7 +744,7 @@ fun InventoryScreen(
                             onInstantSell = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.handleIntent(com.example.viewmodel.GameIntent.SellToBorsa(item.itemId, item.quantity))
-                                SmartNotificationManager.show("${item.quantity} " + tr("Ton", "Tons", isEnglish) + " $itemName " + tr("spot fiyattan (", "sold at spot price (", isEnglish) + formatCredit(totalValuationItem) + tr(") satıldı!", ")!", isEnglish), NotificationType.SUCCESS)
+                                SmartNotificationManager.show("${item.quantity} " + tr("Ton", "Tons", isEnglish) + " [${quality.starsText}] $itemName " + tr("spot fiyattan (", "sold at spot price (", isEnglish) + formatCredit(totalValuationItem) + tr(") satıldı!", ")!", isEnglish), NotificationType.SUCCESS)
                             }
                         )
                     }
@@ -753,11 +759,13 @@ fun InventoryScreen(
     // 5. PAZARA İLAN VER DİALOGU
     if (selectedItemForSale != null) {
         val item = selectedItemForSale!!
-        val product = Product.values().find { it.id == item.itemId }
-        val itemName = product?.displayName ?: item.itemId
-        val resolvedCountry = viewModel.resolveNaturalBorsaCountry(item.itemId, player?.currentCity)
-        val priceEntity = marketPrices.find { it.itemId == item.itemId && it.originCountry == resolvedCountry }
-        val spotPrice = priceEntity?.price ?: product?.basePrice ?: 100L
+        val baseId = item.baseProductId
+        val product = Product.values().find { it.id == baseId }
+        val itemName = product?.displayName ?: baseId
+        val resolvedCountry = viewModel.resolveNaturalBorsaCountry(baseId, player?.currentCity)
+        val priceEntity = marketPrices.find { it.itemId == baseId && it.originCountry == resolvedCountry }
+        val baseSpotPrice = priceEntity?.price ?: product?.basePrice ?: 100L
+        val spotPrice = (baseSpotPrice * item.quality.priceMultiplier).toLong()
         val isUsd = priceEntity?.effectiveIsUsd ?: (resolvedCountry != "Türkiye" && resolvedCountry != "Türkiye")
 
         ListingCreationDialog(
@@ -797,6 +805,7 @@ fun CommodityStockCard(
     brandColor: Color,
     compact: Boolean = false,
     isUsd: Boolean = false,
+    quality: ItemQuality = ItemQuality.STAR_1,
     onListOnMarket: () -> Unit,
     onInstantSell: () -> Unit
 ) {
@@ -938,6 +947,15 @@ fun CommodityStockCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                // Kalite Rozeti
+                QualityBadge(
+                    quality = quality.toProductQuality(),
+                    size = 9.dp,
+                    showLabel = true,
+                    fontSize = 8,
+                    modifier = Modifier.padding(vertical = 1.dp)
+                )
+
                 CurrencyText(
                     text = "Birim: ".trAuto() + formatCredit(spotPrice),
                     style = MaterialTheme.typography.labelSmall,
@@ -948,6 +966,7 @@ fun CommodityStockCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -1132,12 +1151,28 @@ fun ListingCreationDialog(
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    CurrencyText(
-                        text = "$itemName - " + tr("İlan Oluştur", "Create Listing"),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = RobotoMonoFontFamily
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CurrencyText(
+                            text = "$itemName",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = RobotoMonoFontFamily
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = item.quality.badgeColor.copy(alpha = 0.2f),
+                            border = BorderStroke(0.8.dp, item.quality.badgeColor.copy(alpha = 0.8f))
+                        ) {
+                            CurrencyText(
+                                text = "${item.quality.starsText} ${item.quality.label}",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = item.quality.badgeColor,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     CurrencyText(
                         text = tr("B2B Pazarında İlana Çıkarın", "List on B2B Marketplace"),
                         style = MaterialTheme.typography.labelSmall,
@@ -1517,9 +1552,12 @@ fun FacilityWarehousesView(
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 storedMap.forEach { (itemId, qty) ->
                                     if (qty > 0) {
-                                        val product = Product.values().find { it.id == itemId }
-                                        val prodName = product?.getDisplayName(isEnglish) ?: itemId
-                                        val marketPrice = marketPrices.find { it.itemId == itemId && it.originCountry == (city?.country ?: "Türkiye") }?.price ?: product?.basePrice ?: 100L
+                                        val baseId = com.example.data.ItemQuality.extractBaseProductId(itemId)
+                                        val quality = if (itemId.contains("_star")) com.example.data.ItemQuality.extractQuality(itemId) else com.example.data.QualityCraftingService.getQualityByFacilityLevel(biz.level)
+                                        val product = Product.values().find { it.id == baseId }
+                                        val prodName = product?.getDisplayName(isEnglish) ?: baseId
+                                        val rawPrice = marketPrices.find { it.itemId == baseId && it.originCountry == (city?.country ?: "Türkiye") }?.price ?: product?.basePrice ?: 100L
+                                        val marketPrice = (rawPrice * quality.priceMultiplier).toLong()
                                         val totalVal = marketPrice * qty
                                         val priceText = formatCredit(totalVal)
 
@@ -1542,8 +1580,24 @@ fun FacilityWarehousesView(
                                                     }
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                     Column {
-                                                        CurrencyText(prodName, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                                        CurrencyText("$qty Ton • Değer: $priceText", fontSize = 10.sp, color = ThemeGold)
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            CurrencyText(prodName, fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Surface(
+                                                                shape = RoundedCornerShape(2.dp),
+                                                                color = quality.badgeColor.copy(alpha = 0.2f),
+                                                                border = BorderStroke(0.6.dp, quality.badgeColor.copy(alpha = 0.8f))
+                                                            ) {
+                                                                CurrencyText(
+                                                                    text = "${quality.starsText}",
+                                                                    fontSize = 9.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = quality.badgeColor,
+                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                        CurrencyText("$qty Ton • ${quality.label} • Değer: $priceText", fontSize = 10.sp, color = ThemeGold)
                                                     }
                                                 }
 

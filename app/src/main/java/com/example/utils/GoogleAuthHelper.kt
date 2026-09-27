@@ -48,6 +48,19 @@ object GoogleAuthHelper {
                 val displayName = account?.displayName ?: "Tüccar"
                 
                 if (!email.isNullOrBlank()) {
+                    if (account.account != null) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            try {
+                                val act = MainActivity.currentActivity ?: return@launch
+                                val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
+                                    act,
+                                    account.account!!,
+                                    "oauth2:https://www.googleapis.com/auth/drive.appdata"
+                                )
+                                com.example.data.GoogleDriveSaveManager.setAccessToken(token)
+                            } catch (_: Exception) {}
+                        }
+                    }
                     pendingViewModel?.signInWithGoogleAccount(email, displayName, idToken) { success, msg ->
                         pendingCallback?.invoke(success, msg)
                         pendingViewModel = null
@@ -88,6 +101,18 @@ object GoogleAuthHelper {
                 val displayName = account.displayName ?: "Tüccar"
                 val idToken = account.idToken
                 Log.i("GoogleAuthHelper", "Restoring previous Google session for $email")
+                if (account.account != null) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
+                                context,
+                                account.account!!,
+                                "oauth2:https://www.googleapis.com/auth/drive.appdata"
+                            )
+                            com.example.data.GoogleDriveSaveManager.setAccessToken(token)
+                        } catch (_: Exception) {}
+                    }
+                }
                 viewModel.signInWithGoogleAccount(email, displayName, idToken)
             }
         } catch (e: Exception) {
@@ -108,13 +133,34 @@ object GoogleAuthHelper {
                 .requestEmail()
                 .requestProfile()
                 .requestIdToken(SERVER_CLIENT_ID)
+                .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata"))
                 .build()
 
             val googleSignInClient = GoogleSignIn.getClient(activity, gso)
-            // Sign out first to ensure account chooser dialog is always shown
-            googleSignInClient.signOut().addOnCompleteListener {
-                val signInIntent = googleSignInClient.signInIntent
-                activity.startActivityForResult(signInIntent, RC_SIGN_IN)
+            var hasLaunched = false
+            fun doLaunch() {
+                if (!hasLaunched) {
+                    hasLaunched = true
+                    try {
+                        val signInIntent = googleSignInClient.signInIntent
+                        activity.startActivityForResult(signInIntent, RC_SIGN_IN)
+                    } catch (e: Exception) {
+                        Log.e("GoogleAuthHelper", "startActivityForResult failed", e)
+                        onComplete(false, "Google giriş ekranı başlatılamadı: ${e.localizedMessage}")
+                    }
+                }
+            }
+
+            try {
+                googleSignInClient.signOut().addOnCompleteListener {
+                    doLaunch()
+                }
+                // Safety timer for PC / emulators: if signOut listener doesn't trigger within 600ms, launch anyway!
+                activity.window.decorView.postDelayed({
+                    doLaunch()
+                }, 600L)
+            } catch (_: Exception) {
+                doLaunch()
             }
         } catch (e: Exception) {
             Log.e("GoogleAuthHelper", "Failed to launch classic GoogleSignIn with ID Token, falling back to standard profile", e)

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +54,8 @@ import com.example.data.AntiqueArtifact
 import com.example.data.ArtifactRarity
 import com.example.data.MuseumHeritageManager
 import com.example.data.MuseumAuctionItem
+import com.example.data.ArtifactBuffRegistry
+import com.example.data.ArtifactBuffType
 import com.example.ui.theme.*
 import com.example.viewmodel.GameViewModel
 import kotlinx.coroutines.Dispatchers
@@ -96,6 +100,7 @@ fun AntiqueMuseumDialog(
 
     val player by viewModel.player.collectAsStateWithLifecycle()
     val p = player ?: return
+    val activeBuffs by viewModel.activeArtifactBuffs.collectAsStateWithLifecycle()
 
     var selectedArtifactForDetail by remember { mutableStateOf<AntiqueArtifact?>(null) }
     var showCreateAuctionDialog by remember { mutableStateOf(false) }
@@ -324,6 +329,75 @@ fun AntiqueMuseumDialog(
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
                         )
+                    }
+                }
+
+                // ==========================================
+                // AKTİF ŞİRKET GÜÇLERİ (ARTIFACT BUFFS)
+                // ==========================================
+                if (activeBuffs.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Text(
+                                text = "✨",
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = tr("AKTİF ŞİRKET GÜÇLERİ", "ACTIVE COMPANY BUFFS"),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFFFBBF24),
+                                fontFamily = RobotoMonoFontFamily,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(vertical = 2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(activeBuffs.entries.toList(), key = { it.key.name }) { (buffType, value) ->
+                                val label = when (buffType) {
+                                    ArtifactBuffType.LOAN_INTEREST_DISCOUNT -> "Kredi Faizi: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.DEPOSIT_INTEREST_BONUS -> "Mevduat: +%${String.format(java.util.Locale.US, "%.1f", value * 100)}"
+                                    ArtifactBuffType.LOGISTICS_COST_DISCOUNT -> "Lojistik: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.LOGISTICS_SPEED_BONUS -> "Lojistik Hız: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.CONSTRUCTION_SPEED_BONUS -> "İnşaat Hızı: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.UPGRADE_COST_DISCOUNT -> "Yükseltme: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.WEAR_LEVEL_REDUCTION -> "Aşınma: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.MAINTENANCE_COST_DISCOUNT -> "Bakım: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.TIER1_PRODUCTION_BONUS -> "Tier 1 Üretim: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.TIER4_PRODUCTION_BONUS -> "Tier 4 Üretim: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.BORSA_SELL_BONUS -> "Borsa Satış: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.BORSA_BUY_DISCOUNT -> "Borsa Alım: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.MANAGER_SALARY_DISCOUNT -> "Yönetici Maaşı: -%${(value * 100).toInt()}"
+                                    ArtifactBuffType.RD_RESEARCH_SPEED -> "Ar-Ge Hızı: +%${(value * 100).toInt()}"
+                                    ArtifactBuffType.CONSORTIUM_PRESTIGE_BONUS -> "Prestij: +%${(value * 100).toInt()}"
+                                }
+                                AssistChip(
+                                    onClick = {},
+                                    label = {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    },
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                    ),
+                                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -793,6 +867,22 @@ private fun ArtifactGlassCard(
                     fontSize = 9.sp,
                     color = Color.LightGray
                 )
+
+                val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
+                if (buff != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                    ) {
+                        Text(
+                            text = "✨ Pasif Güç: ${buff.loreDescription}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
                 if (isOwned) {
                     Divider(color = Color(0xFF1E293B), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 2.dp))
@@ -1276,6 +1366,21 @@ private fun AuctionCardItem(
                     }
                     CurrencyText(artifact.getLocalizedName(isEnglishLanguage()), color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     CurrencyText("🏛️ ${artifact.getLocalizedEra(isEnglishLanguage())} • 📍 ${artifact.getLocalizedOriginCity(isEnglishLanguage())}", color = Color.Gray, fontSize = 9.sp)
+                    val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
+                    if (buff != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                        ) {
+                            Text(
+                                text = "✨ Pasif Güç: ${buff.loreDescription}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -2088,6 +2193,21 @@ private fun MuseumExhibitsSection(
                                 }
                                 CurrencyText(artifact.getLocalizedName(isEnglish), color = Color.White, fontWeight = FontWeight.Black, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 CurrencyText("🏛️ ${artifact.getLocalizedEra(isEnglish)} • 📍 ${artifact.getLocalizedOriginCity(isEnglish)}", color = Color.Gray, fontSize = 9.sp)
+                                val buff = ArtifactBuffRegistry.buffs.find { it.artifactId == artifact.artifactId }
+                                if (buff != null) {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = "✨ Pasif Güç: ${buff.loreDescription}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
 

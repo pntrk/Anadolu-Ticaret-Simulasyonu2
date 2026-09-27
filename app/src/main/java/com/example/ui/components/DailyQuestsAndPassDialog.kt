@@ -43,7 +43,7 @@ import com.example.viewmodel.GameViewModel
 
 /**
  * Daily Quests & Season Pass Dialog.
- * Drives strong player retention (D1/D7/D30) through daily objectives and tiered season milestones.
+ * Enhanced, interactive UI for tracking daily objectives and claiming Season Pass milestones.
  */
 @Composable
 fun DailyQuestsAndPassDialog(
@@ -58,6 +58,8 @@ fun DailyQuestsAndPassDialog(
     val currentXp = questState.seasonXp
     val currentLevel = questState.seasonLevel
 
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Daily Quests, 1 = Season Pass Tiers
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -66,13 +68,13 @@ fun DailyQuestsAndPassDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xD90A0F1D))
-                .padding(horizontal = 16.dp, vertical = 24.dp),
+                .padding(horizontal = 16.dp, vertical = 20.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.92f),
+                    .fillMaxHeight(0.95f),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
                 border = BorderStroke(1.5.dp, Brush.linearGradient(listOf(ThemeGold.copy(alpha = 0.8f), ThemeNeonCyan.copy(alpha = 0.5f))))
@@ -114,7 +116,7 @@ fun DailyQuestsAndPassDialog(
                                     color = ThemeGold
                                 )
                                 Text(
-                                    text = tr("Sezon Seviyesi: $currentLevel (TP: $currentXp)", "Season Level: $currentLevel (XP: $currentXp)"),
+                                    text = tr("Sezon Kademe $currentLevel • Toplam TP: $currentXp", "Season Tier $currentLevel • Total XP: $currentXp"),
                                     fontSize = 12.sp,
                                     color = Color.White.copy(alpha = 0.7f)
                                 )
@@ -126,20 +128,84 @@ fun DailyQuestsAndPassDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // TAB CONTENTS
-                    DailyQuestsList(
-                        questState = questState,
-                        onClaim = { quest ->
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            viewModel.claimDailyQuestReward(quest)
-                        },
-                        onNavigateToRoute = { route ->
-                            onDismiss()
-                            onNavigateToRoute(route)
+                    // SEGMENTED TABS (Günlük Görevler vs. Sezon Pasosu)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF1E293B))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selectedTab == 0) ThemeGold.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (selectedTab == 0) BorderStroke(1.dp, ThemeGold) else null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedTab = 0
+                                }
+                        ) {
+                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = tr("🎯 Günlük Görevler", "🎯 Daily Quests"),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedTab == 0) ThemeGold else Color.Gray
+                                )
+                            }
                         }
-                    )
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (selectedTab == 1) ThemeNeonCyan.copy(alpha = 0.25f) else Color.Transparent,
+                            border = if (selectedTab == 1) BorderStroke(1.dp, ThemeNeonCyan) else null,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedTab = 1
+                                }
+                        ) {
+                            Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = tr("🏆 Sezon Pasosu", "🏆 Season Pass"),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedTab == 1) ThemeNeonCyan else Color.Gray
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // TAB CONTENT
+                    if (selectedTab == 0) {
+                        DailyQuestsList(
+                            questState = questState,
+                            onClaim = { quest ->
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.claimDailyQuestReward(quest)
+                            },
+                            onNavigateToRoute = { route ->
+                                onDismiss()
+                                onNavigateToRoute(route)
+                            }
+                        )
+                    } else {
+                        SeasonPassTiersList(
+                            questState = questState,
+                            onClaimTier = { tier, isVip ->
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                viewModel.claimSeasonPassTierReward(tier, isVip)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -170,9 +236,9 @@ private fun DailyQuestsList(
                 ) {
                     Icon(Icons.Default.Info, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(20.dp))
                     Text(
-                        text = tr("Görevlerin üzerine tıklayarak ilgili ekrana doğrudan gidebilirsiniz. Hedefleri tamamlayıp ödülleri toplayın!", "Click on any quest to jump directly to its screen. Complete objectives and claim rewards!"),
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.8f)
+                        text = tr("Görevlerin üzerine tıklayarak ilgili ekrana doğrudan gidebilirsiniz. Görevleri tamamlayarak nakit ödül ve Sezon TP kazanın!", "Click any quest to jump directly to its screen. Complete quests to earn cash rewards and Season XP!"),
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.85f)
                     )
                 }
             }
@@ -263,7 +329,7 @@ private fun DailyQuestCard(
                     Column {
                         Text(
                             text = tr(quest.title, quest.titleEn),
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -285,7 +351,7 @@ private fun DailyQuestCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = tr("İlerleme", "Progress"),
+                        text = tr("Canlı İlerleme", "Live Progress"),
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.6f)
                     )
@@ -293,7 +359,7 @@ private fun DailyQuestCard(
                         text = "${quest.currentProgress} / ${quest.targetAmount} (%${(quest.progressFraction * 100).toInt()})",
                         fontSize = 11.sp,
                         fontFamily = RobotoMonoFontFamily,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                         color = if (isCompleted) ThemePositive else ThemeNeonCyan
                     )
                 }
@@ -379,6 +445,148 @@ private fun DailyQuestCard(
                                 fontWeight = FontWeight.Bold,
                                 color = ThemeNeonCyan
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeasonPassTiersList(
+    questState: DailyQuestState,
+    onClaimTier: (SeasonPassTier, Boolean) -> Unit
+) {
+    val tiers = DailyQuestManager.SEASON_PASS_TIERS
+    val currentXp = questState.seasonXp
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B).copy(alpha = 0.8f)),
+                border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = tr("🏆 SEZON PASOSU İLERLEMESİ", "🏆 SEASON PASS MILESTONES"),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ThemeGold
+                        )
+                        Text(
+                            text = "$currentXp TP",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ThemeNeonCyan
+                        )
+                    }
+                    val nextTier = tiers.find { it.requiredXp > currentXp } ?: tiers.last()
+                    val progressFraction = (currentXp.toFloat() / nextTier.requiredXp.toFloat()).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { progressFraction },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = ThemeGold,
+                        trackColor = Color(0xFF0B1220)
+                    )
+                }
+            }
+        }
+
+        items(tiers, key = { it.tierLevel }) { tier ->
+            val isUnlocked = currentXp >= tier.requiredXp
+            val isFreeClaimed = questState.claimedFreeTiers.contains(tier.tierLevel)
+            val isVipClaimed = questState.claimedVipTiers.contains(tier.tierLevel)
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isUnlocked) Color(0xFF1E293B) else Color(0xFF111827)
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    if (isUnlocked) ThemeGold.copy(alpha = 0.6f) else Color(0xFF374151)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (isUnlocked) ThemeGold else Color(0xFF374151)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${tier.tierLevel}",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isUnlocked) Color(0xFF0F172A) else Color.Gray
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = tr("Kademe ${tier.tierLevel} (${tier.requiredXp} TP)", "Tier ${tier.tierLevel} (${tier.requiredXp} XP)"),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isUnlocked) ThemeGold else Color.Gray
+                            )
+                            Text(
+                                text = tr(tier.freeRewardName, tier.freeRewardNameEn),
+                                fontSize = 11.sp,
+                                color = Color.White.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+
+                    Box {
+                        when {
+                            isFreeClaimed -> {
+                                Text(text = tr("✅ Alındı", "✅ Claimed"), fontSize = 12.sp, color = ThemePositive, fontWeight = FontWeight.Bold)
+                            }
+                            isUnlocked -> {
+                                Button(
+                                    onClick = { onClaimTier(tier, false) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = tr("Al", "Claim"),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F172A)
+                                    )
+                                }
+                            }
+                            else -> {
+                                Text(text = tr("🔒 Kilitli", "🔒 Locked"), fontSize = 11.sp, color = Color.Gray)
+                            }
                         }
                     }
                 }

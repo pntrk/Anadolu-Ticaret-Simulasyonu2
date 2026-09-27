@@ -518,7 +518,7 @@ fun AppIntroLoadingScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isEnglish) "v1.20 • 2.5D Industrial Zone & Smart Managers" else "v1.20 • 2.5D Sanayi Bölgesi & Akıllı Yöneticiler",
+                        text = if (isEnglish) "v1.29 • 2.5D Industrial Zone & Smart Managers" else "v1.29 • 2.5D Sanayi Bölgesi & Akıllı Yöneticiler",
                         fontFamily = RobotoMonoFontFamily,
                         fontSize = 10.sp,
                         color = Color(0xFF64748B)

@@ -23,7 +23,7 @@ class GoogleDriveSaveDataSource(
 ) : IGoogleDriveDataSource {
 
     private val TAG = "GoogleDriveSaveDS"
-    private val SAVE_FILE_NAME = "savegame.json"
+    private val SAVE_FILE_NAME = "anadolu_ticaret_save.json"
     private val BACKUP_FILE_NAME = "google_drive_save_backup.json"
 
     private var cachedAccessToken: String? = null

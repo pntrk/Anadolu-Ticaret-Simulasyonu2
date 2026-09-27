@@ -150,64 +150,83 @@ object MacroEconomyEngine {
     }
 
     /**
-     * Borsa Başlangıç/Varsayılan Depo Rezervi (999.999.999 Ton).
+     * Borsa Başlangıç/Varsayılan Depo Rezervi (999.999 Ton).
      * Supabase sunucusunda çok oyunculu (multiplayer) paylaşılan standart başlangıç stoğu.
      */
-    const val DEFAULT_BORSA_STOCK: Long = 999_999_999L
+    const val DEFAULT_BORSA_STOCK: Long = 999_999L
 
     /**
-     * Borsa Kriz Eşiği: Rezerv 999.999 Ton ve altına indiğinde kriz patlak verir ve fiyat 2 katına fırlar!
+     * Borsa Kriz Eşiği: Rezerv 999 Ton ve altına indiğinde kriz patlak verir ve fiyat 2 katına fırlar!
      */
-    const val CRISIS_STOCK_THRESHOLD: Long = 999_999L
+    const val CRISIS_STOCK_THRESHOLD: Long = 999L
 
     /**
-     * Borsa Depo Maksimum Stok Kapasitesi (999 Trilyon Ton).
-     * Supabase sunucusunda binlerce oyuncunun ürettiği tüm arzı biriktirebilecek kapasite.
+     * Borsa Depo Maksimum Stok Kapasitesi: Üst sınır bulunmamaktadır.
      */
-    const val MAX_BORSA_STOCK: Long = 999_999_999_999L
+    const val MAX_BORSA_STOCK: Long = Long.MAX_VALUE
+
+    /**
+     * Ton Başına Fiyat Değişim Hassasiyeti (Delta Price Per Ton):
+     * Örneğin mikroçip taban fiyatı 56.100 TL ve baz stok 999.999 Ton iken:
+     * 56.100 / 999.999 = 0.0561000561... TL/Ton.
+     */
+    fun calculateDeltaPricePerTon(basePrice: Long): Double {
+        val s0 = DEFAULT_BORSA_STOCK.toDouble() // 999_999.0
+        return basePrice.coerceAtLeast(10L).toDouble() / s0
+    }
 
     /**
      * Borsa Ürün Fiyatı ve Depo Stok Arz-Talep Motoru:
-     * - Borsadan ürün alındıkça stok azalır ve fiyat alış oranında (%67 artış kuralı dahil) yükselir.
-     * - Borsaya ürün satıldıkça stok artar ve borsa spot fiyatı düşer.
-     * - Rezerv miktarı 999.999 Ton veya altına düşerse KRİZ DEVREYE GİRER ve fiyat mevcut durumunun 2 KATINA çıkar!
+     * - Baz Stok: 999.999 Ton. Bu stokta ürünün fiyatı tam basePrice (örn. mikroçip için 56.100 ₳).
+     * - Ton başına değişim: deltaPerTon = basePrice / 999.999 (örn. mikroçip için 0,056100 ₳/ton).
+     * - Stok 1 ton azaldığında fiyat deltaPerTon kadar artar: (999.999 - stock) * deltaPerTon.
+     * - Stok 1 ton arttığında fiyat deltaPerTon kadar ucuzlar.
+     * - Kriz eşiği (≤ 999 Ton): Kriz senaryosu devreye girer ve fiyat 2 katına çıkar!
      */
     fun calculatePriceFromStock(
         stock: Long,
         basePrice: Long,
         macroMultiplier: Float = 1.0f
     ): Long {
-        val s0 = DEFAULT_BORSA_STOCK.toDouble() // 999_999_999.0
+        val s0 = DEFAULT_BORSA_STOCK.toDouble() // 999_999.0
         val safeStock = stock.toDouble().coerceAtLeast(0.0)
         val rawBasePrice = basePrice.coerceAtLeast(10L).toDouble()
 
-        // Temel Alım/Satım Arz-Talep Orantısı:
-        // Stok S <= S0 ise: fractionBought = (S0 - S) / S0 -> multiplier = 1.0 + (fractionBought * 2.0)
-        // (Örn: 333_333_333_333 alım yapıldığında fraction = 1/3 -> 1.0 + (1/3 * 2.0) = 1.6667 -> +%67 artış)
-        // Stok S > S0 ise: satılan ürünler stoğu artırdıkça fiyat düşer -> multiplier = S0 / S (taban 0.20x limitli)
-        val supplyDemandMultiplier = if (safeStock <= s0) {
-            val fractionBought = ((s0 - safeStock) / s0).coerceIn(0.0, 1.0)
-            1.0 + (fractionBought * 2.0)
+        // Responsive, realistic supply-demand price formula
+        val computedPrice: Double = if (safeStock < s0) {
+            // Demand > Supply: Stok azaldı -> Fiyat YÜKSELİR!
+            val stockDropRatio = (s0 - safeStock) / s0
+            val priceIncreaseFactor = stockDropRatio * 4.0
+            val calculated = rawBasePrice * (1.0 + priceIncreaseFactor) * macroMultiplier.toDouble()
+            // Guarantee that ANY stock reduction strictly increases price above base price by at least +1 TL
+            maxOf(calculated, rawBasePrice + 1.0)
+        } else if (safeStock > s0) {
+            // Supply > Demand: Stok arttı -> Fiyat DÜŞER!
+            val stockExcessRatio = (safeStock - s0) / s0
+            val priceDecreaseFactor = stockExcessRatio * 2.0
+            val calculated = rawBasePrice * maxOf(0.10, 1.0 - priceDecreaseFactor) * macroMultiplier.toDouble()
+            // Guarantee that ANY stock excess strictly decreases price below base price by at least -1 TL
+            minOf(calculated, maxOf(1.0, rawBasePrice - 1.0))
         } else {
-            (s0 / safeStock).coerceIn(0.20, 1.0)
+            rawBasePrice * macroMultiplier.toDouble()
         }
 
-        var computedPrice = (rawBasePrice * supplyDemandMultiplier * macroMultiplier.toDouble()).toLong()
-
-        // Kriz Kontrolü (Stok 999.999 veya altına düştüğünde fiyat 2 katına çıkar):
+        // Kriz Kontrolü: Alt stok miktarı 999 ve altına düştüğünde kriz senaryosu patlak verir ve fiyat 2 katına çıkar!
+        var finalPrice = computedPrice
         if (stock <= CRISIS_STOCK_THRESHOLD) {
-            computedPrice *= 2L
+            finalPrice *= 2.0
         }
 
-        val minPrice = max(1L, (rawBasePrice * 0.20).toLong())
-        return computedPrice.coerceAtLeast(minPrice)
+        val minPrice = max(1L, (rawBasePrice * 0.10).toLong()) // Aşırı yüksek stok durumunda %10 taban koruması
+        val maxPrice = (if (stock <= CRISIS_STOCK_THRESHOLD) rawBasePrice * 8.0 else rawBasePrice * 4.0).toLong().coerceAtLeast(minPrice)
+        return finalPrice.toLong().coerceIn(minPrice, maxPrice)
     }
 
     /**
      * Borsadan ürün / hammadde satın alındığında:
-     * - Borsa depo stoğu azalır.
+     * - Borsa depo stoğu reel olarak azalır.
      * - Stok azaldığı için fiyat yükselir.
-     * - Stok 0 olursa KRİZ ORTAMI devreye girer ve fiyat taban fiyatın 4 katına (4.0x) çıkar.
+     * - Stok 999 ve altına inerse KRİZ ORTAMI devreye girer.
      */
     fun onBorsaProductPurchased(
         currentPrice: Long,
@@ -223,9 +242,9 @@ object MacroEconomyEngine {
 
     /**
      * Borsaya ürün satıldığında:
-     * - Borsa depo stoğu artar (ürünler borsa deposunda birikir).
-     * - Stok arttığı için fiyat düşer.
-     * - Kriz ortamı varsa (stok 0 idi) satışla birlikte depoya ürün girerek kriz sonlanır ve fiyat normale doğru iner.
+     * - Borsa depo stoğu reel olarak artar (üst sınır yok).
+     * - Stok arttığı için borsa fiyatı düşer.
+     * - Kriz ortamı varsa rezervler 999 Ton üstüne çıkarsa kriz sonlanır.
      */
     fun onBorsaProductSold(
         currentPrice: Long,
@@ -234,7 +253,7 @@ object MacroEconomyEngine {
         basePrice: Long
     ): Pair<Long, Long> {
         val safeQuantity = quantitySold.coerceAtLeast(1).toLong()
-        val newStock = (currentStock + safeQuantity).coerceAtMost(MAX_BORSA_STOCK)
+        val newStock = currentStock + safeQuantity
         val calculatedPrice = calculatePriceFromStock(newStock, basePrice)
         return Pair(max(1L, calculatedPrice), newStock)
     }
@@ -250,7 +269,7 @@ object MacroEconomyEngine {
     ): Pair<Long, Long> {
         val safeQuantity = quantityProduced.coerceAtLeast(1).toLong()
         val addedStock = (safeQuantity * 0.5).toLong().coerceAtLeast(1L)
-        val newStock = (currentStock + addedStock).coerceAtMost(MAX_BORSA_STOCK)
+        val newStock = currentStock + addedStock
         val calculatedPrice = calculatePriceFromStock(newStock, basePrice)
         return Pair(max(1L, calculatedPrice), newStock)
     }

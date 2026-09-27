@@ -243,7 +243,9 @@ fun MyApplicationTheme(
     val context = androidx.compose.ui.platform.LocalContext.current
     val currentDensity = androidx.compose.ui.platform.LocalDensity.current
     val isPc = androidx.compose.runtime.remember(context) { 
-        context.packageManager.hasSystemFeature("android.hardware.type.pc") 
+        context.packageManager.hasSystemFeature("android.hardware.type.pc") ||
+        context.packageManager.hasSystemFeature("org.chromium.arc.device_management") ||
+        context.resources.configuration.screenWidthDp >= 720
     }
     
     // Scale up UI by 15% on PC to compensate for the further viewing distance

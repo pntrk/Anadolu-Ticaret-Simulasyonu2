@@ -270,6 +270,8 @@ fun MainScreen(gameViewModel: GameViewModel) {
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .widthIn(max = 1400.dp)
+                        .align(Alignment.CenterHorizontally)
                 ) {
                     // Main content area with padding to avoid overlap with floating bar
                     NavHost(
@@ -482,14 +484,27 @@ fun MainScreen(gameViewModel: GameViewModel) {
                 )
             }
 
-            offlineEarningsData?.let { offlineData ->
+            val morningReport by gameViewModel.morningReport.collectAsStateWithLifecycle()
+            val playerGems = uiState.playerState.player?.gems ?: 0
+            if (morningReport != null) {
+                com.example.ui.components.MorningReportDialog(
+                    report = morningReport!!,
+                    playerGems = playerGems,
+                    gemCost = 2,
+                    onClaimNormal = { gameViewModel.claimMorningReport(doubleBonus = false) },
+                    onClaimDoubleWithGems = { gameViewModel.claimMorningReportWithGems(2) },
+                    onClaimDoubleWithAd = { gameViewModel.claimMorningReportWithAd() },
+                    onClaimDoubleBonus = { gameViewModel.claimMorningReport(doubleBonus = true) },
+                    onDismiss = { gameViewModel.dismissMorningReport() }
+                )
+            } else if (offlineEarningsData != null) {
                 val playerGems = uiState.playerState.player?.gems ?: 0
                 com.example.ui.components.OfflineEarningsDialog(
-                    data = offlineData,
+                    data = offlineEarningsData,
                     playerGems = playerGems,
-                    gemCost = 10,
+                    gemCost = 2,
                     onDismiss = { gameViewModel.dismissOfflineEarningsDialog() },
-                    onDoubleWithGems = { gameViewModel.claimOfflineBonusWithGems(10) },
+                    onDoubleWithGems = { gameViewModel.claimOfflineBonusWithGems(2) },
                     onDoubleBonusClaim = { gameViewModel.claimOfflineBonusWithAd() }
                 )
             }

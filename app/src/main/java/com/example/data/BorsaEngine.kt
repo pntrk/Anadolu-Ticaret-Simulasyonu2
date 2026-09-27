@@ -29,7 +29,10 @@ class BorsaEngine(
 
         val baseCost = currentPrice * quantity
         val vipDiscount = if (p.isVip) (baseCost * 0.05).toLong() else 0L
-        val totalCostProduct = (baseCost - vipDiscount).coerceAtLeast(0L)
+        val activeBuffs = viewModel.activeArtifactBuffs.value
+        val borsaBuyDiscount = activeBuffs[ArtifactBuffType.BORSA_BUY_DISCOUNT] ?: 0f
+        val artifactDiscount = (baseCost * borsaBuyDiscount).toLong()
+        val totalCostProduct = (baseCost - vipDiscount - artifactDiscount).coerceAtLeast(0L)
         val logisticsCost = viewModel.calculateLogisticsCost(originCityId, destCityId, quantity)
         val finalRequired = totalCostProduct + logisticsCost
 
@@ -68,8 +71,29 @@ class BorsaEngine(
                 dailyExpense = currentP.dailyExpense + finalRequired
             ))
 
-            // Borsa depo stoğunu azalt ve fiyatı talep doğrultusunda güncelle
-            viewModel.onBorsaItemBought(itemId, quantity, "Global")
+            // Borsa alımını Supabase RPC (PostgreSQL FOR UPDATE) ile stok çakışmasız gerçekleştir
+            val rpcResult = repository.executeBorsaBuy(
+                playerId = currentP.id,
+                itemId = itemId,
+                quantity = quantity,
+                maxAcceptablePrice = currentPrice * 2
+            )
+
+            if (!rpcResult.success) {
+                // Çevrimdışı veya RPC bağlantısı yoksa yerel borsa motorunu çalıştır
+                viewModel.onBorsaItemBought(itemId, quantity, "Global")
+            } else {
+                // Sunucu onaylı yeni fiyat ve stok yerel Room DB'ye repository tarafından işlendi
+                // Oyuncu meta verisini de hafifçe senkronize et
+                val netWorth = currentP.money + currentP.depositBalance
+                repository.syncPlayerMeta(
+                    playerId = currentP.id,
+                    name = currentP.name,
+                    level = currentP.level,
+                    netWorth = netWorth,
+                    hash = ""
+                )
+            }
 
             val prodName = product.getDisplayName()
             com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
@@ -109,7 +133,7 @@ class BorsaEngine(
 
             viewModel.updateDailyQuestProgress(com.example.data.quest.QuestType.BORSA_TRADE, 1L)
             viewModel.markFirstTradeCompleted()
-            viewModel.forceSyncCloudSaveToSupabase()
+            SaveSyncCoordinator.markDirty()
         }
         return true
     }

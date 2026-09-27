@@ -335,7 +335,7 @@ object LocalGameNotificationManager {
     }
 
     /**
-     * Posts a native push notification when a commodity enters borsa crisis (< 999.999 Ton).
+     * Posts a native push notification when a commodity enters borsa crisis (≤ 999 Ton).
      */
     fun postBorsaCrisisNotification(
         productDisplayName: String,

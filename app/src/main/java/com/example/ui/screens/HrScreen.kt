@@ -38,6 +38,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.CompanyManager
+import com.example.data.automation.AutopilotEngine
+import com.example.data.automation.SmartDirective
+import com.example.ui.components.NotificationType
 import com.example.ui.components.AppButton
 import com.example.ui.components.GlassCard
 import com.example.ui.components.SmartNotificationManager
@@ -45,6 +48,8 @@ import com.example.ui.components.formatMoney
 import com.example.ui.components.formatCurrency
 import com.example.ui.theme.*
 import com.example.viewmodel.GameViewModel
+import androidx.compose.ui.draw.scale
+import kotlinx.coroutines.launch
 
 @Composable
 fun HrScreen(
@@ -53,6 +58,7 @@ fun HrScreen(
     viewModel: GameViewModel
 ) {
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     val isEng = isEnglishLanguage()
     val player = uiState.playerState.player
     val gameState = uiState.gameStateObj
@@ -60,6 +66,15 @@ fun HrScreen(
     val managers = uiState.managers
     val p = player ?: return
     val state = gameState ?: return
+
+    val directives by AutopilotEngine.directivesState.collectAsState()
+    val liveInventory by viewModel.inventory.collectAsState()
+    val liveBusinesses by viewModel.businesses.collectAsState()
+    val liveMegaProjects by viewModel.megaProjects.collectAsState()
+
+    LaunchedEffect(p.money, liveInventory, liveBusinesses, liveMegaProjects) {
+        AutopilotEngine.evaluateLiveGameContext(viewModel)
+    }
 
     val hiredCount = managers.count { it.isHired }
     val totalDailySalaries = managers.filter { it.isHired && it.isActive }.sumOf { it.dailySalary }
@@ -69,7 +84,6 @@ fun HrScreen(
     val treasuryReserve = viewModel.getTreasuryCashReserve()
     var selectedManagerForLogs by remember { mutableStateOf<com.example.data.CompanyManager?>(null) }
     var isHierarchyExpanded by remember { mutableStateOf(false) }
-    var showBoardroomDialog by remember { mutableStateOf(false) }
     
     val marketPriceRatio = remember(marketPrices) {
         if (marketPrices.isNotEmpty()) {
@@ -102,13 +116,60 @@ fun HrScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 110.dp)
-    ) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWideScreen = maxWidth >= 720.dp
+        val managerChunks = remember(sortedManagers, isWideScreen) {
+            sortedManagers.chunked(if (isWideScreen) 2 else 1)
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 110.dp)
+        ) {
+        // 0. YÖNETİM KURULU TAVSİYELERİ & OTOPİLOT PANELİ
+        item {
+            BoardroomDirectivesSection(
+                directives = directives,
+                isEng = isEng,
+                onExecute = { directive ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    coroutineScope.launch {
+                        val success = AutopilotEngine.executeDirective(directive.id, viewModel)
+                        if (success) {
+                            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
+                            SmartNotificationManager.show(
+                                if (isEng) "⚡ Directive applied successfully: ${directive.title}"
+                                else "⚡ Direktif başarıyla uygulandı: ${directive.title}",
+                                NotificationType.SUCCESS
+                            )
+                        } else {
+                            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+                            SmartNotificationManager.show(
+                                if (isEng) "⚡ Could not execute directive (Check Safety Reserve or Cooldown)!"
+                                else "⚡ Direktif uygulanamadı (Emniyet Rezervi veya Bekleme Süresi)!",
+                                NotificationType.ALERT
+                            )
+                        }
+                    }
+                },
+                onToggleAutopilot = { directiveId, enabled ->
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    AutopilotEngine.setAutopilotEnabled(directiveId, enabled)
+                    SmartNotificationManager.show(
+                        if (enabled) {
+                            if (isEng) "Autopilot activated (Repeats every 10 min)" else "Otopilot aktif (10 dk aralıklarla otomatik yürütülür)"
+                        } else {
+                            if (isEng) "Autopilot deactivated" else "Otopilot pasif kılındı"
+                        },
+                        NotificationType.INFO
+                    )
+                }
+            )
+        }
+
         // 1. HR HEADER HERO BANNER
         item {
             Surface(
@@ -200,76 +261,6 @@ fun HrScreen(
                             CurrencyText(tr("Hazine Rezervi", "Treasury Reserve"), color = Color.Gray, fontSize = 11.sp)
                             CurrencyText(if (treasuryReserve > 0L) formatCurrency(treasuryReserve, isEng) else tr("Pasif", "Inactive"), color = if (treasuryReserve > 0L) ThemeGold else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        // 1.5. MÜDÜRLER KURULU TOPLANTISI & STRATEJİK BRİFİNG BUTONU
-        item {
-            Surface(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    showBoardroomDialog = true
-                },
-                shape = RoundedCornerShape(8.dp),
-                color = Color(0xFF132247),
-                border = BorderStroke(1.5.dp, ThemeGold),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ThemeGold.copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, ThemeGold),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.MeetingRoom,
-                                    contentDescription = null,
-                                    tint = ThemeGold,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            CurrencyText(
-                                text = tr("🏛️ MÜDÜRLER KURULU TOPLANTISI", "🏛️ BOARD OF DIRECTORS MEETING"),
-                                color = ThemeGold,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.sp,
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                            CurrencyText(
-                                text = tr("Kriz Seferberliği & Canlı Strateji Brifingi", "Crisis Mobilization & Live Strategic Briefing"),
-                                color = Color.LightGray,
-                                fontSize = 10.5.sp
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = ThemeGold,
-                        modifier = Modifier.padding(start = 6.dp)
-                    ) {
-                        CurrencyText(
-                            text = tr("TOPLANTIYA GİR", "ENTER BRIEFING"),
-                            color = Color(0xFF1E1402),
-                            fontWeight = FontWeight.Black,
-                            fontSize = 10.sp,
-                            fontFamily = RobotoMonoFontFamily,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
                     }
                 }
             }
@@ -523,36 +514,49 @@ fun HrScreen(
                 }
             }
 
-            // 5. MANAGERS LIST
-            items(sortedManagers, key = { it.id }) { manager ->
-                ManagerCard(
-                    manager = manager,
-                    player = p,
-                    onHire = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.handleIntent(com.example.viewmodel.GameIntent.HireManager(manager.id))
-                    },
-                    onFire = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.handleIntent(com.example.viewmodel.GameIntent.FireManager(manager.id))
-                    },
-                    onUpgrade = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeManager(manager.id))
-                    },
-                    onToggleActive = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleManagerActive(manager.id))
-                    },
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        selectedManagerForLogs = manager
-                    },
-                    onResetDiscipline = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ResetManagerDisciplineWithGems(manager.id))
+            // 5. MANAGERS LIST (Adaptive Grid for PC & Mobile)
+            items(managerChunks, key = { chunk -> chunk.joinToString("-") { it.id } }) { chunk ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    chunk.forEach { manager ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            ManagerCard(
+                                manager = manager,
+                                player = p,
+                                onHire = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.HireManager(manager.id))
+                                },
+                                onFire = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.FireManager(manager.id))
+                                },
+                                onUpgrade = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeManager(manager.id))
+                                },
+                                onToggleActive = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleManagerActive(manager.id))
+                                },
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedManagerForLogs = manager
+                                },
+                                onResetDiscipline = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ResetManagerDisciplineWithGems(manager.id))
+                                }
+                            )
+                        }
                     }
-                )
+
+                    if (chunk.size == 1 && isWideScreen) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
 
@@ -562,14 +566,8 @@ fun HrScreen(
                 onDismiss = { selectedManagerForLogs = null }
             )
         }
-
-        if (showBoardroomDialog) {
-            com.example.ui.components.BoardroomBriefingDialog(
-                viewModel = viewModel,
-                onDismiss = { showBoardroomDialog = false }
-            )
-        }
     }
+}
 
 @Composable
 fun ManagerLogsDialog(
@@ -1246,4 +1244,342 @@ fun ResearchLabDialog(
         titleContentColor = Color.White,
         textContentColor = Color.White
     )
+}
+
+@Composable
+fun BoardroomDirectivesSection(
+    directives: List<SmartDirective>,
+    isEng: Boolean,
+    onExecute: (SmartDirective) -> Unit,
+    onToggleAutopilot: (String, Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF0E1726),
+        border = BorderStroke(1.2.dp, Brush.horizontalGradient(listOf(ThemeGold, ThemeNeonCyan, ThemeGold)))
+    ) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color(0xFF142036), Color(0xFF0B1220))
+                    )
+                )
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = ThemeGold.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, ThemeGold),
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            CurrencyText(
+                                text = "👔",
+                                fontSize = 16.sp
+                            )
+                        }
+                    }
+                    Column {
+                        CurrencyText(
+                            text = tr("⚡ OTOPİLOT & YÖNETİM DİREKTİFLERİ", "⚡ AUTOPILOT & STRATEGIC DIRECTIVES"),
+                            color = ThemeGold,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 13.sp,
+                            fontFamily = RobotoMonoFontFamily
+                        )
+                        CurrencyText(
+                            text = tr("Canlı müdür analizleri ve otomatik otopilot aksiyonları", "Live executive analysis & automated autopilot actions"),
+                            color = Color.LightGray,
+                            fontSize = 10.5.sp
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (directives.isNotEmpty()) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                    border = BorderStroke(1.dp, if (directives.isNotEmpty()) ThemeNeonCyan else Color.Gray)
+                ) {
+                    CurrencyText(
+                        text = if (directives.isNotEmpty()) "${directives.size} " + tr("Aktif Tavsiye", "Active Directives") else tr("Nominal", "Nominal"),
+                        color = if (directives.isNotEmpty()) ThemeNeonCyan else Color.LightGray,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 1.dp)
+
+            if (directives.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    directives.forEach { directive ->
+                        DirectiveCard(
+                            directive = directive,
+                            isEng = isEng,
+                            onExecute = { onExecute(directive) },
+                            onToggleAutopilot = { enabled -> onToggleAutopilot(directive.id, enabled) }
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF162032).copy(alpha = 0.6f),
+                    border = BorderStroke(1.dp, Color(0xFF26334D)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = ThemePositive.copy(alpha = 0.15f),
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = ThemePositive,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            CurrencyText(
+                                text = tr("Tüm operasyonlar nominal dengede", "All operations in nominal balance"),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            CurrencyText(
+                                text = tr("Yönetim kurulu izleme modunda. Aşınma veya stok taşması durumunda tavsiyeler anında burada listelenir.", "Board of directors in active monitoring mode. Directives appear here upon wear or surplus."),
+                                color = Color.Gray,
+                                fontSize = 10.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DirectiveCard(
+    directive: SmartDirective,
+    isEng: Boolean,
+    onExecute: () -> Unit,
+    onToggleAutopilot: (Boolean) -> Unit
+) {
+    val borderColor = when {
+        directive.estimatedFinancialImpact > 0 -> ThemePositive.copy(alpha = 0.6f)
+        directive.estimatedFinancialImpact < 0 -> Color(0xFFEF5350).copy(alpha = 0.6f)
+        else -> ThemeGold.copy(alpha = 0.6f)
+    }
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color(0xFF0F172A),
+        border = BorderStroke(1.dp, borderColor),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Manager & Title & Badge Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            CurrencyText(
+                                text = directive.managerAvatarEmoji,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CurrencyText(
+                                text = directive.managerName,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
+                            if (directive.managerRole.isNotBlank()) {
+                                CurrencyText(
+                                    text = " • ${directive.managerRole}",
+                                    color = Color.LightGray,
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                        CurrencyText(
+                            text = directive.title,
+                            color = ThemeGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.5.sp,
+                            fontFamily = RobotoMonoFontFamily
+                        )
+                    }
+                }
+
+                // Estimated Profit / Cost Badge
+                if (directive.estimatedFinancialImpact > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = ThemePositive.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, ThemePositive)
+                    ) {
+                        CurrencyText(
+                            text = "+₳${formatMoney(directive.estimatedFinancialImpact)}",
+                            color = ThemePositive,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                } else if (directive.estimatedFinancialImpact < 0) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFEF5350).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFFEF5350))
+                    ) {
+                        CurrencyText(
+                            text = "-₳${formatMoney(kotlin.math.abs(directive.estimatedFinancialImpact))}",
+                            color = Color(0xFFEF5350),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = ThemeNeonCyan.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, ThemeNeonCyan)
+                    ) {
+                        CurrencyText(
+                            text = tr("Stratejik Katkı", "Strategic"),
+                            color = ThemeNeonCyan,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            // Description
+            CurrencyText(
+                text = directive.description,
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp
+            )
+
+            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.8.dp)
+
+            // Action Row: Autopilot switch & Apply button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Autopilot Switch
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Switch(
+                        checked = directive.isAutoPilotEnabled,
+                        onCheckedChange = { isChecked ->
+                            onToggleAutopilot(isChecked)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color(0xFF1E1402),
+                            checkedTrackColor = ThemeGold,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF1E293B)
+                        ),
+                        modifier = Modifier.scale(0.8f)
+                    )
+                    Column {
+                        CurrencyText(
+                            text = tr("Otopilot", "Autopilot"),
+                            color = if (directive.isAutoPilotEnabled) ThemeGold else Color.Gray,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        CurrencyText(
+                            text = if (directive.isAutoPilotEnabled) tr("Otomatik (10 dk)", "Auto (10m)") else tr("Manuel", "Manual"),
+                            color = Color.Gray,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
+
+                // Execute Button
+                Button(
+                    onClick = onExecute,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ThemeGold,
+                        contentColor = Color(0xFF1E1402)
+                    ),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = Color(0xFF1E1402)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CurrencyText(
+                        text = tr("⚡ Tek Tıkla Uygula", "⚡ Apply Now"),
+                        fontWeight = FontWeight.Black,
+                        fontSize = 11.sp,
+                        fontFamily = RobotoMonoFontFamily,
+                        color = Color(0xFF1E1402)
+                    )
+                }
+            }
+        }
+    }
 }

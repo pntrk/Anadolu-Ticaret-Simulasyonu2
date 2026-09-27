@@ -122,7 +122,14 @@ fun GameTopBar(
         )
     }
 
-    val p = player ?: return
+    val p = player ?: com.example.data.PlayerEntity(
+        id = "local_player",
+        name = "Tüccar",
+        level = 1,
+        currentCity = "canakkale",
+        money = 100_000L,
+        inventoryCapacity = 5000
+    )
     val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
     val selectedLanguage by viewModel.selectedLanguage.collectAsStateWithLifecycle()
     val isExpertMode by viewModel.isExpertMode.collectAsStateWithLifecycle()

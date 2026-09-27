@@ -17,37 +17,53 @@ enum class ConsortiumQualityTier(
     val durationMultiplier: Float,
     val badgeColor: Long,
     val descriptionTr: String,
-    val descriptionEn: String = ""
+    val descriptionEn: String = "",
+    val gradeCode: String = "C",
+    val allowedStars: List<Int> = listOf(1, 2),
+    val allowedQualityRangeTextTr: String = "1★ ve 2★ Girdi Kabul",
+    val allowedQualityRangeTextEn: String = "1★ and 2★ Inputs Accepted"
 ) {
     GRADE_C(
-        "C Kalite (Standart)",
-        "C Grade (Standard)",
-        1.0f,
-        1.0f,
-        1.0f,
-        0xFF94A3B8,
-        "Temel hammadde ihtiyacı, standart üretim süresi ve dengeli Borsa hisse değeri.",
-        "Base raw material requirement, standard production duration, and balanced Exchange share value."
+        titleTr = "C Kalite (Standart)",
+        titleEn = "C Grade (Standard)",
+        multiplier = 1.0f,
+        borsaMultiplier = 1.0f,
+        durationMultiplier = 1.0f,
+        badgeColor = 0xFF94A3B8,
+        descriptionTr = "Temel sanayi standardı. Yalnızca 1★ (Standart) ve 2★ (Seçme) kalitedeki hammaddeler kabul edilir.",
+        descriptionEn = "Standard industrial tier. Only 1★ (Standard) and 2★ (Select) raw materials are accepted.",
+        gradeCode = "C",
+        allowedStars = listOf(1, 2),
+        allowedQualityRangeTextTr = "1★ ve 2★ Girdi Kabul",
+        allowedQualityRangeTextEn = "1★ and 2★ Inputs Accepted"
     ),
     GRADE_B(
-        "B Kalite (Gelişmiş)",
-        "B Grade (Advanced)",
-        2.0f,
-        2.3f,
-        1.3f,
-        0xFF38BDF8,
-        "2 kat hammadde gereksinimi, %130 daha yüksek Borsa hisse fiyatı ve yüksek kâr marjı.",
-        "2x raw material requirement, +130% higher Exchange share price, and superior profit margins."
+        titleTr = "B Kalite (Gelişmiş & Usta İşi)",
+        titleEn = "B Grade (Advanced & Masterwork)",
+        multiplier = 2.0f,
+        borsaMultiplier = 2.3f,
+        durationMultiplier = 1.3f,
+        badgeColor = 0xFF38BDF8,
+        descriptionTr = "Gelişmiş mühendislik standardı. Yalnızca 2★ (Seçme), 3★ (Usta İşi) ve 4★ (Seçkin) kalitedeki hammaddeler kabul edilir.",
+        descriptionEn = "Advanced engineering tier. Only 2★ (Select), 3★ (Masterwork), and 4★ (Superior) inputs accepted.",
+        gradeCode = "B",
+        allowedStars = listOf(2, 3, 4),
+        allowedQualityRangeTextTr = "2★, 3★ ve 4★ Girdi Kabul",
+        allowedQualityRangeTextEn = "2★, 3★ and 4★ Inputs Accepted"
     ),
     GRADE_A(
-        "A Kalite (Premium)",
-        "A Grade (Premium)",
-        4.0f,
-        5.0f,
-        1.8f,
-        0xFFFFD700,
-        "4 kat hammadde gereksinimi, 5 kat Borsa hisse ve satış değeri! Maksimum prestij ve devasa kâr!",
-        "4x raw material requirement, 5x Exchange share and market value! Maximum prestige and massive profits!"
+        titleTr = "A Kalite (Premium & Kusursuz)",
+        titleEn = "A Grade (Premium & Flawless)",
+        multiplier = 4.0f,
+        borsaMultiplier = 5.0f,
+        durationMultiplier = 1.8f,
+        badgeColor = 0xFFFFD700,
+        descriptionTr = "En üst düzey savunma & uzay standardı. Yalnızca 4★ (Seçkin) ve 5★ (Kusursuz) kalitedeki hammaddeler kabul edilir! Maksimum prestij ve 5 kat Borsa değeri!",
+        descriptionEn = "Highest aerospace & defense standard. Only 4★ (Superior) and 5★ (Flawless) materials accepted! 5x Market Valuation!",
+        gradeCode = "A",
+        allowedStars = listOf(4, 5),
+        allowedQualityRangeTextTr = "4★ ve 5★ Girdi Kabul",
+        allowedQualityRangeTextEn = "4★ and 5★ Inputs Accepted"
     );
 
     val requirementMultiplier: Float get() = multiplier
@@ -55,13 +71,23 @@ enum class ConsortiumQualityTier(
 
     fun getTitle(isEnglish: Boolean = false): String = if (isEnglish) titleEn else titleTr
     fun getDescription(isEnglish: Boolean = false): String = if (isEnglish) descriptionEn else descriptionTr
+    fun getAllowedQualityRangeText(isEnglish: Boolean = false): String = if (isEnglish) allowedQualityRangeTextEn else allowedQualityRangeTextTr
+
+    fun isStarsAllowed(stars: Int): Boolean = stars.coerceIn(1, 5) in allowedStars
+
+    fun isQualityAllowed(quality: ItemQuality): Boolean = isStarsAllowed(quality.stars)
+
+    fun isProductQualityAllowed(quality: ProductQuality): Boolean = isStarsAllowed(quality.tier)
 
     companion object {
         fun fromString(str: String?): ConsortiumQualityTier {
-            return try {
-                if (str != null) valueOf(str) else GRADE_C
-            } catch (_: Exception) {
-                GRADE_C
+            if (str.isNullOrBlank()) return GRADE_C
+            val clean = str.trim().uppercase()
+            return when {
+                clean == "GRADE_A" || clean == "A" || clean.contains("A KALITE") || clean.contains("GRADE A") -> GRADE_A
+                clean == "GRADE_B" || clean == "B" || clean.contains("B KALITE") || clean.contains("GRADE B") -> GRADE_B
+                clean == "GRADE_C" || clean == "C" || clean.contains("C KALITE") || clean.contains("GRADE C") -> GRADE_C
+                else -> try { valueOf(clean) } catch (_: Exception) { GRADE_C }
             }
         }
     }
@@ -123,7 +149,9 @@ data class ConsortiumSupplierSlot(
     val totalDividendsEarned: Long = 0L, // Toplam kazanılan kar payı
     val sharePercentage: Float = 0.0f, // Hesaplanmış % Hisse
     val lastDeliveryTimeMs: Long = System.currentTimeMillis(),
-    val isBottleneckWarning: Boolean = false
+    val isBottleneckWarning: Boolean = false,
+    val deliveredQualityTier: Int = 1, // 1 to 5 stars
+    val deliveredQualityScore: Double = 1.0
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>): ConsortiumSupplierSlot {
@@ -143,7 +171,9 @@ data class ConsortiumSupplierSlot(
                 totalDividendsEarned = (map["totalDividendsEarned"] as? Number)?.toLong() ?: 0L,
                 sharePercentage = (map["sharePercentage"] as? Number)?.toFloat() ?: 0f,
                 lastDeliveryTimeMs = (map["lastDeliveryTimeMs"] as? Number)?.toLong() ?: System.currentTimeMillis(),
-                isBottleneckWarning = map["isBottleneckWarning"] as? Boolean ?: false
+                isBottleneckWarning = map["isBottleneckWarning"] as? Boolean ?: false,
+                deliveredQualityTier = (map["deliveredQualityTier"] as? Number)?.toInt() ?: 1,
+                deliveredQualityScore = (map["deliveredQualityScore"] as? Number)?.toDouble() ?: 1.0
             )
         }
     }
@@ -163,7 +193,9 @@ data class ConsortiumSupplierSlot(
             "totalDividendsEarned" to totalDividendsEarned,
             "sharePercentage" to sharePercentage.toDouble(),
             "lastDeliveryTimeMs" to lastDeliveryTimeMs,
-            "isBottleneckWarning" to isBottleneckWarning
+            "isBottleneckWarning" to isBottleneckWarning,
+            "deliveredQualityTier" to deliveredQualityTier,
+            "deliveredQualityScore" to deliveredQualityScore
         )
     }
 
@@ -754,6 +786,7 @@ data class MegaProject(
     val lastBatchStartTimeMs: Long = System.currentTimeMillis(),
     val lastBatchDurationMs: Long = 0L,
     val previousSharePrice: Double = 0.0,
+    val sharePriceMultiplier: Double = 1.0,
     val batchProductionDurationSeconds: Int = 450,
     val isBatchInProduction: Boolean = false,
     val batchProductionStartTimeMs: Long = 0L,
@@ -768,7 +801,8 @@ data class MegaProject(
     val activeTenders: List<ConsortiumExportTender> = emptyList(),
     val completedTenderBadges: List<String> = emptyList(),
     val productionStrategy: ConsortiumProductionStrategy = ConsortiumProductionStrategy.DENGELI,
-    val boardProposals: List<ConsortiumBoardProposal> = emptyList()
+    val boardProposals: List<ConsortiumBoardProposal> = emptyList(),
+    val averageCraftsmanshipScore: Double = 1.0 // 1.0 to 5.0 zanaatkarlık & kalite mirası
 ) {
     companion object {
         fun fromMap(map: Map<String, Any?>): MegaProject {
@@ -850,6 +884,7 @@ data class MegaProject(
                 lastBatchStartTimeMs = (map["lastBatchStartTimeMs"] as? Number)?.toLong() ?: System.currentTimeMillis(),
                 lastBatchDurationMs = (map["lastBatchDurationMs"] as? Number)?.toLong() ?: 0L,
                 previousSharePrice = (map["previousSharePrice"] as? Number)?.toDouble() ?: 0.0,
+                sharePriceMultiplier = (map["sharePriceMultiplier"] as? Number)?.toDouble() ?: 1.0,
                 batchProductionDurationSeconds = durationSec,
                 isBatchInProduction = map["isBatchInProduction"] as? Boolean ?: false,
                 batchProductionStartTimeMs = (map["batchProductionStartTimeMs"] as? Number)?.toLong() ?: 0L,
@@ -868,7 +903,8 @@ data class MegaProject(
                 } ?: emptyList(),
                 completedTenderBadges = (map["completedTenderBadges"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                 productionStrategy = strategyVal,
-                boardProposals = proposalList
+                boardProposals = proposalList,
+                averageCraftsmanshipScore = (map["averageCraftsmanshipScore"] as? Number)?.toDouble() ?: 1.0
             )
         }
     }
@@ -906,6 +942,7 @@ data class MegaProject(
             "lastBatchStartTimeMs" to lastBatchStartTimeMs,
             "lastBatchDurationMs" to lastBatchDurationMs,
             "previousSharePrice" to previousSharePrice,
+            "sharePriceMultiplier" to sharePriceMultiplier,
             "batchProductionDurationSeconds" to standardBatchDurationSeconds,
             "isBatchInProduction" to isBatchInProduction,
             "batchProductionStartTimeMs" to batchProductionStartTimeMs,
@@ -919,7 +956,8 @@ data class MegaProject(
             "activeTenders" to activeTenders.map { it.toMap() },
             "completedTenderBadges" to completedTenderBadges,
             "productionStrategy" to productionStrategy.name,
-            "boardProposals" to boardProposals.map { it.toMap() }
+            "boardProposals" to boardProposals.map { it.toMap() },
+            "averageCraftsmanshipScore" to averageCraftsmanshipScore
         )
     }
 
@@ -1015,7 +1053,7 @@ data class MegaProject(
         return Pair(true, "")
     }
 
-    fun canPlayerDeliver(playerId: String, slotId: String, requestedQuantity: Int): Pair<Boolean, String> {
+    fun canPlayerDeliver(playerId: String, slotId: String, requestedQuantity: Int, itemQualityStars: Int = 1): Pair<Boolean, String> {
         val pId = playerId.ifBlank { "local_player" }
         val targetSlot = slots.find { it.slotId == slotId }
             ?: return Pair(false, "Geçersiz tedarik slotu.")
@@ -1026,6 +1064,10 @@ data class MegaProject(
 
         if (targetSlot.quantityDelivered + requestedQuantity > targetSlot.quantityRequired) {
             return Pair(false, "Bu slot için talep edilen miktardan fazlası teslim edilemez.")
+        }
+
+        if (!qualityTier.isStarsAllowed(itemQualityStars)) {
+            return Pair(false, "Teslim edilmek istenen ürün kalitesi (${itemQualityStars}★) bu konsorsiyum projesinin ${qualityTier.titleTr} (${qualityTier.allowedQualityRangeTextTr}) standardına kesinlikle uymuyor!")
         }
 
         return Pair(true, "")
@@ -1050,10 +1092,42 @@ data class MegaProject(
             return (elapsedMs / durationMs).coerceIn(0f, 1f)
         }
 
+    val masterCraftsmanshipTier: ProductQuality
+        get() {
+            val deliveredSlots = slots.filter { it.quantityDelivered > 0 }
+            val avgScore = if (deliveredSlots.isNotEmpty()) {
+                deliveredSlots.map { it.deliveredQualityTier.toDouble() }.average()
+            } else {
+                averageCraftsmanshipScore
+            }
+            return when {
+                avgScore >= 4.2 -> ProductQuality.PALACE_GRAND
+                avgScore >= 3.2 -> ProductQuality.MASTERWORK
+                avgScore >= 2.2 -> ProductQuality.SPECIAL
+                avgScore >= 1.5 -> ProductQuality.SELECTED
+                else -> ProductQuality.STANDARD
+            }
+        }
+
     val baseSharePrice: Double
         get() {
             val base = (unitBatchPrice.toDouble() / 1000.0) * qualityTier.borsaMultiplier
             return if (isProductionPaused) base * 0.15 else base
+        }
+
+    val currentSharePrice: Double
+        get() {
+            val base = baseSharePrice
+            val craftsmanshipBonus = (masterCraftsmanshipTier.tier - 1) * 0.15 // 1★: +%0, 2★: +%15, 3★: +%30, 4★: +%45, 5★: +%60
+            val mult = if (sharePriceMultiplier > 0.0) sharePriceMultiplier else 1.0
+            return (base * mult * (1.0 + craftsmanshipBonus)).coerceAtLeast(10.0)
+        }
+
+    val sharePriceChangePercent: Double
+        get() {
+            val prev = if (previousSharePrice > 0.0) previousSharePrice else baseSharePrice
+            if (prev <= 0.0) return 0.0
+            return (((currentSharePrice - prev) / prev) * 100.0).coerceIn(-90.0, 500.0)
         }
 
     val dynamicBrandMultiplier: Float
@@ -1061,6 +1135,12 @@ data class MegaProject(
 
     val unitBatchCost: Long
         get() = slots.sumOf { it.costContributionValue }.coerceAtLeast(10_000_000L)
+
+    val craftsmanshipMultiplier: Float
+        get() {
+            val bonusPct = (((masterCraftsmanshipTier.tier - 1).toFloat() / 4.0f) * 0.40f) // 1★: 1.0x, 5★: 1.40x (+%40 Sinerji Bonusu)
+            return 1.0f + bonusPct
+        }
 
     val unitBatchPrice: Long
         get() {
@@ -1072,7 +1152,7 @@ data class MegaProject(
                 ConsortiumSalesChannel.BORSA -> dynamicBrandMultiplier * 0.95f
             }
             val strategyMult = productionStrategy.brandBonusMultiplier
-            return (baseVal * channelMult * qualityTier.borsaMultiplier * strategyMult).toLong()
+            return (baseVal * channelMult * qualityTier.borsaMultiplier * strategyMult * craftsmanshipMultiplier).toLong()
         }
 
     fun getPodiumStandings(currentUserId: String = ""): List<ConsortiumPodiumMember> {

@@ -71,6 +71,20 @@ import java.util.Calendar
 import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
+private fun getCleanPlayerKey(p: OnlinePlayer): String {
+    val cleanId = p.id.lowercase().trim().removeSuffix("_backup").removePrefix("vault_").replace(".", "_")
+    val emailKey = if (cleanId.contains("@")) cleanId.substringBefore("@") else ""
+    val cleanName = p.name.lowercase().trim().replace(" ", "").replace("_", "")
+    val cleanCompany = p.companyName.lowercase().trim().replace(" ", "").removeSuffix("holding").removeSuffix("a.ş.").removeSuffix("inc")
+
+    return when {
+        emailKey.isNotBlank() && emailKey != "local" && emailKey != "misafir_tuccar" -> "email_$emailKey"
+        cleanName.isNotBlank() && cleanName != "oyuncu" && cleanName != "tüccar" && cleanName != "tuccar" -> "name_$cleanName"
+        cleanCompany.isNotBlank() && cleanCompany != "tüccar" -> "company_$cleanCompany"
+        else -> "id_$cleanId"
+    }
+}
+
 @Composable
 fun SocialScreen(
     uiState: com.example.viewmodel.GameUiState,
@@ -96,6 +110,25 @@ fun SocialScreen(
 
     val onlinePlayers by MultiplayerManager.onlinePlayers.collectAsStateWithLifecycle()
     val pastMonthLeaderboard by MultiplayerManager.pastMonthLeaderboard.collectAsStateWithLifecycle()
+
+    val botIds = remember { setOf("BOT-KAYA-01", "BOT-NOVA-02", "BOT-TOROS-03", "BOT-EGE-04", "BOT-AVRASYA-05", "BOT-ANADOLU-05") }
+    val botNames = remember { setOf("Selim Kaya", "Dr. Aylin Soylu", "Burak Demirci", "Zehra Aydın", "Hakan Erkin", "Defne Aras", "Kaan Yıldırım") }
+
+    fun isBotPlayer(player: OnlinePlayer): Boolean {
+        return player.id.isBlank() ||
+               player.id == "local" ||
+               player.id == "misafir_tuccar" ||
+               player.id.startsWith("guest", ignoreCase = true) ||
+               player.id.startsWith("BOT-", ignoreCase = true) ||
+               player.id.startsWith("BOT_", ignoreCase = true) ||
+               player.id.contains("bot", ignoreCase = true) ||
+               player.id in botIds ||
+               player.name in botNames ||
+               com.example.data.BotTycoonManager.getAllBots().any {
+                   it.id.equals(player.id, ignoreCase = true) ||
+                   it.name.equals(player.name, ignoreCase = true)
+               }
+    }
 
     val isEnglish = isEnglishLanguage()
 
@@ -530,21 +563,24 @@ fun SocialScreen(
                 }
 
                 // CURRENT MONTH LEADERBOARD ITEMS (SORTED BY MONTHLY VALUATION GROWTH DESCENDING)
-                // Sadece Google hesabı ile giriş yapmış ve sunucuda kayıtlı oyuncular sıralanır
-                val validOnlinePlayers = onlinePlayers.filter { player ->
-                    player.id.isNotBlank() && player.id != "local" && player.id != "misafir_tuccar" && !player.id.startsWith("guest")
-                }
+                // Sadece gerçek oyuncular sıralanır; bot oyuncular sıralama listelerinde yer almaz
 
-                val sortedPlayers = if (isGoogleSignedIn && localPlayerState != null) {
+                val validOnlinePlayers = onlinePlayers
+                    .filter { player -> !isBotPlayer(player) }
+                    .groupBy { getCleanPlayerKey(it) }
+                    .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
+
+                val rawSortedPlayers = if (isGoogleSignedIn && localPlayerState != null) {
                     val myId = localPlayerState.id
                     val myName = localPlayerState.name
+                    val myCleanKey = getCleanPlayerKey(OnlinePlayer(id = myId, name = myName, companyName = "${myName} Holding", netWorth = 0L, city = "istanbul", level = 1))
                     val myNetWorth = (localPlayerState.money + localPlayerState.depositBalance - localPlayerState.loanAmount).coerceAtLeast(0L)
-                    val existsInList = validOnlinePlayers.any { it.id == myId || it.name == myName }
+                    val existsInList = validOnlinePlayers.any { getCleanPlayerKey(it) == myCleanKey || it.id == myId || it.name.equals(myName, ignoreCase = true) }
                     val baseList = if (existsInList) {
                         validOnlinePlayers.map { player ->
-                            if (player.id == myId || player.name == myName) {
+                            if (getCleanPlayerKey(player) == myCleanKey || player.id == myId || player.name.equals(myName, ignoreCase = true)) {
                                 val myGrowth = if (player.monthlyScore > 0L) player.monthlyScore else (myNetWorth * 0.20f).toLong()
-                                player.copy(netWorth = myNetWorth, monthlyScore = myGrowth)
+                                player.copy(id = myId, name = myName, netWorth = myNetWorth, monthlyScore = myGrowth)
                             } else {
                                 val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
                                 player.copy(monthlyScore = growth)
@@ -576,6 +612,11 @@ fun SocialScreen(
                         player.copy(monthlyScore = growth)
                     }.sortedByDescending { it.monthlyScore }
                 }
+
+                val sortedPlayers = rawSortedPlayers
+                    .groupBy { getCleanPlayerKey(it) }
+                    .map { (_, list) -> list.maxByOrNull { it.monthlyScore }!! }
+                    .sortedByDescending { it.monthlyScore }
 
                 if (sortedPlayers.isEmpty()) {
                     item {
@@ -616,7 +657,7 @@ fun SocialScreen(
                         }
                     }
                 } else {
-                    items(sortedPlayers.size, key = { sortedPlayers[it].id }) { index ->
+                    items(sortedPlayers.size, key = { "lb_rank_${it}_${getCleanPlayerKey(sortedPlayers[it])}" }) { index ->
                     val player = sortedPlayers[index]
                     val score = player.monthlyScore
                     val isMe = (player.id == localPlayerState?.id || player.name == localPlayerState?.name)
@@ -737,7 +778,12 @@ fun SocialScreen(
                     }
                 }
 
-                val sortedPastPlayers = pastMonthLeaderboard.sortedByDescending { it.monthlyScore }.take(20)
+                val sortedPastPlayers = pastMonthLeaderboard
+                    .filter { !isBotPlayer(it) }
+                    .groupBy { getCleanPlayerKey(it) }
+                    .map { (_, list) -> list.maxByOrNull { it.monthlyScore }!! }
+                    .sortedByDescending { it.monthlyScore }
+                    .take(20)
 
                 if (sortedPastPlayers.isEmpty()) {
                     item {

@@ -12,7 +12,8 @@ import kotlinx.coroutines.delay
 
 class ProductionManager(
     private val repository: GameRepository,
-    private val smartNotificationManager: SmartNotificationManager
+    private val smartNotificationManager: SmartNotificationManager,
+    private val onProductionCompleted: ((Int) -> Unit)? = null
 ) {
     private val _productionProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val productionProgress: StateFlow<Map<String, Float>> = _productionProgress.asStateFlow()
@@ -56,8 +57,18 @@ class ProductionManager(
         product: Product,
         isAutoProduceActive: Boolean
     ) {
+        if (business.getRemainingStorageCapacity() <= 0) {
+            smartNotificationManager.show(
+                message = "⚠️ Depo Dolu: ${business.type} tesisi deposunda yer kalmadı. Depo dolunca üretim durur, deponun boşalması beklenir.",
+                enMessage = "⚠️ Storage Full: No space in ${business.type} warehouse. Production stopped until storage is cleared.",
+                type = NotificationType.ALERT
+            )
+            return
+        }
+
         val baseDuration = 10000L
-        val durationMs = (baseDuration / business.level.coerceAtLeast(1).toFloat()).toLong()
+        val baseDurationMs = (baseDuration / business.level.coerceAtLeast(1).toFloat()).toLong()
+        val durationMs = (baseDurationMs * com.example.data.QualityCraftingService.getWearDurationMultiplier(business.wearLevel)).toLong()
         val businessId = business.id.toString()
         val uniqueProcessId = "${businessId}_${System.currentTimeMillis()}"
 
@@ -81,15 +92,52 @@ class ProductionManager(
 
         if (skipped || elapsed >= durationMs) {
             val produceQty = business.level
-            val updatedBusiness = business.withAddedItem(product.id, produceQty)
-            repository.updateBusiness(updatedBusiness)
+            val usedQualities = mutableListOf<com.example.data.ItemQuality>()
+            var updatedBusiness = business
+
+            if (product.recipe.isNotEmpty()) {
+                val storedMap = business.getStoredItemsMap()
+                for (req in product.recipe) {
+                    val needed = req.amountPerUnit * produceQty
+                    val matchingKeys = storedMap.keys.filter { com.example.data.ItemQuality.extractBaseProductId(it) == req.productId }
+                    var remaining = needed
+                    for (key in matchingKeys) {
+                        if (remaining <= 0) break
+                        val avail = storedMap[key] ?: 0
+                        if (avail > 0) {
+                            val take = minOf(avail, remaining)
+                            updatedBusiness = updatedBusiness.withRemovedItem(key, take)
+                            val q = com.example.data.ItemQuality.extractQuality(key)
+                            repeat(minOf(take, 10)) { usedQualities.add(q) }
+                            remaining -= take
+                        }
+                    }
+                    if (remaining > 0) {
+                        repeat(minOf(remaining, 10)) {
+                            usedQualities.add(com.example.data.ItemQuality.STAR_1)
+                        }
+                    }
+                }
+            }
+
+            val itemQuality = com.example.data.QualityCraftingService.calculateProducedItemQuality(
+                product = product,
+                facilityLevel = business.level,
+                usedIngredientQualities = usedQualities,
+                wearLevel = business.wearLevel
+            )
+            val newWear = (updatedBusiness.wearLevel + (0.0005f * produceQty)).coerceAtMost(1.0f)
+            val finalBusiness = updatedBusiness.copy(wearLevel = newWear).withAddedItemWithQuality(product.id, itemQuality, produceQty)
+            repository.updateBusiness(finalBusiness)
+            onProductionCompleted?.invoke(produceQty)
             removeProgress(uniqueProcessId)
             
             smartNotificationManager.show(
-                message = "Üretim Tamamlandı: ${product.getDisplayName()} x$produceQty tesis deposuna eklendi.",
-                enMessage = "Production Completed: ${product.getDisplayName()} x$produceQty added to facility warehouse.",
+                message = "Üretim Tamamlandı: [${itemQuality.starsText} ${itemQuality.label}] ${product.getDisplayName()} x$produceQty tesis deposuna eklendi.",
+                enMessage = "Production Completed: [${itemQuality.starsText} ${itemQuality.label}] ${product.getDisplayName()} x$produceQty added to facility warehouse.",
                 type = NotificationType.SUCCESS
             )
         }
     }
 }
+

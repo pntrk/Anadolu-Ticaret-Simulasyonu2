@@ -367,6 +367,9 @@ enum class Product(
             }
         }) * 10L
 
+    fun calculatePrice(quality: ItemQuality = ItemQuality.STAR_1): Long = (basePrice * quality.priceMultiplier).toLong()
+    fun calculatePrice(quality: ProductQuality): Long = (basePrice * quality.priceMultiplier).toLong()
+
     fun getDisplayName(isEnglish: Boolean = false): String {
         val trName = turkishProductNames[id] ?: id.split("_").joinToString(" ") { w -> w.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
         return if (isEnglish) (com.example.ui.theme.Dictionary[trName] ?: trName) else trName

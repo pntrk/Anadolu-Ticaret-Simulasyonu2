@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 fun OfflineEarningsDialog(
     data: OfflineEarningsData,
     playerGems: Int = 0,
-    gemCost: Int = 10,
+    gemCost: Int = 2,
     onDismiss: () -> Unit,
     onDoubleWithGems: () -> Unit = {},
     onDoubleBonusClaim: () -> Unit = {}
@@ -560,7 +560,7 @@ fun OfflineEarningsDialog(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Column {
                                             CurrencyText(
-                                                text = if (isEn) "DOUBLE WITH $gemCost GEMS (2X)" else "💎 $gemCost ELMAS İLE 2X KATLA",
+                                                text = if (isEn) "DOUBLE WITH $gemCost GEMS (2X BEREKET)" else "💎 $gemCost ELMAS İLE 2X BEREKET BONUSU",
                                                 style = MaterialTheme.typography.labelLarge,
                                                 fontWeight = FontWeight.Black,
                                                 fontFamily = RobotoMonoFontFamily,
@@ -636,7 +636,7 @@ fun OfflineEarningsDialog(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     CurrencyText(
-                                        text = if (isEn) "Watch Ad for 2X (+5 Gems)" else "🎬 Reklam İzleyerek 2X (+5 Elmas)",
+                                        text = if (isEn) "🎬 WATCH 1 AD FOR 2X BEREKET BONUS" else "🎬 1 REKLAM İZLE VE 2X KATLA",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = ThemeNeonCyan,

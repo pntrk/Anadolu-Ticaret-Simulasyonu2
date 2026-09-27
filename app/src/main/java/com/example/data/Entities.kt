@@ -44,9 +44,20 @@ data class PlayerEntity(
 
 @Entity(tableName = "inventory")
 data class InventoryEntity(
-    @PrimaryKey val itemId: String, // "olive", "wheat", "seafood"
+    @PrimaryKey val itemId: String, // "olive", "wheat_star3", "seafood"
     val quantity: Int
-)
+) {
+    val baseProductId: String
+        get() = ItemQuality.extractBaseProductId(itemId)
+
+    val quality: ItemQuality
+        get() = ItemQuality.extractQuality(itemId)
+
+    fun getCalculatedPrice(basePrice: Long): Long {
+        return (basePrice * quality.priceMultiplier).toLong()
+    }
+}
+
 
 @Entity(tableName = "businesses")
 data class BusinessEntity(
@@ -143,6 +154,11 @@ data class BusinessEntity(
         return this.copy(storedItemsJson = json)
     }
 
+    fun withAddedItemWithQuality(productId: String, quality: ItemQuality, qty: Int): BusinessEntity {
+        val key = ItemQuality.makeKey(productId, quality)
+        return withAddedItem(key, qty)
+    }
+
     fun withRemovedItem(itemId: String, qty: Int): BusinessEntity {
         if (qty <= 0) return this
         val map = getStoredItemsMap().toMutableMap()
@@ -185,6 +201,12 @@ data class DeliveryItem(
 )
 
 @kotlinx.serialization.Serializable
+enum class ProductionStatus {
+    IN_PROGRESS,
+    COMPLETED
+}
+
+@kotlinx.serialization.Serializable
 data class ActiveProduction(
     val id: String = java.util.UUID.randomUUID().toString(),
     val productId: String,
@@ -198,7 +220,8 @@ data class ActiveProduction(
     val endTimeMs: Long = 0L,
     @kotlinx.serialization.SerialName("end_time_ms") val endTimeMsSnake: Long? = null,
     val isAgriProduct: Boolean = false,
-    val originCountry: String = "Türkiye"
+    val originCountry: String = "Türkiye",
+    val usedIngredientQualityStars: Double = 1.0
 ) {
     val effectiveEndTimeMs: Long
         get() = when {
@@ -220,6 +243,15 @@ data class ActiveProduction(
     fun getRemainingTimeMs(now: Long = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()): Long {
         return (effectiveEndTimeMs - now).coerceAtLeast(0L)
     }
+
+    val status: ProductionStatus
+        get() = if (isCompleted()) ProductionStatus.COMPLETED else ProductionStatus.IN_PROGRESS
+
+    val isInProgress: Boolean
+        get() = status == ProductionStatus.IN_PROGRESS
+
+    val isPendingProduction: Boolean
+        get() = status == ProductionStatus.IN_PROGRESS
 }
 
 @Entity(tableName = "market_prices", primaryKeys = ["itemId", "originCountry"])
@@ -251,29 +283,23 @@ fun sanitizeMarketPrices(
     Product.values().forEach { product ->
         val existing = priceMap[product.id]
         
-        // Tek para birimi (Anadolu Lirası): Doğrudan taban fiyattan hesaplanır
         val rawBasePrice = product.basePrice.coerceAtLeast(10L)
-        // Eğer stok tanımlı değilse, <= 50.000L veya > 999.999.999L ise standart 999.999.999L stok ile başlatılır.
-        val finalStock = if (existing != null && existing.borsaStock in 1L..MacroEconomyEngine.DEFAULT_BORSA_STOCK && existing.borsaStock != 5000L && existing.borsaStock != 50_000L) {
+        // Eğer stok tanımlı değilse, <= 0L veya eski 999.999.999L / 50.000L kalıntısı ise standart 999.999L stok ile başlatılır.
+        val finalStock = if (existing != null && existing.borsaStock > 0L && existing.borsaStock != 999_999_999L && existing.borsaStock != 5000L && existing.borsaStock != 50_000L) {
             existing.borsaStock
         } else {
             MacroEconomyEngine.DEFAULT_BORSA_STOCK
         }
         
-        // Fiyatlama stok eğrisi ve kriz kuralına göre senkronize edilir
+        // Fiyatlama HER ZAMAN güncel borsa stok seviyesine göre dinamik hesaplanır (Stok düştükçe fiyat yükselir, stok arttıkça düşer)
         val dynamicPrice = MacroEconomyEngine.calculatePriceFromStock(finalStock, rawBasePrice)
-        val finalPrice = if (existing != null && existing.price > 0L && existing.borsaStock in 1L..MacroEconomyEngine.DEFAULT_BORSA_STOCK && existing.borsaStock != 5000L && existing.borsaStock != 50_000L) {
-            existing.price
-        } else {
-            dynamicPrice
-        }
         
         result.add(
             MarketPriceEntity(
                 itemId = product.id,
                 originCountry = "Global",
                 originCityId = "new_york",
-                price = finalPrice,
+                price = dynamicPrice,
                 borsaStock = finalStock,
                 isUsd = false
             )
@@ -302,9 +328,32 @@ data class MarketListing(
     val quantity: Int = 0,
     val pricePerUnit: Long = 0L,
     val originCityId: String = "",
+    val qualityLevel: Int = 1,
     val qualityTier: String = "Standart",
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val quality: ItemQuality
+        get() = if (itemId.contains("_star")) ItemQuality.extractQuality(itemId) else ItemQuality.fromStars(qualityLevel)
+
+    val baseProductId: String
+        get() = ItemQuality.extractBaseProductId(itemId)
+
+    val effectiveInventoryKey: String
+        get() = ItemQuality.makeKey(baseProductId, quality)
+
+    val isBotListing: Boolean
+        get() = sellerId.startsWith("BOT-") || id.startsWith("BOT_LISTING_")
+
+    val remainingMs: Long
+        get() {
+            val totalDurationMs = 24 * 60 * 60 * 1000L // 24 Saat
+            val elapsed = System.currentTimeMillis() - createdAt
+            return (totalDurationMs - elapsed).coerceAtLeast(0L)
+        }
+
+    val isExpired: Boolean
+        get() = isBotListing && remainingMs <= 0L
+}
 
 data class FuturesContract(
     val id: String = "",
@@ -315,9 +364,13 @@ data class FuturesContract(
     val lockedPricePerUnit: Long = 0L,
     val durationDays: Int = 30,
     val cityId: String = "",
+    val qualityLevel: Int = 1,
     val createdAt: Long = System.currentTimeMillis(),
     val isFulfilled: Boolean = false
-)
+) {
+    val quality: ItemQuality
+        get() = ItemQuality.fromStars(qualityLevel)
+}
 
 data class BuyOrder(
     val id: String = "",
@@ -327,8 +380,13 @@ data class BuyOrder(
     val quantity: Int = 0,
     val pricePerUnit: Long = 0L,
     val destinationCityId: String = "",
+    val qualityLevel: Int = 1,
+    val minQualityLevel: Int = 1,
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val quality: ItemQuality
+        get() = ItemQuality.fromStars(qualityLevel)
+}
 
 data class Auction(
     val id: String = "",
@@ -341,9 +399,13 @@ data class Auction(
     val currentBidderId: String = "",
     val currentBidderName: String = "",
     val originCityId: String = "",
+    val qualityLevel: Int = 1,
     val expiresAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()
-)
+) {
+    val quality: ItemQuality
+        get() = ItemQuality.fromStars(qualityLevel)
+}
 
 data class OutbidAlertData(
     val auctionId: String,
@@ -366,6 +428,9 @@ data class GuildGroup(
     val isJoined: Boolean = false,
     val megaProjectRequirements: Map<String, Int> = mapOf("cement" to 500000, "steel" to 250000, "aluminum" to 100000),
     val megaProjectContributions: Map<String, Int> = mapOf("cement" to 120000, "steel" to 80000, "aluminum" to 30000),
+    val slotQualityLevels: Map<String, Int> = emptyMap(),
+    val averageCraftsmanshipScore: Double = 1.0,
+    val masterCraftsmanshipTier: Int = 1,
     val bankBalance: Long = 0L,
     val isIpoActive: Boolean = false,
     val publicSharePercent: Int = 20,
@@ -389,6 +454,7 @@ data class PendingMarketSaleEntity(
     val quantity: Int,
     val pricePerUnit: Long,
     val originCityId: String,
+    val qualityLevel: Int = 1,
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -595,6 +661,7 @@ data class GrowthPointDto(
     val totalAssets: Double = 0.0,
     val depositBalance: Double = 0.0,
     val facilityValuation: Double = 0.0,
-    val inventoryValuation: Double = 0.0
+    val inventoryValuation: Double = 0.0,
+    val consortiumValuation: Double = 0.0
 )
 

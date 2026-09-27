@@ -104,8 +104,9 @@ fun StatisticsScreen(
     val totalInventoryQuantity = activeItems.sumOf { it.quantity }
     val totalInventoryValuation = uiState.inventoryValuation
     val totalFacilityValuation = uiState.facilityValuation
+    val totalConsortiumValuation = uiState.consortiumValuation
 
-    val totalAssets = p.money + p.depositBalance + p.lockedDepositBalance + totalInventoryValuation + totalFacilityValuation
+    val totalAssets = p.money + p.depositBalance + p.lockedDepositBalance + totalInventoryValuation + totalFacilityValuation + totalConsortiumValuation
     val netWorth = uiState.netWorth.coerceAtLeast(0L)
 
     val netDailyIncome = p.dailyIncome - p.dailyExpense
@@ -234,6 +235,7 @@ fun StatisticsScreen(
                             val cashRatio = if (totalAssets > 0) (p.money.toFloat() / totalAssets.toFloat()).coerceIn(0f, 1f) else 0f
                             val depositRatio = if (totalAssets > 0) ((p.depositBalance + p.lockedDepositBalance).toFloat() / totalAssets.toFloat()).coerceIn(0f, 1f) else 0f
                             val inventoryRatio = if (totalAssets > 0) (totalInventoryValuation.toFloat() / totalAssets.toFloat()).coerceIn(0f, 1f) else 0f
+                            val consortiumRatio = if (totalAssets > 0) (totalConsortiumValuation.toFloat() / totalAssets.toFloat()).coerceIn(0f, 1f) else 0f
 
                             Row(
                                 modifier = Modifier
@@ -266,6 +268,14 @@ fun StatisticsScreen(
                                             .background(ThemeGold)
                                     )
                                 }
+                                if (consortiumRatio > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(consortiumRatio)
+                                            .fillMaxHeight()
+                                            .background(Color(0xFFA855F7))
+                                    )
+                                }
                             }
 
                             // Asset Legend
@@ -277,6 +287,9 @@ fun StatisticsScreen(
                                 LegendItem(color = ThemePositive, label = tr("Nakit", "Cash"), value = formatCredit(p.money), theme = theme, modifier = Modifier.weight(1f))
                                 LegendItem(color = ThemeNeonCyan, label = tr("Mevduat", "Deposit"), value = formatCredit(p.depositBalance + p.lockedDepositBalance), theme = theme, modifier = Modifier.weight(1f))
                                 LegendItem(color = ThemeGold, label = tr("Stok", "Stock"), value = formatCredit(totalInventoryValuation), theme = theme, modifier = Modifier.weight(1f))
+                                if (totalConsortiumValuation > 0L) {
+                                    LegendItem(color = Color(0xFFA855F7), label = tr("Konsorsiyum", "Consortium"), value = formatCredit(totalConsortiumValuation), theme = theme, modifier = Modifier.weight(1f))
+                                }
                             }
                         }
 

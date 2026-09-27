@@ -104,6 +104,8 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
     val netWorth: StateFlow<Long> = _uiState.map { it.netWorth }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
     val facilityValuation: StateFlow<Long> = _uiState.map { it.facilityValuation }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
     val inventoryValuation: StateFlow<Long> = _uiState.map { it.inventoryValuation }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+    val consortiumValuation: StateFlow<Long> = _uiState.map { it.consortiumValuation }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+    val consortiumDeliveredValuation: StateFlow<Long> = _uiState.map { it.consortiumDeliveredValuation }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
     val marketTrends: StateFlow<Map<String, Float>> = _uiState.map { it.marketState.marketTrends }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val _playerGuildShares = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -215,6 +217,7 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             is GameIntent.ProduceConsortiumBrandItem -> produceConsortiumBrandItem(intent.projectId)
             is GameIntent.ResetConsortiumNewBatch -> resetConsortiumNewBatch(intent.projectId)
             is GameIntent.ListenToConsortiumChat -> listenToConsortiumChat(intent.projectId)
+            is GameIntent.StopListeningToConsortiumChat -> stopListeningToConsortiumChat(intent.projectId)
             is GameIntent.DisbandConsortium -> disbandConsortium(intent.projectId)
             is GameIntent.SendConsortiumChatMessage -> sendConsortiumChatMessage(intent.projectId, intent.text)
             is GameIntent.CreateNewMegaProject -> createNewMegaProject(intent.consortiumName, intent.brandName, intent.targetProductId, intent.qualityTier, intent.founderClaimedProductIds, intent.cityId)
@@ -771,7 +774,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             _productionSkip.update { it + productId }
             val existingProd = _activeProductions.value.find { it.productId == productId }
             if (existingProd != null) {
-                completeActiveProduction(existingProd, isOffline = false, isSilent = false, currentPlayerState = updatedPlayer)
+                completeActiveProduction(existingProd, isOffline = false, isSilent = false, currentPlayerState = updatedPlayer, forceComplete = true)
             }
             saveEconomicDataToDataStore(immediate = true)
             if (_isOnlineRegistered.value) {
@@ -905,6 +908,19 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         started = SharingStarted.Eagerly,
         initialValue = null
     )
+
+    val museumArtifacts: StateFlow<List<MuseumArtifactOwnershipEntity>> = repository.museumArtifacts.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = emptyList()
+    )
+
+    val activeArtifactBuffs: StateFlow<Map<ArtifactBuffType, Float>> = museumArtifacts
+        .map { artifacts ->
+            val myId = player.value?.id
+            val myArtifactIds = artifacts.filter { it.ownerId == myId }.map { it.artifactId }
+            ArtifactBuffRegistry.getActiveBuffs(myArtifactIds)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val economicSnapshot: Flow<EconomicSnapshot?> = repository.economicSnapshotFlow
 
@@ -1094,6 +1110,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
     internal val _auctions = MutableStateFlow<List<com.example.data.Auction>>(emptyList())
     val auctions: StateFlow<List<com.example.data.Auction>> = _auctions.asStateFlow()
+    val foreclosureAuctions = ForeclosureManager.auctionsState
 
     internal val _priceHistory = MutableStateFlow<Map<String, List<Long>>>(emptyMap())
     val priceHistory: StateFlow<Map<String, List<Long>>> = _priceHistory.asStateFlow()
@@ -1339,55 +1356,28 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         partnerId: String,
         partnerName: String
     ): Boolean {
-        val currentStock = inventory.value.find { it.itemId == productId }?.quantity ?: 0
-        if (currentStock < quantity) {
-            SmartNotificationManager.show("Yetersiz envanter! Deponuzda yeterli $productId yok.", NotificationType.ALERT)
+        val targetMegaProject = _megaProjects.value.find { it.id == projectId } ?: return false
+        val targetSlot = targetMegaProject.slots.find { it.slotId == slotId } ?: return false
+        val baseProductId = targetSlot.productId
+
+        val eligibleStockItems = inventory.value.filter { item ->
+            val baseId = com.example.data.ItemQuality.extractBaseProductId(item.itemId)
+            baseId == baseProductId && targetMegaProject.qualityTier.isQualityAllowed(item.quality) && item.quantity > 0
+        }
+        val totalEligible = eligibleStockItems.sumOf { it.quantity }
+
+        if (totalEligible < quantity) {
+            val allForProduct = inventory.value.filter { com.example.data.ItemQuality.extractBaseProductId(it.itemId) == baseProductId && it.quantity > 0 }
+            val msg = if (allForProduct.isNotEmpty()) {
+                "❌ Kalite Uyumsuzluğu: Bu konsorsiyum ${targetMegaProject.qualityTier.titleTr} (${targetMegaProject.qualityTier.allowedQualityRangeTextTr}) standartındadır! Depondaki ürünlerin kalitesi uymuyor."
+            } else {
+                "Yetersiz Envanter! Deponuzda yeterli ${targetSlot.productName} bulunmuyor."
+            }
+            SmartNotificationManager.show(msg, NotificationType.ALERT)
             return false
         }
 
-        viewModelScope.launch {
-            // 1. Client-Side Prediction: Anında yerel stok düşüşü
-            repository.consumeItem(productId, quantity)
-
-            val p = player.value
-            val originCityId = if (p?.currentCity?.isNotBlank() == true) p.currentCity else "istanbul"
-            val targetGuild = _guilds.value.find { it.id == projectId }
-            val consortiumCity = targetGuild?.leaderName?.let { leader ->
-                val match = Regex("""\(([^)]+)\)""").find(leader)
-                match?.groupValues?.get(1)?.lowercase()
-            } ?: "istanbul"
-            val targetMegaProject = _megaProjects.value.find { it.id == projectId }
-            val logisticsMultiplier = targetMegaProject?.logisticsTransitSpeedMultiplier ?: 1.0f
-            val baseDurationMs = calculateLogisticsDuration(originCityId, consortiumCity)
-            val durationMs = (baseDurationMs * logisticsMultiplier).toLong().coerceAtLeast(4_000L)
-            addActiveDelivery(
-                com.example.data.DeliveryItem(
-                    itemId = productId,
-                    quantity = quantity,
-                    originCityId = originCityId,
-                    destinationCityId = consortiumCity,
-                    pricePerUnit = 0L,
-                    totalCost = 0L,
-                    startTimeMs = System.currentTimeMillis(),
-                    totalDurationMs = durationMs,
-                    isOutboundSale = true,
-                    isConsortiumDelivery = true
-                )
-            )
-
-            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
-            val speedNotice = if (logisticsMultiplier < 1.0f) " (Lojistik Sorumlusu %20 Hız Bonusu)" else ""
-            SmartNotificationManager.show("🚚 $quantity Ton $productId Konsorsiyum Deposuna (${consortiumCity.uppercase()}) sevk edildi!$speedNotice", NotificationType.SUCCESS)
-
-            // 2. Arka Planda Sunucu (Supabase) Senkronizasyonu
-            val success = MultiplayerManager.deliverToConsortiumSlot(projectId, slotId, productId, quantity, partnerId, partnerName)
-            if (!success) {
-                // 3. Rollback Mekanizması
-                repository.produceItem(productId, quantity)
-                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
-                SmartNotificationManager.show("⚠️ Teslimat sunucu hatası nedeniyle iptal edildi ve ürünler iade edildi.", NotificationType.ALERT)
-            }
-        }
+        deliverMaterialsToConsortium(projectId, slotId, quantity)
         return true
     }
 
@@ -1439,17 +1429,87 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     internal val _offlineEarningsData = MutableStateFlow<OfflineEarningsData?>(null)
     val offlineEarningsData: StateFlow<OfflineEarningsData?> = _offlineEarningsData.asStateFlow()
 
-    fun dismissOfflineEarningsDialog() {
+    internal val _morningReport = MutableStateFlow<com.example.data.OfflineReport?>(null)
+    val morningReport: StateFlow<com.example.data.OfflineReport?> = _morningReport.asStateFlow()
+
+    fun dismissMorningReport() {
+        _morningReport.value = null
         _offlineEarningsData.value = null
     }
 
-    fun claimOfflineBonusWithGems(gemCost: Int = 10): Boolean {
+    fun claimMorningReport(doubleBonus: Boolean) {
+        val report = _morningReport.value ?: return
+        val p = player.value ?: return
+        val multiplier = if (doubleBonus) 2L else 1L
+        val bonusMoney = report.netRevenue * (multiplier - 1L)
+        val bonusXp = if (doubleBonus) report.totalExpGained else 0
+
+        viewModelScope.launch {
+            if (bonusMoney > 0L || bonusXp > 0) {
+                val updated = p.copy(
+                    money = p.money + bonusMoney,
+                    xp = p.xp + bonusXp,
+                    totalProfit = p.totalProfit + bonusMoney
+                )
+                repository.updatePlayer(updated)
+                saveEconomicDataToDataStore(customPlayer = updated, immediate = true)
+            }
+            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
+            com.example.ui.components.ParticleManager.spawnCelebration()
+            
+            val doubleMsg = if (doubleBonus) " (2x Bereket Bonusu!)" else ""
+            SmartNotificationManager.show(
+                "☀️ Sabah Raporu hasılatı kasaya aktarıldı$doubleMsg: +₳${com.example.ui.components.formatMoney(report.netRevenue * multiplier)}",
+                "☀️ Morning report revenue added to treasury$doubleMsg: +₳${com.example.ui.components.formatMoney(report.netRevenue * multiplier)}",
+                NotificationType.SUCCESS
+            )
+            dismissMorningReport()
+        }
+    }
+
+    fun claimMorningReportWithGems(gemCost: Int = 2): Boolean {
+        val report = _morningReport.value
+        if (report != null) {
+            val p = player.value ?: return false
+            if (p.gems < gemCost) {
+                SmartNotificationManager.show(
+                    "Yetersiz Elmas! Bereket bonusunu toplamak için $gemCost 💎 Elmas veya 1 Reklam gerekiyor. (Mevcut: ${p.gems} 💎)",
+                    "Not enough gems! $gemCost 💎 Gems or 1 Ad required for Bereket Bonus. (Current: ${p.gems} 💎)",
+                    NotificationType.ALERT
+                )
+                return false
+            }
+            viewModelScope.launch {
+                val updatedPlayer = p.copy(gems = p.gems - gemCost)
+                repository.updatePlayer(updatedPlayer)
+                claimMorningReport(doubleBonus = true)
+            }
+            return true
+        }
+        return claimOfflineBonusWithGems(gemCost)
+    }
+
+    fun claimMorningReportWithAd() {
+        val report = _morningReport.value
+        if (report != null) {
+            claimMorningReport(doubleBonus = true)
+        } else {
+            claimOfflineBonusWithAd()
+        }
+    }
+
+    fun dismissOfflineEarningsDialog() {
+        _offlineEarningsData.value = null
+        _morningReport.value = null
+    }
+
+    fun claimOfflineBonusWithGems(gemCost: Int = 2): Boolean {
         val data = _offlineEarningsData.value ?: return false
         val p = player.value ?: return false
         if (p.gems < gemCost) {
             SmartNotificationManager.show(
-                "Yetersiz Elmas! Çevrimdışı kazancı 2'ye katlamak için $gemCost 💎 Elmas gerekiyor. (Mevcut: ${p.gems} 💎)",
-                "Not enough gems! $gemCost 💎 Gems required to double offline earnings. (Current: ${p.gems} 💎)",
+                "Yetersiz Elmas! Bereket bonusunu toplamak için $gemCost 💎 Elmas veya 1 Reklam gerekiyor. (Mevcut: ${p.gems} 💎)",
+                "Not enough gems! $gemCost 💎 Gems or 1 Ad required for Bereket Bonus. (Current: ${p.gems} 💎)",
                 NotificationType.ALERT
             )
             return false
@@ -1533,6 +1593,9 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         _isAppInForeground.value = isForeground
         try {
             com.example.notification.LocalGameNotificationManager.setAppInForeground(isForeground)
+        } catch (_: Throwable) {}
+        try {
+            repository.setAppForegroundState(isForeground)
         } catch (_: Throwable) {}
         if (isForeground) {
             checkDailyQuestsReset()
@@ -2126,7 +2189,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                                 for (b in myBusinesses) {
                                     val prod = com.example.data.Product.values().find { it.facilityId == b.type || it.id == b.type }
                                     if (prod != null && !b.isConstructing && b.getRemainingStorageCapacity() >= 5) {
-                                        if (!_productionProgress.value.containsKey(prod.id)) {
+                                        if (!_productionProgress.value.containsKey(prod.id) && _activeProductions.value.none { it.productId == prod.id }) {
                                             val deficit = neededConsortiumRequirements[prod.id] ?: (10 * mgr.level)
                                             val batchQty = minOf(deficit, b.getRemainingStorageCapacity(), (10 * mgr.level)).coerceAtLeast(1)
                                             produce(prod.id, batchQty, isSilent = true, autoProcure = true)
@@ -2156,27 +2219,26 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                                 playerConsortiums.forEach { proj ->
                                     proj.slots.filter { isUserSlotLocal(it) && !it.isFullyDelivered }.forEach { slot ->
                                         val deficit = slot.remainingQuantity
-                                        val stock = currentInv.find { it.itemId == slot.productId }?.quantity ?: 0
+                                        val eligibleItems = currentInv.filter { item ->
+                                            val baseId = com.example.data.ItemQuality.extractBaseProductId(item.itemId)
+                                            baseId == slot.productId && proj.qualityTier.isQualityAllowed(item.quality) && item.quantity > 0
+                                        }
+                                        val stock = eligibleItems.sumOf { it.quantity }
                                         if (deficit > 0 && stock > 0) {
                                             // Ne kadar sevk edebiliriz? Hem stok hem ihtiyaç hem de yöneticinin bir döngüde taşıyabileceği kapasite ile sınırlı
                                             val deliverQty = minOf(deficit, stock, 25 * mgr.level)
                                             if (deliverQty > 0) {
-                                                deliverToConsortiumSlot(
+                                                deliverMaterialsToConsortium(
                                                     projectId = proj.id,
                                                     slotId = slot.slotId,
-                                                    productId = slot.productId,
                                                     quantity = deliverQty,
-                                                    partnerId = "local_player",
-                                                    partnerName = player.value?.name ?: "Şirket"
+                                                    isSilent = true
                                                 )
                                                 logManagerAction(
                                                     "mgr_logistics",
-                                                    "Lojistik Müdürü: $deliverQty Ton ${slot.productId} konsorsiyum deposuna otomatik sevk edildi.",
+                                                    "Lojistik Müdürü: $deliverQty Ton ${slot.productName} (${proj.qualityTier.titleTr}) konsorsiyum deposuna otomatik sevk edildi.",
                                                     0L
                                                 )
-                                                // reduce local view of inventory so we don't double deliver in same loop
-                                                val remainingStock = stock - deliverQty
-                                                // neededConsortiumRequirements is not updated here but it's okay for one pass
                                             }
                                         }
                                     }
@@ -2272,22 +2334,26 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                                 inStock < deficit
                             }
 
-                            if (missingConsortiumItems.isNotEmpty() && prices.isNotEmpty()) {
+                            val remainingCentralCap = (livePlayer.inventoryCapacity - currentInv.sumOf { it.quantity }).coerceAtLeast(0)
+
+                            if (missingConsortiumItems.isNotEmpty() && prices.isNotEmpty() && remainingCentralCap > 0) {
                                 val targetMissing = missingConsortiumItems.keys.first()
                                 val priceObj = prices.find { it.itemId == targetMissing }
-                                val unitPrice = priceObj?.price ?: com.example.data.Product.values().find { it.id == targetMissing }?.basePrice ?: 50_000L
-                                val neededQty = minOf(missingConsortiumItems[targetMissing] ?: 5, 10 * mgr.level).coerceAtLeast(1)
-                                val totalCost = unitPrice * neededQty
+                                if (priceObj != null) {
+                                    val unitPrice = priceObj.price
+                                    val neededQty = minOf(missingConsortiumItems[targetMissing] ?: 5, 10 * mgr.level, remainingCentralCap).coerceAtLeast(1)
+                                    val totalCost = unitPrice * neededQty
 
-                                if (livePlayer.money >= totalCost) {
-                                    val updatedPlayer = livePlayer.copy(money = livePlayer.money - totalCost)
-                                    repository.updatePlayer(updatedPlayer)
-                                    repository.produceItem(targetMissing, neededQty)
-                                    logManagerAction(
-                                        "mgr_borsa",
-                                        "Borsa & Yatırım Analisti (Konsorsiyum Spot Alım): $targetMissing x$neededQty Ton borsadan tedarik edilip depoya aktarıldı.",
-                                        -totalCost
-                                    )
+                                    if (livePlayer.money >= totalCost) {
+                                        val updatedPlayer = livePlayer.copy(money = livePlayer.money - totalCost)
+                                        repository.updatePlayer(updatedPlayer)
+                                        repository.produceItem(targetMissing, neededQty)
+                                        logManagerAction(
+                                            "mgr_borsa",
+                                            "Borsa & Yatırım Analisti (Konsorsiyum Spot Alım): $targetMissing x$neededQty Ton borsadan tedarik edilip depoya aktarıldı.",
+                                            -totalCost
+                                        )
+                                    }
                                 } else {
                                     logManagerAction(
                                         "mgr_borsa",
@@ -2295,12 +2361,12 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                                         0L
                                     )
                                 }
-                            } else if (prices.isNotEmpty() && livePlayer.money > 1_000_000L) {
+                            } else if (prices.isNotEmpty() && livePlayer.money > 1_000_000L && remainingCentralCap > 0) {
                                 val bestBargain = prices.minByOrNull { it.price }
                                 if (bestBargain != null) {
-                                    val buyQty = (5 * mgr.level).coerceAtLeast(1)
+                                    val buyQty = minOf(5 * mgr.level, remainingCentralCap).coerceAtLeast(1)
                                     val totalCost = bestBargain.price * buyQty
-                                    if (livePlayer.money >= totalCost) {
+                                    if (livePlayer.money >= totalCost && buyQty > 0) {
                                         val updatedPlayer = livePlayer.copy(money = livePlayer.money - totalCost)
                                         repository.updatePlayer(updatedPlayer)
                                         repository.produceItem(bestBargain.itemId, buyQty)
@@ -2322,34 +2388,31 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                                 for (proj in playerConsortiums) {
                                     val unmetSlots = proj.slots.filter { isUserSlotLocal(it) && !it.isFullyDelivered }
                                     for (slot in unmetSlots) {
-                                        val stock = inventory.value.find { it.itemId == slot.productId }?.quantity ?: 0
-                                        if (stock > 0) {
-                                            val deliverQty = minOf(stock, slot.remainingQuantity)
+                                        val eligibleStockItems = inventory.value.filter { item ->
+                                            val baseId = com.example.data.ItemQuality.extractBaseProductId(item.itemId)
+                                            baseId == slot.productId && proj.qualityTier.isQualityAllowed(item.quality) && item.quantity > 0
+                                        }
+                                        val totalEligibleStock = eligibleStockItems.sumOf { it.quantity }
+                                        if (totalEligibleStock > 0) {
+                                            val deliverQty = minOf(totalEligibleStock, slot.remainingQuantity)
                                             deliverMaterialsToConsortium(proj.id, slot.slotId, deliverQty, isSilent = true)
                                             logManagerAction(
                                                 "mgr_hr",
-                                                "İnsan Kaynakları & Operasyon: ${proj.consortiumName} için $deliverQty Ton ${slot.productName} teslim edildi.",
+                                                "İnsan Kaynakları & Operasyon: ${proj.consortiumName} (${proj.qualityTier.titleTr}) için $deliverQty Ton ${slot.productName} depodan teslim edildi.",
                                                 0L
                                             )
                                             consortiumActionExecuted = true
                                             break
                                         } else {
-                                            val unitPrice = marketPrices.value.find { it.itemId == slot.productId }?.price 
-                                                ?: com.example.data.Product.values().find { it.id == slot.productId }?.basePrice ?: 50_000L
-                                            
-                                            val maxAffordableQty = (livePlayer.money / unitPrice).toInt()
-                                            val buyQty = minOf(10, slot.remainingQuantity, maxAffordableQty)
-                                            
-                                            if (buyQty > 0) {
-                                                val cost = unitPrice * buyQty
-                                                val updatedPlayer = livePlayer.copy(money = livePlayer.money - cost)
-                                                repository.updatePlayer(updatedPlayer)
-                                                repository.produceItem(slot.productId, buyQty)
-                                                deliverMaterialsToConsortium(proj.id, slot.slotId, buyQty, isSilent = true)
+                                            // Depoda ürün yoksa üretim tesisinde zamanlı üretim emri ver (Süre sona ermeden depoya yerleştirilmez)
+                                            val producingBusiness = businesses.value.find { it.type == slot.productId || it.type.startsWith(slot.productId) }
+                                            if (producingBusiness != null && !_productionProgress.value.containsKey(slot.productId) && producingBusiness.getRemainingStorageCapacity() > 0) {
+                                                val neededQty = minOf(slot.remainingQuantity, producingBusiness.getRemainingStorageCapacity(), 10)
+                                                produce(slot.productId, neededQty, isSilent = true, autoProcure = true)
                                                 logManagerAction(
                                                     "mgr_hr",
-                                                    "İnsan Kaynakları & Tedarik: ${proj.consortiumName} için borsa üzerinden $buyQty Ton ${slot.productName} temin edilip sevk edildi.",
-                                                    -cost
+                                                    "İnsan Kaynakları: ${proj.consortiumName} ihtiyacı için ${producingBusiness.type} tesisinde $neededQty Ton zamanlı üretim süreci başlatıldı (Süre bekleniyor).",
+                                                    0L
                                                 )
                                                 consortiumActionExecuted = true
                                                 break
@@ -2593,11 +2656,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val speedFactor = if (speedManager != null && speedManager.isHired && speedManager.isActive) {
             (1.0f - (speedManager.level * 0.08f)).coerceAtLeast(0.5f)
         } else 1.0f
-        return ((baseSeconds * 1000L) * speedFactor).toLong().coerceIn(8_000L, 80_000L)
+        val baseDurationMs = ((baseSeconds * 1000L) * speedFactor).toLong().coerceIn(8_000L, 80_000L)
+
+        val speedBonus = activeArtifactBuffs.value[ArtifactBuffType.LOGISTICS_SPEED_BONUS] ?: 0f
+        val finalDuration = (baseDurationMs * (1f - speedBonus)).toLong()
+        return finalDuration.coerceAtLeast(3_000L)
     }
 
     fun addActiveDelivery(delivery: com.example.data.DeliveryItem) {
         _activeDeliveries.update { it + delivery }
+        updateDailyQuestProgress(QuestType.LOGISTICS_DELIVERY, 1L)
         try {
             val prod = com.example.data.Product.values().find { it.id == delivery.itemId }
             val prodName = prod?.name?.lowercase()?.replace('_', ' ')?.replaceFirstChar { it.uppercase() } ?: delivery.itemId
@@ -2639,7 +2707,12 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             val discount = (logManager.level * 0.15f).coerceAtMost(0.9f) // %15 to %75 discount
             rawCost *= (1.0f - discount)
         }
-        return rawCost.toLong().coerceAtLeast(1L)
+
+        val baseCost = rawCost.toLong().coerceAtLeast(1L)
+        val costDiscount = activeArtifactBuffs.value[ArtifactBuffType.LOGISTICS_COST_DISCOUNT] ?: 0f
+        val discountedCost = (baseCost * (1f - costDiscount)).toLong()
+
+        return discountedCost.coerceAtLeast(1L)
     }
 
     
@@ -2901,6 +2974,77 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         }
     }
 
+    fun buyoutForeclosedFacility(auctionId: String) {
+        val p = player.value ?: return
+        val auction = ForeclosureManager.auctionsState.value.find { it.id == auctionId }
+        if (auction == null || auction.isSettled) {
+            SmartNotificationManager.show("İhale bulunamadı veya sonuçlanmış!", NotificationType.ALERT)
+            return
+        }
+
+        val cost = auction.buyoutPrice
+        if (p.money < cost) {
+            val formattedCost = com.example.ui.components.formatMoney(cost)
+            SmartNotificationManager.show("Yetersiz bakiye! (Gerekli: ₳$formattedCost)", NotificationType.ALERT)
+            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+            return
+        }
+
+        viewModelScope.launch {
+            val boughtBusiness = ForeclosureManager.buyoutFacility(auctionId, p)
+            if (boughtBusiness != null) {
+                // wearLevel kesinlikle 0.0f (sıfır yıpranma, tam çalışır)
+                val cleanBusiness = boughtBusiness.copy(wearLevel = 0.0f)
+                repository.buyBusinessTransaction(cost = cost, business = cleanBusiness)
+
+                // HapticManager ve ParticleManager başarı efektleri
+                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
+                com.example.ui.components.ParticleManager.spawnCelebration()
+
+                SmartNotificationManager.show(
+                    "İcralık tesis başarıyla devralındı! (${cleanBusiness.cityId.replaceFirstChar { it.uppercase() }} - Seviye ${cleanBusiness.level})",
+                    NotificationType.SUCCESS
+                )
+
+                saveEconomicDataToDataStore(immediate = true)
+                syncCloudSaveToSupabase(force = true, immediate = true)
+            } else {
+                SmartNotificationManager.show("Satın alma işlemi başarısız oldu!", NotificationType.ALERT)
+            }
+        }
+    }
+
+    fun placeForeclosureBid(auctionId: String, bidAmount: Long) {
+        val p = player.value ?: return
+        val auction = ForeclosureManager.auctionsState.value.find { it.id == auctionId }
+        if (auction == null || auction.isSettled) {
+            SmartNotificationManager.show("İhale bulunamadı veya sonuçlanmış!", NotificationType.ALERT)
+            return
+        }
+
+        if (p.money < bidAmount) {
+            val formattedBid = com.example.ui.components.formatMoney(bidAmount)
+            SmartNotificationManager.show("Yetersiz bakiye! (Gerekli: ₳$formattedBid)", NotificationType.ALERT)
+            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+            return
+        }
+
+        if (bidAmount <= auction.currentHighestBid || bidAmount < auction.startingBid) {
+            val minBid = maxOf(auction.currentHighestBid + 1, auction.startingBid)
+            val formattedMin = com.example.ui.components.formatMoney(minBid)
+            SmartNotificationManager.show("Teklifiniz en az ₳$formattedMin olmalıdır!", NotificationType.ALERT)
+            return
+        }
+
+        val success = ForeclosureManager.placeBid(auctionId, p, bidAmount)
+        if (success) {
+            com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
+            SmartNotificationManager.show("İcralık tesise ₳${com.example.ui.components.formatMoney(bidAmount)} pey sürüldü!", NotificationType.SUCCESS)
+        } else {
+            SmartNotificationManager.show("Teklif verilemedi!", NotificationType.ALERT)
+        }
+    }
+
     fun updateListingPrice(listingId: String, newPrice: Long) {
         val currentListings = _marketListings.value.toMutableList()
         val index = currentListings.indexOfFirst { it.id == listingId }
@@ -2920,18 +3064,26 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val pCity = p.currentCity
         val uid = if (_onlineEmail.value.isNotBlank()) _onlineEmail.value.replace(".", "_") else if (p.id.isNotBlank() && p.id != "local_player") p.id else "trader_${pName.hashCode()}"
         if (quantity <= 0 || pricePerUnit <= 0) return false
+        val baseProd = com.example.data.ItemQuality.extractBaseProductId(itemId)
         val invItem = inventory.value.find { it.itemId == itemId }
-        if (invItem != null && invItem.quantity < quantity) {
+            ?: inventory.value.find { it.baseProductId == baseProd && it.quantity >= quantity }
+            ?: inventory.value.find { it.baseProductId == baseProd }
+
+        val actualStock = invItem?.quantity ?: 0
+        if (actualStock < quantity) {
             SmartNotificationManager.show("Yetersiz stok! Pazara vermek istediğiniz miktarda ürün deponuzda yok.", NotificationType.ALERT)
             return false
         }
 
+        val actualItemKeyToConsume = invItem?.itemId ?: itemId
+        val quality = invItem?.quality ?: com.example.data.ItemQuality.extractQuality(actualItemKeyToConsume)
+        val qualityStars = quality.stars
+        val resolvedQualityTier = quality.label
+        val effectiveItemKey = com.example.data.ItemQuality.makeKey(baseProd, quality)
+
         val totalVal = quantity * pricePerUnit
-        val brokerFee = (totalVal * 0.015).toLong()
-        if (p.money < brokerFee) {
-            SmartNotificationManager.show("Komisyon için yetersiz bakiye!", NotificationType.ALERT)
-            return false
-        }
+        // Broker fee: 1.5% capped at player cash so players are never blocked from listing goods
+        val brokerFee = ((totalVal * 0.015).toLong()).coerceIn(0L, p.money.coerceAtLeast(0L))
 
         val nowMs = System.currentTimeMillis()
         val newListingId = java.util.UUID.randomUUID().toString()
@@ -2939,21 +3091,23 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             id = newListingId,
             sellerName = pName,
             sellerId = uid,
-            itemId = itemId,
+            itemId = effectiveItemKey,
             quantity = quantity,
             pricePerUnit = pricePerUnit,
             originCityId = pCity,
-            qualityTier = qualityTier,
+            qualityLevel = qualityStars,
+            qualityTier = resolvedQualityTier,
             createdAt = nowMs
         )
         val pendingSale = com.example.data.PendingMarketSaleEntity(
             id = newListingId,
             sellerName = pName,
             sellerId = uid,
-            itemId = itemId,
+            itemId = effectiveItemKey,
             quantity = quantity,
             pricePerUnit = pricePerUnit,
             originCityId = pCity,
+            qualityLevel = qualityStars,
             createdAt = nowMs
         )
 
@@ -2962,43 +3116,44 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
         viewModelScope.launch {
             try {
-                // 1. Client-Side Prediction: Anında bakiye ve stok düşüşü, yerel pazar listesine ekleme
+                // 1. Anında bakiye ve stok düşüşü, yerel pazar listesine ekleme
                 repository.updatePlayer(p.copy(money = p.money - brokerFee))
-                repository.consumeItem(itemId, quantity)
+                repository.consumeItem(actualItemKeyToConsume, quantity)
                 _marketListings.value = _marketListings.value + newListing
                 repository.insertPendingSale(pendingSale)
 
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
-                SmartNotificationManager.show("İlan pazara eklendi: $quantity adet $itemId", NotificationType.SUCCESS)
+                SmartNotificationManager.show("İlan pazara eklendi: $quantity Ton [${quality.starsText}] $baseProd", NotificationType.SUCCESS)
 
                 // 2. Arka Planda Sunucu (Supabase) Senkronizasyonu
                 val syncSuccess = com.example.data.SupabaseManager.syncMarketListingToSupabase(newListing)
-                if (!syncSuccess) {
-                    throw Exception("Supabase senkronizasyon hatası")
-                }
-                com.example.data.MultiplayerManager.sendBroadcastMarketAction(
-                    com.example.data.network.LiveMarketActionEventDto(
-                        actionType = "LISTING_CREATED",
-                        id = newListingId,
-                        playerId = uid,
-                        playerName = pName,
-                        itemId = itemId,
-                        quantity = quantity,
-                        price = pricePerUnit,
-                        cityId = pCity
+                if (syncSuccess) {
+                    com.example.data.MultiplayerManager.sendBroadcastMarketAction(
+                        com.example.data.network.LiveMarketActionEventDto(
+                            actionType = "LISTING_CREATED",
+                            id = newListingId,
+                            playerId = uid,
+                            playerName = pName,
+                            itemId = effectiveItemKey,
+                            quantity = quantity,
+                            price = pricePerUnit,
+                            cityId = pCity
+                        )
                     )
-                )
+                } else {
+                    android.util.Log.w("GameViewModel", "Supabase sync offline/slow. Listing maintained in local market.")
+                }
                 saveEconomicDataToDataStore(immediate = true)
             } catch (e: Exception) {
-                // 3. Rollback Mekanizması: Sunucu hatasında parayı, stoku ve pazar listesini eski haline döndür
-                android.util.Log.e("GameViewModel", "addMarketListing server sync failed, rolling back", e)
+                // 3. Rollback Mekanizması: Yerel veritabanı hatasında iade et
+                android.util.Log.e("GameViewModel", "addMarketListing local error, rolling back", e)
                 repository.updatePlayer(p.copy(money = previousMoney))
-                repository.produceItem(itemId, quantity)
+                repository.produceItem(actualItemKeyToConsume, quantity)
                 _marketListings.value = previousListings
                 repository.deletePendingSale(newListingId)
 
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
-                SmartNotificationManager.show("⚠️ İlan sunucuya eklenemedi, ürünler ve komisyon iade edildi.", NotificationType.ALERT)
+                SmartNotificationManager.show("⚠️ İlan eklenemedi, ürünler ve komisyon iade edildi.", NotificationType.ALERT)
             }
         }
         return true
@@ -3075,10 +3230,11 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val previousListings = _marketListings.value
 
         viewModelScope.launch {
+            val targetKey = listing.effectiveInventoryKey
             try {
-                // 1. Client-Side Prediction: Anında bakiye düşüşü, depoya ürün ekleme ve pazar listesini güncelleme
+                // 1. Client-Side Prediction: Anında bakiye düşüşü, pazar listesini güncelleme ve sevkiyat başlatma
                 repository.updatePlayer(p.copy(money = p.money - totalCost))
-                repository.produceItem(listing.itemId, actualBuyQty)
+                // DİKKAT: Ürün anında depoya EKLEMEZ! Sevkiyat süresi dolduğunda otomatik olarak deponuza tanımlanacaktır.
 
                 val remainingQty = listing.quantity - actualBuyQty
                 if (remainingQty <= 0) {
@@ -3089,30 +3245,29 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     }
                 }
 
-                val product = com.example.data.Product.values().find { it.id == listing.itemId }
-                val itemTitle = product?.getDisplayName() ?: listing.itemId.uppercase()
+                val product = com.example.data.Product.values().find { it.id == listing.baseProductId }
+                val itemTitle = "[${listing.quality.label}] " + (product?.getDisplayName() ?: listing.baseProductId.uppercase())
 
                 val originCityId = listing.originCityId.ifBlank { "istanbul" }
                 val durationMs = calculateLogisticsDuration(originCityId, currentCity)
-                addActiveDelivery(
-                    com.example.data.DeliveryItem(
-                        itemId = listing.itemId,
-                        quantity = actualBuyQty,
-                        originCityId = originCityId,
-                        destinationCityId = currentCity,
-                        pricePerUnit = listing.pricePerUnit,
-                        totalCost = totalCost,
-                        startTimeMs = System.currentTimeMillis(),
-                        totalDurationMs = durationMs,
-                        isOutboundSale = false
-                    )
+                val newDelivery = com.example.data.DeliveryItem(
+                    itemId = targetKey,
+                    quantity = actualBuyQty,
+                    originCityId = originCityId,
+                    destinationCityId = currentCity,
+                    pricePerUnit = listing.pricePerUnit,
+                    totalCost = totalCost,
+                    startTimeMs = System.currentTimeMillis(),
+                    totalDurationMs = durationMs,
+                    isOutboundSale = false
                 )
+                addActiveDelivery(newDelivery)
 
                 com.example.ui.components.ParticleManager.spawnCelebration()
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
                 val originName = com.example.data.cities.find { it.id == originCityId }?.name ?: originCityId.uppercase()
                 val destName = com.example.data.cities.find { it.id == currentCity }?.name ?: currentCity.uppercase()
-                SmartNotificationManager.show("🚚 Pazar Sevkiyatı Yola Çıktı! Satıcı Depo ($originName) ➔ Merkez Depo ($destName): $actualBuyQty Ton $itemTitle", NotificationType.SUCCESS)
+                SmartNotificationManager.show("🚚 Pazar Sevkiyatı Yola Çıktı! Satıcı Depo ($originName) ➔ Merkez Depo ($destName): $actualBuyQty Ton $itemTitle. Sevkiyat tamamlanınca deponuza eklenecektir.", NotificationType.SUCCESS)
                 markFirstTradeCompleted()
 
                 // 2. Arka Planda Sunucu (Supabase) Güncelleme/Silme
@@ -3140,14 +3295,14 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 )
                 saveEconomicDataToDataStore(immediate = true)
             } catch (e: Exception) {
-                // 3. Rollback Mekanizması: Sunucu hatasında parayı iade et, ürünü geri düş ve pazar listesini eski haline getir
+                // 3. Rollback Mekanizması: Sunucu hatasında parayı iade et, sevkiyatı iptal et ve pazar listesini eski haline getir
                 android.util.Log.e("GameViewModel", "buyFromGlobalMarket failed, rolling back", e)
                 repository.updatePlayer(p.copy(money = previousMoney))
-                repository.consumeItem(listing.itemId, actualBuyQty)
+                _activeDeliveries.value = _activeDeliveries.value.filterNot { it.itemId == targetKey && it.quantity == actualBuyQty && it.totalCost == totalCost }
                 _marketListings.value = previousListings
 
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
-                SmartNotificationManager.show("⚠️ Satın alma işlemi sunucuda başarısız oldu. Bakiye ve envanter iade edildi.", NotificationType.ALERT)
+                SmartNotificationManager.show("⚠️ Satın alma işlemi sunucuda başarısız oldu. Bakiye iade edildi.", NotificationType.ALERT)
             }
         }
     }
@@ -3259,6 +3414,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             val localPendingListings = currentPendingSales
                 .filter { it.id !in remoteListingIds }
                 .map { sale ->
+                    val q = com.example.data.ItemQuality.fromStars(sale.qualityLevel)
                     com.example.data.MarketListing(
                         id = sale.id,
                         sellerName = sale.sellerName,
@@ -3267,7 +3423,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                         quantity = sale.quantity,
                         pricePerUnit = sale.pricePerUnit,
                         originCityId = sale.originCityId,
-                        qualityTier = "Standart",
+                        qualityLevel = sale.qualityLevel,
+                        qualityTier = q.label,
                         createdAt = sale.createdAt
                     )
                 }
@@ -3327,6 +3484,20 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
 
     internal var lastCloudSyncTimeMs: Long = 0L
+    internal var lastAutoCloudBackupMinuteKey: Int = -1
+
+    internal val _lastCloudBackupTimeMs = MutableStateFlow<Long>(0L)
+    val lastCloudBackupTimeMs: StateFlow<Long> = _lastCloudBackupTimeMs.asStateFlow()
+
+    internal val _lastCloudBackupStatus = MutableStateFlow<String>("")
+    val lastCloudBackupStatus: StateFlow<String> = _lastCloudBackupStatus.asStateFlow()
+
+    internal var lastHourlyBorsaRecalculationKey: String = ""
+    internal val _lastHourlyBorsaRecalculationTimeMs = MutableStateFlow<Long>(0L)
+    val lastHourlyBorsaRecalculationTimeMs: StateFlow<Long> = _lastHourlyBorsaRecalculationTimeMs.asStateFlow()
+
+    internal val _nextHourlyBorsaSyncRemainingMs = MutableStateFlow<Long>(0L)
+    val nextHourlyBorsaSyncRemainingMs: StateFlow<Long> = _nextHourlyBorsaSyncRemainingMs.asStateFlow()
 
     internal val localMegaProjectUpdates = mutableMapOf<String, Long>()
     internal var lastMegaProjectSyncMs = 0L
@@ -3389,7 +3560,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 return@launch
             }
 
-            val pastPlayers = com.example.data.MultiplayerManager.pastMonthLeaderboard.value
+            val botIds = setOf("BOT-KAYA-01", "BOT-NOVA-02", "BOT-TOROS-03", "BOT-EGE-04", "BOT-AVRASYA-05", "BOT-ANADOLU-05")
+            val botNames = setOf("Selim Kaya", "Dr. Aylin Soylu", "Burak Demirci", "Zehra Aydın", "Hakan Erkin", "Defne Aras", "Kaan Yıldırım")
+            val pastPlayers = com.example.data.MultiplayerManager.pastMonthLeaderboard.value.filter {
+                it.id.isNotBlank() &&
+                !it.id.startsWith("BOT-", ignoreCase = true) &&
+                !it.id.startsWith("BOT_", ignoreCase = true) &&
+                !it.id.contains("bot", ignoreCase = true) &&
+                it.id !in botIds &&
+                it.name !in botNames
+            }
             val authName = p.name
             val rankIndex = pastPlayers.indexOfFirst {
                 it.name.equals(authName, ignoreCase = true) ||
@@ -3432,6 +3612,10 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             repository.updatePlayer(p.copy(money = p.money + amount))
             saveEconomicDataToDataStore()
         }
+    }
+
+    fun addMoney(amount: Long) {
+        addMoneyDirectly(amount)
     }
 
     /**
@@ -3679,8 +3863,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val p = player.value
         val baseDuration = product.baseDurationMs
 
-        // Adet arttıkça üretim süresi orantılı artar
-        val quantityFactor = 1.0f + (requestedQuantity - 1).coerceAtLeast(0) * 0.40f
+        // Adet arttıkça üretim süresi orantılı ve dengeli artar
+        val quantityFactor = 1.0f + (requestedQuantity - 1).coerceAtLeast(0) * 0.60f
         var computedDurationMs = (baseDuration * quantityFactor).toDouble()
 
         val producingBusiness = businesses.value.find { it.type == product.facilityId }
@@ -3690,15 +3874,17 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val level = producingBusiness?.level ?: 1
 
         computedDurationMs /= speedMult
-        computedDurationMs *= (1.0f - (level - 1) * 0.07f).coerceAtLeast(0.40f)
+        computedDurationMs *= (1.0f - (level - 1) * 0.05f).coerceAtLeast(0.60f)
 
         // Lojistik Yazılımı Ar-Ge İndirimi
-        val logisticsDiscount = (1.0f - (_techLogistics.value * 0.05f)).coerceAtLeast(0.70f)
+        val logisticsDiscount = (1.0f - (_techLogistics.value * 0.04f)).coerceAtLeast(0.75f)
         computedDurationMs *= logisticsDiscount
 
         if (producingBusiness != null) {
             // Yıpranma arttıkça üretim süresi uzar
             computedDurationMs *= (1.0f + producingBusiness.wearLevel * 1.2f)
+            // Tesis aşınma seviyesi 80-100 arası ise üretim süresi belirgin şekilde uzasın (+%60 ek süre)
+            computedDurationMs *= com.example.data.QualityCraftingService.getWearDurationMultiplier(producingBusiness.wearLevel)
         }
 
         val crisis = _consortiumCrisisState.value
@@ -3707,7 +3893,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         }
 
         if (cityProfile != null && product.id in cityProfile.optimalProductIds) {
-            computedDurationMs *= 0.75f
+            computedDurationMs *= 0.85f
         }
 
         val currentState = gameState.value
@@ -3722,26 +3908,33 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
         val prodManager = _managers.value.find { it.id == "mgr_prod" }
         if (prodManager != null && prodManager.isHired && prodManager.isActive) {
-            val speedBoost = (prodManager.level * 0.25f) // %25 to %125 boost
+            val speedBoost = (prodManager.level * 0.05f).coerceAtMost(0.40f) // Max %40 boost
             computedDurationMs /= (1.0f + speedBoost)
         }
 
         if (checkFertilizer && product.id in agriProducts) {
             val hasFertilizer = inventory.value.any { it.itemId == "fertilizer" && it.quantity > 0 }
             if (hasFertilizer) {
-                computedDurationMs *= 0.65f
+                computedDurationMs *= 0.70f
             }
         }
 
-        // 🚨 Milli Üretim Seferberliği / Devlet Teşvik Bonusu: Krizdeki ürünlerde %50 Üretim Hızı Bonusu (Süre yarıya iner)
+        // 🚨 Milli Üretim Seferberliği / Devlet Teşvik Bonusu
         val isProductInBorsaCrisis = marketPrices.value.find { it.itemId == productId }?.let {
             it.isCrisis || it.borsaStock <= MacroEconomyEngine.CRISIS_STOCK_THRESHOLD
         } ?: false
         if (isProductInBorsaCrisis) {
-            computedDurationMs *= 0.50f
+            computedDurationMs *= 0.75f
         }
 
-        return computedDurationMs.toLong().coerceAtLeast(2000L)
+        val minTierDuration = when (product.tier) {
+            ProductTier.TIER_1 -> 15_000L
+            ProductTier.TIER_2 -> 25_000L
+            ProductTier.TIER_3 -> 45_000L
+            ProductTier.TIER_4 -> 90_000L
+        }
+
+        return computedDurationMs.toLong().coerceAtLeast(minTierDuration)
     }
 
     fun produce(productId: String, requestedQuantity: Int = 1, isSilent: Boolean = false, autoProcure: Boolean = false) {
@@ -3764,17 +3957,54 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 }
                 return
             }
-            if (producingBusiness.getRemainingStorageCapacity() < requestedQuantity) {
+            val remainingCap = producingBusiness.getRemainingStorageCapacity()
+            if (remainingCap <= 0) {
                 if (!isSilent) {
                     val cityName = com.example.data.cities.find { it.id == producingBusiness.cityId }?.name ?: producingBusiness.cityId
-                    SmartNotificationManager.show("Hata: Tesis Deposu Dolu! ($cityName tesisi deposunda yeterli alan yok)", "Error: Facility Warehouse Full! (Not enough space in $cityName facility warehouse)", NotificationType.ALERT)
+                    SmartNotificationManager.show(
+                        "⚠️ Depo Dolu: $cityName tesis deposu tamamen dolu! Depo dolunca üretim devam edemez, deponun boşalması beklenir.",
+                        "⚠️ Storage Full: $cityName facility warehouse is completely full! Production cannot continue until storage is cleared.",
+                        NotificationType.ALERT
+                    )
+                    com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+                }
+                return
+            }
+            if (remainingCap < requestedQuantity) {
+                if (!isSilent) {
+                    val cityName = com.example.data.cities.find { it.id == producingBusiness.cityId }?.name ?: producingBusiness.cityId
+                    SmartNotificationManager.show(
+                        "⚠️ Depo Kapasitesi Yetersiz: $cityName tesisinde sadece $remainingCap Ton yer var (Talep: $requestedQuantity Ton). Depo boşalmadan üretilemez.",
+                        "⚠️ Insufficient Storage: Only $remainingCap Tons capacity left in $cityName. Production cannot continue until storage is cleared.",
+                        NotificationType.ALERT
+                    )
+                    com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
                 }
                 return
             }
         } else {
             val totalInventoryAmount = inventory.value.sumOf { it.quantity }
-            if (totalInventoryAmount + requestedQuantity > p.inventoryCapacity) {
-                if (!isSilent) SmartNotificationManager.show("Hata: Merkez Depo Kapasitesi Dolu!", "Error: Central Warehouse Capacity Full!", NotificationType.ALERT)
+            val remainingCentral = (p.inventoryCapacity - totalInventoryAmount).coerceAtLeast(0)
+            if (remainingCentral <= 0) {
+                if (!isSilent) {
+                    SmartNotificationManager.show(
+                        "⚠️ Merkez Depo Dolu! Depo dolunca üretim devam edemez, deponun boşalması beklenir.",
+                        "⚠️ Central Warehouse Full! Production cannot continue until warehouse is cleared.",
+                        NotificationType.ALERT
+                    )
+                    com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+                }
+                return
+            }
+            if (remainingCentral < requestedQuantity) {
+                if (!isSilent) {
+                    SmartNotificationManager.show(
+                        "⚠️ Merkez Depo Kapasitesi Yetersiz: Sadece $remainingCentral Ton yer var (Talep: $requestedQuantity Ton). Depo boşalmadan üretilemez.",
+                        "⚠️ Insufficient Central Storage: Only $remainingCentral Tons space left. Production cannot continue until storage is cleared.",
+                        NotificationType.ALERT
+                    )
+                    com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+                }
                 return
             }
         }
@@ -3795,10 +4025,12 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         var totalProcurementCost = 0L
         val missingIngredients = mutableListOf<Triple<String, Int, Long>>()
         var procurementSource = "Borsa"
+        val consumedIngredientQualities = mutableListOf<com.example.data.ItemQuality>()
 
         for (req in product.recipe) {
             val requiredTotal = req.amountPerUnit * requestedQuantity
-            val currentStock = currentInventory.find { it.itemId == req.productId }?.quantity ?: 0
+            val matchingItems = currentInventory.filter { it.baseProductId == req.productId && it.quantity > 0 }
+            val currentStock = matchingItems.sumOf { it.quantity }
             if (currentStock < requiredTotal) {
                 val missingQty = requiredTotal - currentStock
                 
@@ -3870,9 +4102,13 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             if (missingIngredients.isNotEmpty()) {
                 playerMoneyAfterProcurement = (playerMoneyAfterProcurement - totalProcurementCost).coerceAtLeast(0L)
                 for ((itemId, qty, _) in missingIngredients) {
-                    repository.produceItem(itemId, qty)
+                    val standardKey = com.example.data.ItemQuality.makeKey(itemId, com.example.data.ItemQuality.STAR_1)
+                    repository.produceItem(standardKey, qty)
                     if (procurementSource == "Borsa") {
                         onBorsaItemBought(itemId, qty, "Global")
+                    }
+                    repeat(minOf(qty, 20)) {
+                        consumedIngredientQualities.add(com.example.data.ItemQuality.STAR_1)
                     }
                 }
                 val mgrName = if (isContractsActive) "Tedarik Müdürü ($procurementSource)" else "Sistem ($procurementSource)"
@@ -3892,9 +4128,26 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             )
             repository.updatePlayer(updatedPlayer)
 
-            // Consume recipe ingredients
+            // Consume recipe ingredients and track their qualities
             for (req in product.recipe) {
-                repository.consumeItem(req.productId, req.amountPerUnit * requestedQuantity)
+                var remainingToConsume = req.amountPerUnit * requestedQuantity
+                val matchingInv = inventory.value.filter { it.baseProductId == req.productId && it.quantity > 0 }
+                    .sortedBy { it.quality.stars }
+                for (invItem in matchingInv) {
+                    if (remainingToConsume <= 0) break
+                    val take = minOf(invItem.quantity, remainingToConsume)
+                    repository.consumeItem(invItem.itemId, take)
+                    repeat(minOf(take, 20)) {
+                        consumedIngredientQualities.add(invItem.quality)
+                    }
+                    remainingToConsume -= take
+                }
+                if (remainingToConsume > 0) {
+                    repository.consumeItem(req.productId, remainingToConsume)
+                    repeat(minOf(remainingToConsume, 20)) {
+                        consumedIngredientQualities.add(com.example.data.ItemQuality.STAR_1)
+                    }
+                }
             }
             
             val currentState = gameState.value
@@ -3933,9 +4186,11 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 totalDurationMs = durationMs,
                 endTimeMs = secureNow + durationMs,
                 isAgriProduct = isAgriProduct,
-                originCountry = originCountry
+                originCountry = originCountry,
+                usedIngredientQualityStars = if (consumedIngredientQualities.isNotEmpty()) consumedIngredientQualities.map { it.stars.toDouble() }.average() else 1.0
             )
             _activeProductions.update { it + prodEntity }
+            updateDailyQuestProgress(QuestType.FACILITY_PRODUCE, requestedQuantity.toLong())
 
             _productionDurations.update { it + (productId to durationMs) }
             _productionProgress.update { it + (productId to 0f) }
@@ -4119,13 +4374,17 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         viewModelScope.launch {
             val updatedBiz = biz.withRemovedItem(itemId, actualMoved)
             repository.updateBusiness(updatedBiz)
-            
+
             val originCityId = biz.cityId
             val destCityId = if (p.currentCity.isNotBlank()) p.currentCity else "istanbul"
             val durationMs = calculateLogisticsDuration(originCityId, destCityId)
-            
+
+            val bizQuality = com.example.data.QualityCraftingService.getQualityByFacilityLevel(biz.level)
+            val effectiveKey = if (itemId.contains("_star")) itemId else com.example.data.ItemQuality.makeKey(itemId, bizQuality)
+            val effectiveQuality = com.example.data.ItemQuality.extractQuality(effectiveKey)
+
             val delivery = com.example.data.DeliveryItem(
-                itemId = itemId,
+                itemId = effectiveKey,
                 quantity = actualMoved,
                 originCityId = originCityId,
                 destinationCityId = destCityId,
@@ -4137,11 +4396,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             )
             addActiveDelivery(delivery)
             saveEconomicDataToDataStore()
-            
-            val prodName = Product.values().find { it.id == itemId || it.facilityId == itemId }?.getDisplayName() ?: itemId.uppercase()
+
+            val baseProdId = com.example.data.ItemQuality.extractBaseProductId(itemId)
+            val prodName = Product.values().find { it.id == baseProdId || it.facilityId == baseProdId }?.getDisplayName() ?: baseProdId.uppercase()
             val originName = com.example.data.cities.find { it.id == originCityId }?.name ?: originCityId.uppercase()
             val destName = com.example.data.cities.find { it.id == destCityId }?.name ?: destCityId.uppercase()
-            SmartNotificationManager.show("🚚 $actualMoved Ton $prodName ($originName ➔ $destName) haritada sevkiyata çıkarıldı!", "🚚 $actualMoved Tons of $prodName ($originName ➔ $destName) dispatched on map!", NotificationType.SUCCESS)
+            SmartNotificationManager.show(
+                "🚚 $actualMoved Ton [${effectiveQuality.starsText} ${effectiveQuality.label}] $prodName ($originName ➔ $destName) haritada sevkiyata çıkarıldı!",
+                "🚚 $actualMoved Tons of [${effectiveQuality.starsText} ${effectiveQuality.label}] $prodName ($originName ➔ $destName) dispatched on map!",
+                NotificationType.SUCCESS
+            )
         }
     }
 
@@ -4150,24 +4414,25 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             val p = player.value ?: return@launch
             var currentCentralInv = inventory.value.sumOf { it.quantity }
             var remainingCap = (p.inventoryCapacity - currentCentralInv).coerceAtLeast(0)
-            
+
             if (remainingCap <= 0) {
                 if (!isSilent) SmartNotificationManager.show("Hata: Merkez Depo Kapasitesi Dolu!", "Error: Central Warehouse Capacity Full!", NotificationType.ALERT)
                 return@launch
             }
-            
+
             val targetBusinesses = if (businessId != null) {
                 businesses.value.filter { it.id == businessId }
             } else {
                 businesses.value
             }
-            
+
             var totalMoved = 0
             val destCityId = if (p.currentCity.isNotBlank()) p.currentCity else "istanbul"
-            
+
             for (biz in targetBusinesses) {
                 val items = biz.getStoredItemsMap()
                 var currentBiz = biz
+                val bizQuality = com.example.data.QualityCraftingService.getQualityByFacilityLevel(biz.level)
                 for ((itemId, qty) in items) {
                     if (remainingCap <= 0) break
                     val moveQty = minOf(qty, remainingCap)
@@ -4175,10 +4440,11 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                         currentBiz = currentBiz.withRemovedItem(itemId, moveQty)
                         remainingCap -= moveQty
                         totalMoved += moveQty
-                        
+
+                        val effectiveKey = if (itemId.contains("_star")) itemId else com.example.data.ItemQuality.makeKey(itemId, bizQuality)
                         val durationMs = calculateLogisticsDuration(biz.cityId, destCityId)
                         val delivery = com.example.data.DeliveryItem(
-                            itemId = itemId,
+                            itemId = effectiveKey,
                             quantity = moveQty,
                             originCityId = biz.cityId,
                             destinationCityId = destCityId,
@@ -4255,7 +4521,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 // Instantly sanitize market prices based on new facility location and sync to Supabase
                 val updatedBizList = businesses.value + newBiz
                 val reSanitizedPrices = sanitizeMarketPrices(marketPrices.value, updatedBizList)
-                repository.updateMarketPrices(reSanitizedPrices, syncToRemote = true)
+                repository.updateMarketPrices(reSanitizedPrices, syncToRemote = false)
 
                 val facNameTr = product?.getFacilityName(false) ?: type.uppercase()
                 val facNameEn = product?.getFacilityName(true) ?: type.uppercase()
@@ -4574,10 +4840,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         }
     }
 
-    fun completeActiveProduction(item: com.example.data.ActiveProduction, isOffline: Boolean = false, isSilent: Boolean = false, explicitBizList: List<com.example.data.BusinessEntity>? = null, currentPlayerState: PlayerEntity? = null) {
+    fun completeActiveProduction(item: com.example.data.ActiveProduction, isOffline: Boolean = false, isSilent: Boolean = false, explicitBizList: List<com.example.data.BusinessEntity>? = null, currentPlayerState: PlayerEntity? = null, forceComplete: Boolean = false) {
+        val secureNow = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
+        if (!forceComplete && !isOffline && item.isInProgress) {
+            // Ürün süresi dolana kadar 'InProgress'/'pendingProduction' durumunda kalır, depoya eklenemez ve satışa sunulamaz.
+            return
+        }
         viewModelScope.launch {
             if (_activeProductions.value.none { it.id == item.id }) return@launch
             _activeProductions.update { list -> list.filter { it.id != item.id } }
+            updateDailyQuestProgress(QuestType.FACILITY_PRODUCE, item.quantity.toLong())
             _productionDurations.update { it - item.productId }
             _productionProgress.update { it - item.productId }
 
@@ -4611,6 +4883,21 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             }
 
             val prodDisplayName = product?.getDisplayName() ?: productId
+            val facLvl = producingBusiness?.level ?: 1
+            val usedQualities = if (product != null && product.recipe.isNotEmpty()) {
+                listOf(com.example.data.ItemQuality.fromStars(kotlin.math.round(item.usedIngredientQualityStars).toInt()))
+            } else emptyList()
+            val facWear = producingBusiness?.wearLevel ?: 0.0f
+            val itemQuality = if (product != null) {
+                com.example.data.QualityCraftingService.calculateProducedItemQuality(
+                    product = product,
+                    facilityLevel = facLvl,
+                    usedIngredientQualities = usedQualities,
+                    wearLevel = facWear
+                )
+            } else com.example.data.ItemQuality.STAR_1
+            val qualityTag = " [${itemQuality.starsText} ${itemQuality.label}]"
+            val qualityInventoryKey = com.example.data.ItemQuality.makeKey(productId, itemQuality)
 
             if (producingBusiness != null) {
                 val latestBiz = currentBizList.find { it.id == producingBusiness.id } ?: producingBusiness
@@ -4623,7 +4910,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
                 var updatedBiz = latestBiz.copy(wearLevel = newWear)
                 if (finalHarvestQty > 0) {
-                    updatedBiz = updatedBiz.withAddedItem(productId, finalHarvestQty)
+                    updatedBiz = updatedBiz.withAddedItem(qualityInventoryKey, finalHarvestQty)
                 }
                 repository.updateBusiness(updatedBiz)
 
@@ -4631,19 +4918,19 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     val cityName = com.example.data.cities.find { it.id == latestBiz.cityId }?.name ?: latestBiz.cityId
                     if (isOffline) {
                         SmartNotificationManager.show(
-                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName $cityName tesisi deposuna yerleştirildi! (+$finalHarvestQty XP) 🏭",
-                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName placed in $cityName facility warehouse! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag $cityName tesisi deposuna yerleştirildi! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in $cityName facility warehouse! (+$finalHarvestQty XP) 🏭",
                             NotificationType.SUCCESS
                         )
                     } else if (!isSilent) {
                         SmartNotificationManager.show(
-                            "Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName $cityName tesisi deposuna yerleştirildi! 🏭",
-                            "Production Completed: $finalHarvestQty Tons of $prodDisplayName placed in $cityName facility warehouse! 🏭",
+                            "Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag $cityName tesisi deposuna yerleştirildi! 🏭",
+                            "Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in $cityName facility warehouse! 🏭",
                             NotificationType.SUCCESS
                         )
                     }
                     onProductProduced(productId, finalHarvestQty, originCountry)
-                    processXpGain(finalHarvestQty * 5, currentPlayerState)
+                    processXpGain((finalHarvestQty * 5 * itemQuality.priceMultiplier).toInt(), currentPlayerState)
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
                 }
 
@@ -4656,22 +4943,22 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 }
             } else {
                 if (finalHarvestQty > 0) {
-                    repository.produceItem(productId, finalHarvestQty)
+                    repository.produceItem(qualityInventoryKey, finalHarvestQty)
                     if (isOffline) {
                         SmartNotificationManager.show(
-                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName merkez depoya yerleştirildi! (+$finalHarvestQty XP) 🏭",
-                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName placed in central warehouse! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag merkez depoya yerleştirildi! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in central warehouse! (+$finalHarvestQty XP) 🏭",
                             NotificationType.SUCCESS
                         )
                     } else if (!isSilent) {
                         SmartNotificationManager.show(
-                            "Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName merkez depoya yerleştirildi! 🏭",
-                            "Production Completed: $finalHarvestQty Tons of $prodDisplayName placed in central warehouse! 🏭",
+                            "Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag merkez depoya yerleştirildi! 🏭",
+                            "Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in central warehouse! 🏭",
                             NotificationType.SUCCESS
                         )
                     }
                     onProductProduced(productId, finalHarvestQty, originCountry)
-                    processXpGain(finalHarvestQty * 5, currentPlayerState)
+                    processXpGain((finalHarvestQty * 5 * itemQuality.priceMultiplier).toInt(), currentPlayerState)
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
                 }
             }
@@ -4832,6 +5119,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
                 // Determine Real-World Shift (Day Shift: 08:00 - 20:00 / Night Shift: 20:00 - 08:00)
                 val cal = java.util.Calendar.getInstance()
+                if (cal.get(java.util.Calendar.SECOND) == 0) {
+                    triggerMinuteAutoCloudBackup()
+                }
+
+                // Saatlik Borsa Fiyat Yeniden Hesaplama Kontrolü (Her saat başında :00)
+                val millisInCurrentHour = (cal.get(java.util.Calendar.MINUTE) * 60 + cal.get(java.util.Calendar.SECOND)) * 1000L
+                val remainingToNextHour = (3600_000L - millisInCurrentHour).coerceIn(0L, 3600_000L)
+                _nextHourlyBorsaSyncRemainingMs.value = remainingToNextHour
+                checkAndTriggerHourlyBorsaPriceRecalculation(cal)
+
                 val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
                 if (hour in 8..19) {
                     _realTimeShiftName.value = "☀️ Gündüz Vardiyası"
@@ -5037,35 +5334,17 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                             val unmetSlots = proj.slots.filter { isUserSlotLocal(it) && !it.isFullyDelivered }
 
                             for (slot in unmetSlots) {
-                                val stock = inventory.value.find { it.itemId == slot.productId }?.quantity ?: 0
+                                val eligibleItems = inventory.value.filter { item ->
+                                    val baseId = com.example.data.ItemQuality.extractBaseProductId(item.itemId)
+                                    baseId == slot.productId && proj.qualityTier.isQualityAllowed(item.quality) && item.quantity > 0
+                                }
+                                val totalEligible = eligibleItems.sumOf { it.quantity }
 
-                                if (stock > 0) {
-                                    val deliverQty = minOf(stock, slot.remainingQuantity)
+                                if (totalEligible > 0) {
+                                    val deliverQty = minOf(totalEligible, slot.remainingQuantity)
                                     deliverMaterialsToConsortium(proj.id, slot.slotId, deliverQty, isSilent = true)
                                     consortiumDeliveriesCount += deliverQty
                                     break
-                                } else {
-                                    val unitPrice = marketPrices.value.find { it.itemId == slot.productId }?.price 
-                                        ?: com.example.data.Product.values().find { it.id == slot.productId }?.basePrice ?: 50_000L
-
-                                    // If money is low, treasury finances it from deposit
-                                    if (currentMoney < unitPrice && currentDeposit > unitPrice) {
-                                        val neededFunding = minOf(currentDeposit, 500_000L)
-                                        currentDeposit -= neededFunding
-                                        currentMoney += neededFunding
-                                    }
-
-                                    val maxAffordableQty = (currentMoney / unitPrice).toInt()
-                                    val buyQty = minOf(10 * levelMultiplier, slot.remainingQuantity, maxAffordableQty)
-
-                                    if (buyQty > 0) {
-                                        val cost = unitPrice * buyQty
-                                        currentMoney -= cost
-                                        repository.produceItem(slot.productId, buyQty)
-                                        deliverMaterialsToConsortium(proj.id, slot.slotId, buyQty, isSilent = true)
-                                        consortiumDeliveriesCount += buyQty
-                                        break
-                                    }
                                 }
                             }
 
@@ -5240,22 +5519,31 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     val baseDurationSec = (prod.tier.baseDurationMs / 1000L).coerceAtLeast(10L)
                     val prodCycles = (offlineSeconds / baseDurationSec).toInt()
                     val qtyPerCycle = (b.level * 2).coerceAtLeast(1)
-                    val producedQty = prodCycles * qtyPerCycle
+                    val remainingCap = b.getRemainingStorageCapacity()
+                    if (remainingCap <= 0) return@forEach
+                    val producedQty = minOf(prodCycles * qtyPerCycle, remainingCap)
 
                     if (producedQty > 0) {
+                        val itemQuality = com.example.data.QualityCraftingService.calculateProducedItemQuality(
+                            product = prod,
+                            facilityLevel = b.level,
+                            wearLevel = b.wearLevel
+                        )
+                        val qualityKey = com.example.data.ItemQuality.makeKey(prod.id, itemQuality)
                         totalItemsProduced += producedQty
                         producedItemsMap[prod.id] = (producedItemsMap[prod.id] ?: 0) + producedQty
-                        var currentBizState = b.withAddedItem(prod.id, producedQty)
+                        val newWear = (b.wearLevel + (0.0002f * producedQty)).coerceAtMost(1.0f)
+                        var currentBizState = b.copy(wearLevel = newWear).withAddedItem(qualityKey, producedQty)
 
                         if (isAutoSell) {
                             // 100 Ton Kuralı: Bir ürün çeşidinden en az 100 ton biriktiğinde toplu satış yap
                             val sellableBlocks = (producedQty / 100) * 100
                             if (sellableBlocks >= 100) {
                                 val marketPrice = marketPrices.value.find { it.itemId == prod.id }?.price ?: prod.basePrice
-                                val qualityMult = 1.0f + (_techQualityControl.value * 0.05f)
+                                val qualityMult = itemQuality.priceMultiplier * (1.0f + (_techQualityControl.value * 0.05f))
                                 val earned = (sellableBlocks * marketPrice * qualityMult).toLong()
                                 totalRevenue += earned
-                                currentBizState = currentBizState.withRemovedItem(prod.id, sellableBlocks)
+                                currentBizState = currentBizState.withRemovedItem(qualityKey, sellableBlocks)
                             }
                         }
                         repository.updateBusiness(currentBizState)
@@ -5329,6 +5617,37 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
             val completedDeliveriesCount = if (currentDeliveries.isNotEmpty()) currentDeliveries.count { (now - it.startTimeMs) >= it.totalDurationMs } else 0
 
+            val reportProducedItems = producedItemsMap.mapNotNull { (prodId, qty) ->
+                val prod = com.example.data.Product.values().find { it.id == prodId } ?: return@mapNotNull null
+                val qualityRoll = com.example.data.QualityCraftingService.rollQuality(
+                    facilityLevel = myBusinesses.find { it.type == prod.facilityId }?.level ?: 1,
+                    playerLevel = p.level
+                )
+                com.example.data.OfflineProducedItem(
+                    productId = prod.id,
+                    productName = prod.getDisplayName(),
+                    quality = qualityRoll,
+                    quantity = qty,
+                    unitPrice = marketPrices.value.find { it.itemId == prod.id }?.price ?: prod.basePrice,
+                    icon = prod.icon,
+                    colorTint = prod.colorTint
+                )
+            }
+
+            val morningReportObj = com.example.data.OfflineReport(
+                logoutTime = now - offlineMs,
+                loginTime = now,
+                elapsedDurationMs = offlineMs,
+                simulatedDurationMs = minOf(offlineMs, com.example.data.OfflineProgressManager.MAX_OFFLINE_DURATION_MS),
+                isCapReached = offlineMs > com.example.data.OfflineProgressManager.MAX_OFFLINE_DURATION_MS,
+                producedItems = reportProducedItems,
+                consumedResources = emptyList(),
+                grossRevenue = totalRevenue,
+                maintenanceCosts = totalUpkeepCost,
+                totalExpGained = xpGain
+            )
+            _morningReport.value = morningReportObj
+
             _offlineEarningsData.value = OfflineEarningsData(
                 offlineDurationMs = offlineMs,
                 netMoneyEarned = netBalanceChange,
@@ -5366,6 +5685,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     }
 
     init {
+        com.example.data.SaveSyncCoordinator.bindViewModel(this)
+        com.example.data.SaveSyncCoordinator.bindRepository(repository)
         startUiStateSync(viewModelScope)
         checkAndClaimMonthlyLeaderboardReward()
 
@@ -5408,6 +5729,9 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
                 // Check and settle museum auctions that ended while player was offline
                 checkOfflineMuseumAuctions()
+                viewModelScope.launch {
+                    com.example.data.MuseumHeritageManager.seedMissingArtifactsToSupabase()
+                }
 
                 val savedEmail = snapshot.onlineEmail.trim()
                 if (savedEmail.isNotBlank() && savedEmail != "misafir_tuccar" && !savedEmail.startsWith("guest")) {
@@ -5439,6 +5763,17 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 val restoredP = curP.copy(money = 100_000L)
                 repository.updatePlayer(restoredP)
                 saveEconomicDataToDataStore(customPlayer = restoredP, immediate = true)
+            }
+
+            // Self-healing: Ensure player level is always accurately synchronized with total XP from XpLevelEngine
+            val latestPlayer = player.value
+            if (latestPlayer != null) {
+                val correctLevel = com.example.data.XpLevelEngine.calculateLevel(latestPlayer.xp.toLong())
+                if (correctLevel > latestPlayer.level) {
+                    val leveledP = latestPlayer.copy(level = correctLevel)
+                    repository.updatePlayer(leveledP)
+                    saveEconomicDataToDataStore(customPlayer = leveledP, immediate = true)
+                }
             }
 
             checkDailyLoginBonus()

@@ -30,7 +30,8 @@ class MegaProjectUseCase(
         currentSlotDelivered: Int,
         requiredTotal: Int,
         requestedDeliveryQty: Int,
-        productTier: ProductTier = ProductTier.TIER_1
+        productTier: ProductTier = ProductTier.TIER_1,
+        supplierFacilityLevel: Int = 1
     ): MegaProjectContributionResult {
         if (availableInInventory <= 0) {
             return MegaProjectContributionResult(
@@ -67,23 +68,26 @@ class MegaProjectUseCase(
             )
         }
 
-        // XP reward scaled by tier and quantity
+        // XP reward scaled by tier, craftsmanship quality, and quantity
         val baseTierMultiplier = when (productTier) {
             ProductTier.TIER_1 -> 1.0f
             ProductTier.TIER_2 -> 2.5f
             ProductTier.TIER_3 -> 5.0f
             ProductTier.TIER_4 -> 10.0f
         }
-        val xpEarned = (toDeliver * 3 * baseTierMultiplier).roundToInt().coerceAtLeast(10)
+        val quality = QualityCraftingService.evaluateConsortiumSlotCraftsmanship(supplierFacilityLevel, productTier)
+        val qualityBonusFactor = 1.0f + ((quality.tier - 1) * 0.20f) // 1★: 1.0x, 5★: 1.8x XP
+        val xpEarned = (toDeliver * 3 * baseTierMultiplier * qualityBonusFactor).roundToInt().coerceAtLeast(10)
         val remainingAfter = needed - toDeliver
+        val qualityTag = if (quality.tier >= 3) " [${quality.starsText} ${quality.labelTr}]" else ""
 
         return MegaProjectContributionResult(
             isSuccess = true,
             quantityContributed = toDeliver,
             remainingNeeded = remainingAfter,
             xpReward = xpEarned,
-            messageTr = "🏗️ $toDeliver ton malzeme başarıyla projeye teslim edildi! (+${xpEarned} XP)",
-            messageEn = "🏗️ $toDeliver tons successfully contributed to mega project! (+${xpEarned} XP)"
+            messageTr = "🏗️ $toDeliver ton malzeme başarıyla projeye teslim edildi!$qualityTag (+${xpEarned} XP)",
+            messageEn = "🏗️ $toDeliver tons successfully contributed to mega project!$qualityTag (+${xpEarned} XP)"
         )
     }
 

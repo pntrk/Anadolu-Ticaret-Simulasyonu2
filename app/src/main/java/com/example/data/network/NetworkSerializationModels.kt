@@ -110,8 +110,11 @@ data class BusinessDto(
     @SerialName("level") val level: Int = 1,
     @SerialName("cityId") val cityId: String = "istanbul",
     @SerialName("wearLevel") val wearLevel: Double = 0.0,
+    @SerialName("wear_level") val wearLevelSnake: Double? = null,
     @SerialName("storageCapacity") val storageCapacity: Int = 2500,
+    @SerialName("storage_capacity") val storageCapacitySnake: Int? = null,
     @SerialName("storedItemsJson") val storedItemsJson: String = "{}",
+    @SerialName("stored_items_json") val storedItemsJsonSnake: String? = null,
     @SerialName("isUpgrading") val isUpgrading: Boolean = false,
     @SerialName("is_upgrading") val isUpgradingSnake: Boolean = false,
     @SerialName("upgradeEndTime") val upgradeEndTime: Long? = null,
@@ -121,6 +124,15 @@ data class BusinessDto(
     @SerialName("constructionEndTime") val constructionEndTime: Long? = null,
     @SerialName("construction_end_time") val constructionEndTimeSnake: Long? = null
 ) {
+    val effectiveWearLevel: Double
+        get() = wearLevelSnake ?: wearLevel
+
+    val effectiveStorageCapacity: Int
+        get() = storageCapacitySnake ?: storageCapacity
+
+    val effectiveStoredItemsJson: String
+        get() = storedItemsJsonSnake ?: storedItemsJson
+
     val effectiveUpgradeEndTime: Long?
         get() = upgradeEndTime ?: upgradeEndTimeSnake
 
@@ -128,16 +140,18 @@ data class BusinessDto(
         get() = constructionEndTime ?: constructionEndTimeSnake
 
     val effectiveIsConstructing: Boolean
-        get() = isConstructing || isConstructingSnake || (effectiveConstructionEndTime != null && (effectiveConstructionEndTime ?: 0L) > System.currentTimeMillis())
+        get() = isConstructing || isConstructingSnake || (effectiveConstructionEndTime != null && (effectiveConstructionEndTime ?: 0L) > com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs())
 
     val effectiveIsUpgrading: Boolean
-        get() = isUpgrading || isUpgradingSnake || (effectiveUpgradeEndTime != null && (effectiveUpgradeEndTime ?: 0L) > System.currentTimeMillis())
+        get() = isUpgrading || isUpgradingSnake || (effectiveUpgradeEndTime != null && (effectiveUpgradeEndTime ?: 0L) > com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs())
 }
 
 @Serializable
 data class InventoryDto(
     @SerialName("itemId") val itemId: String = "",
-    @SerialName("quantity") val quantity: Int = 0
+    @SerialName("quantity") val quantity: Int = 0,
+    @SerialName("quality_level") val qualityLevel: Int = 1,
+    @SerialName("quality_tier") val qualityTier: String = "star1"
 )
 
 @Serializable
@@ -150,7 +164,8 @@ data class DeliveryDto(
     @SerialName("pricePerUnit") val pricePerUnit: Long = 0L,
     @SerialName("totalCost") val totalCost: Long = 0L,
     @SerialName("startTimeMs") val startTimeMs: Long = 0L,
-    @SerialName("totalDurationMs") val totalDurationMs: Long = 60000L
+    @SerialName("totalDurationMs") val totalDurationMs: Long = 60000L,
+    @SerialName("quality_level") val qualityLevel: Int = 1
 )
 
 @Serializable
@@ -158,7 +173,10 @@ data class MarketPriceDto(
     @SerialName("item_id") val itemId: String = "",
     @SerialName("item_name") val itemName: String = "",
     @SerialName("base_price") val basePrice: Long = 0L,
-    @SerialName("current_price") val currentPrice: Long = 0L
+    @SerialName("current_price") val currentPrice: Long = 0L,
+    @SerialName("quality_level") val qualityLevel: Int = 1,
+    @SerialName("price_multiplier") val priceMultiplier: Double = 1.0,
+    @SerialName("calculated_price") val calculatedPrice: Long = 0L
 )
 
 @Serializable
@@ -170,6 +188,8 @@ data class MarketListingDto(
     @SerialName("quantity") val quantity: Int = 0,
     @SerialName("price_per_unit") val pricePerUnit: Long = 0L,
     @SerialName("city") val city: String = "",
+    @SerialName("quality_level") val qualityLevel: Int = 1,
+    @SerialName("quality_tier") val qualityTier: String = "Standart",
     @SerialName("created_at") val createdAt: String? = null
 )
 
@@ -184,6 +204,9 @@ data class GuildDto(
     @SerialName("mega_project_current") val megaProjectCurrent: Long = 0L,
     @SerialName("mega_project_requirements") val megaProjectRequirements: Map<String, Int> = emptyMap(),
     @SerialName("mega_project_contributions") val megaProjectContributions: Map<String, Int> = emptyMap(),
+    @SerialName("slot_quality_levels") val slotQualityLevels: Map<String, Int> = emptyMap(),
+    @SerialName("average_craftsmanship_score") val averageCraftsmanshipScore: Double = 1.0,
+    @SerialName("master_craftsmanship_tier") val masterCraftsmanshipTier: Int = 1,
     @SerialName("perk_description") val perkDescription: String = "",
     @SerialName("bank_balance") val bankBalance: Long = 0L,
     @SerialName("is_ipo_active") val isIpoActive: Boolean = false,
@@ -386,6 +409,14 @@ data class PhoenixChannelJoinDto(
     @SerialName("event") val event: String,
     @SerialName("payload") val payload: PhoenixChannelJoinPayloadDto,
     @SerialName("ref") val ref: String
+)
+
+@Serializable
+data class PhoenixChannelLeaveDto(
+    @SerialName("topic") val topic: String,
+    @SerialName("event") val event: String = "phx_leave",
+    @SerialName("payload") val payload: Map<String, String> = emptyMap(),
+    @SerialName("ref") val ref: String? = null
 )
 
 @Serializable

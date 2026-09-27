@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -124,6 +126,7 @@ fun MarketScreen(
     val futuresContracts = uiState.marketState.futuresContracts
     var selectedListingForBuy by remember { mutableStateOf<MarketListing?>(null) }
     var selectedListingForEdit by remember { mutableStateOf<MarketListing?>(null) }
+    var selectedListingForDetail by remember { mutableStateOf<MarketListing?>(null) }
 
     // Tab state: 0 = Tüm Pazar İlanları, 1 = Benim İlanlarım, 2 = Fırsat & Lojistik
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -131,15 +134,18 @@ fun MarketScreen(
     // Search and filter state
     var searchQuery by remember { mutableStateOf("") }
     var selectedTierFilter by remember { mutableStateOf<ProductTier?>(null) }
+    var selectedQualityFilter by remember { mutableStateOf<Int?>(null) }
+    var selectedProductVarietyFilter by remember { mutableStateOf<String?>(null) }
     var sortBy by remember { mutableStateOf("PRICE_ASC") } // PRICE_ASC, PRICE_DESC, QTY_DESC, LOGISTICS_ASC
 
     val myName = player?.name ?: ""
+    val myUid = if (viewModel._onlineEmail.value.isNotBlank()) viewModel._onlineEmail.value.replace(".", "_") else if (player?.id?.isNotBlank() == true && player.id != "local_player") player.id else "trader_${myName.hashCode()}"
     val myCurrentCity = player?.currentCity ?: "istanbul"
-    val myActiveListings = allListings.filter { it.sellerName == myName }
-    val peerListings = allListings.filter { it.sellerName != myName }
+    val myActiveListings = allListings.filter { it.sellerName.equals(myName, ignoreCase = true) || it.sellerId == myUid }
+    val peerListings = allListings
 
     // Total market stats
-    val totalVolume = peerListings.sumOf { it.pricePerUnit * it.quantity }
+    val totalVolume = allListings.sumOf { it.pricePerUnit * it.quantity }
     val totalListingsCount = allListings.size
 
     LaunchedEffect(Unit) {
@@ -347,11 +353,11 @@ fun MarketScreen(
                     }
                 }
             }
-            // 3. SEARCH & FILTERS SECTION (Shown when browsing listings)
+            // 3. SEARCH & FILTERS SECTION (Dropdown Yapısına Dönüştürülmüş Filtre Grubu)
             if (selectedTab == 0) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // Search Field
+                        // Arama Çubuğu
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -369,7 +375,7 @@ fun MarketScreen(
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(8.dp),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = ThemeNeonCyan,
@@ -381,157 +387,362 @@ fun MarketScreen(
                             )
                         )
 
-                        // Tier Filters & Sort Chips Row (Tier filtreleri Uzman Modda gösterilir)
-                        if (isExpertMode) {
+                        // Açılır Menü (Dropdown) Şeklinde Filtre Butonları (2x2 Düzeni: Kalite, Tier, Ürün Çeşidi, Sıralama)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // SATIR 1: KALİTE & TİER FİLTRELERİ
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    item {
-                                        FilterChip(
-                                            selected = selectedTierFilter == null,
-                                            onClick = { selectedTierFilter = null },
-                                            label = { CurrencyText("Tüm Tier'lar".trAuto()) },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = ThemeNeonCyan,
-                                                selectedLabelColor = Color(0xFF002026),
-                                                containerColor = Color(0xFF101726),
-                                                labelColor = Color.LightGray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp)
-                                        )
+                                // 1. KALİTE FİLTRESİ DROPDOWN
+                                var showQualityMenu by remember { mutableStateOf(false) }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    val activeQualityText = when (selectedQualityFilter) {
+                                        1 -> "⭐ 1★ Standart"
+                                        2 -> "⭐⭐ 2★ İyi"
+                                        3 -> "⭐⭐⭐ 3★ Premium"
+                                        4 -> "⭐⭐⭐⭐ 4★ Lüks"
+                                        5 -> "⭐⭐⭐⭐⭐ 5★ Ultra"
+                                        else -> "⭐ Kalite: Tümü"
                                     }
-                                    item {
-                                        FilterChip(
-                                            selected = selectedTierFilter == ProductTier.TIER_1,
-                                            onClick = {
-                                                selectedTierFilter = if (selectedTierFilter == ProductTier.TIER_1) null else ProductTier.TIER_1
-                                            },
-                                            label = { CurrencyText("🌾 Tier 1") },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = ThemeGold,
-                                                selectedLabelColor = Color(0xFF1A1300),
-                                                containerColor = Color(0xFF101726),
-                                                labelColor = Color.LightGray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp)
-                                        )
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (selectedQualityFilter != null) ThemeNeonCyan.copy(alpha = 0.18f) else Color(0xFF101726),
+                                        border = BorderStroke(1.dp, if (selectedQualityFilter != null) ThemeNeonCyan else ThemeBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showQualityMenu = !showQualityMenu }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            CurrencyText(
+                                                text = activeQualityText,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (selectedQualityFilter != null) ThemeNeonCyan else Color.White,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowDropDown,
+                                                contentDescription = null,
+                                                tint = if (selectedQualityFilter != null) ThemeNeonCyan else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
-                                    item {
-                                        FilterChip(
-                                            selected = selectedTierFilter == ProductTier.TIER_2,
+
+                                    DropdownMenu(
+                                        expanded = showQualityMenu,
+                                        onDismissRequest = { showQualityMenu = false },
+                                        modifier = Modifier
+                                            .background(Color(0xFF162032))
+                                            .widthIn(min = 160.dp)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("Tüm Kaliteler".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
+                                            leadingIcon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = ThemeNeonCyan) },
                                             onClick = {
-                                                selectedTierFilter = if (selectedTierFilter == ProductTier.TIER_2) null else ProductTier.TIER_2
-                                            },
-                                            label = { CurrencyText("🏭 Tier 2") },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = ThemeNeonCyan,
-                                                selectedLabelColor = Color(0xFF002026),
-                                                containerColor = Color(0xFF101726),
-                                                labelColor = Color.LightGray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp)
+                                                selectedQualityFilter = null
+                                                showQualityMenu = false
+                                            }
                                         )
-                                    }
-                                    item {
-                                        FilterChip(
-                                            selected = selectedTierFilter == ProductTier.TIER_3,
-                                            onClick = {
-                                                selectedTierFilter = if (selectedTierFilter == ProductTier.TIER_3) null else ProductTier.TIER_3
-                                            },
-                                            label = { CurrencyText("📱 Tier 3") },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = Color(0xFFE040FB),
-                                                selectedLabelColor = Color.White,
-                                                containerColor = Color(0xFF101726),
-                                                labelColor = Color.LightGray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp)
-                                        )
-                                    }
-                                    item {
-                                        FilterChip(
-                                            selected = selectedTierFilter == ProductTier.TIER_4,
-                                            onClick = {
-                                                selectedTierFilter = if (selectedTierFilter == ProductTier.TIER_4) null else ProductTier.TIER_4
-                                            },
-                                            label = { CurrencyText("🚀 Tier 4") },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = Color(0xFF00E676),
-                                                selectedLabelColor = Color.Black,
-                                                containerColor = Color(0xFF101726),
-                                                labelColor = Color.LightGray
-                                            ),
-                                            shape = RoundedCornerShape(4.dp)
-                                        )
+                                        HorizontalDivider(color = Color(0xFF26334D))
+                                        listOf(1, 2, 3, 4, 5).forEach { stars ->
+                                            val qObj = com.example.data.ItemQuality.fromStars(stars)
+                                            DropdownMenuItem(
+                                                text = { CurrencyText(qObj.label, color = qObj.badgeColor, fontWeight = FontWeight.Bold) },
+                                                onClick = {
+                                                    selectedQualityFilter = stars
+                                                    showQualityMenu = false
+                                                }
+                                            )
+                                        }
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                // Sort selector
-                                Surface(
-                                    shape = RoundedCornerShape(2.dp),
-                                    color = Color(0xFF101726),
-                                    border = BorderStroke(1.dp, ThemeBorder),
-                                    modifier = Modifier.clickable {
-                                        sortBy = when (sortBy) {
-                                            "PRICE_ASC" -> "PRICE_DESC"
-                                            "PRICE_DESC" -> "QTY_DESC"
-                                            "QTY_DESC" -> "LOGISTICS_ASC"
-                                            else -> "PRICE_ASC"
+                                // 2. KATEGORİ / TİER FİLTRESİ DROPDOWN
+                                var showTierMenu by remember { mutableStateOf(false) }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    val activeTierText = when (selectedTierFilter) {
+                                        ProductTier.TIER_1 -> "🌾 Tier 1"
+                                        ProductTier.TIER_2 -> "🏭 Tier 2"
+                                        ProductTier.TIER_3 -> "📱 Tier 3"
+                                        ProductTier.TIER_4 -> "🚀 Tier 4"
+                                        else -> "📦 Tier: Tümü"
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (selectedTierFilter != null) ThemeGold.copy(alpha = 0.18f) else Color(0xFF101726),
+                                        border = BorderStroke(1.dp, if (selectedTierFilter != null) ThemeGold else ThemeBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showTierMenu = !showTierMenu }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            CurrencyText(
+                                                text = activeTierText,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (selectedTierFilter != null) ThemeGold else Color.White,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowDropDown,
+                                                contentDescription = null,
+                                                tint = if (selectedTierFilter != null) ThemeGold else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
                                         }
                                     }
+
+                                    DropdownMenu(
+                                        expanded = showTierMenu,
+                                        onDismissRequest = { showTierMenu = false },
+                                        modifier = Modifier
+                                            .background(Color(0xFF162032))
+                                            .widthIn(min = 180.dp)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("Tüm Kategori & Tier'lar".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
+                                            leadingIcon = { Icon(Icons.Rounded.Category, contentDescription = null, tint = ThemeGold) },
+                                            onClick = {
+                                                selectedTierFilter = null
+                                                showTierMenu = false
+                                            }
+                                        )
+                                        HorizontalDivider(color = Color(0xFF26334D))
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("🌾 Tier 1 - Ham Madde & Tarım", color = ThemeGold) },
+                                            onClick = { selectedTierFilter = ProductTier.TIER_1; showTierMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("🏭 Tier 2 - İşlenmiş Sanayi", color = ThemeNeonCyan) },
+                                            onClick = { selectedTierFilter = ProductTier.TIER_2; showTierMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("📱 Tier 3 - İleri Teknoloji", color = Color(0xFFE040FB)) },
+                                            onClick = { selectedTierFilter = ProductTier.TIER_3; showTierMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("🚀 Tier 4 - Mega Projeler", color = Color(0xFF00E676)) },
+                                            onClick = { selectedTierFilter = ProductTier.TIER_4; showTierMenu = false }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // SATIR 2: ÜRÜN ÇEŞİDİ & SIRALAMA FİLTRELERİ
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // 3. ÜRÜN ÇEŞİDİ FİLTRESİ DROPDOWN
+                                var showProductMenu by remember { mutableStateOf(false) }
+                                val activeProductObj = Product.values().find { it.id == selectedProductVarietyFilter }
+                                val activeProductText = activeProductObj?.let { it.getDisplayName() } ?: "Ürün Çeşidi: Tümü"
+
+                                Box(modifier = Modifier.weight(1f)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (selectedProductVarietyFilter != null) Color(0xFFE040FB).copy(alpha = 0.18f) else Color(0xFF101726),
+                                        border = BorderStroke(1.dp, if (selectedProductVarietyFilter != null) Color(0xFFE040FB) else ThemeBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showProductMenu = !showProductMenu }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.weight(1f, fill = false)
+                                            ) {
+                                                if (activeProductObj != null) {
+                                                    UniversalProductIcon(product = activeProductObj, size = 18.dp)
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                }
+                                                CurrencyText(
+                                                    text = activeProductText,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (selectedProductVarietyFilter != null) Color(0xFFE040FB) else Color.White,
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowDropDown,
+                                                contentDescription = null,
+                                                tint = if (selectedProductVarietyFilter != null) Color(0xFFE040FB) else Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showProductMenu,
+                                        onDismissRequest = { showProductMenu = false },
+                                        modifier = Modifier
+                                            .background(Color(0xFF162032))
+                                            .widthIn(min = 220.dp)
+                                            .heightIn(max = 320.dp)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("Tüm Ürün Çeşitleri".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
+                                            leadingIcon = { Icon(Icons.Rounded.Inventory2, contentDescription = null, tint = Color(0xFFE040FB)) },
+                                            onClick = {
+                                                selectedProductVarietyFilter = null
+                                                showProductMenu = false
+                                            }
+                                        )
+                                        HorizontalDivider(color = Color(0xFF26334D))
+
+                                        // Filtrelenmiş veya tüm ürün listesi (Gerçek Ürün Görselleri ile)
+                                        val availableProducts = Product.values().filter { p ->
+                                            selectedTierFilter == null || p.tier == selectedTierFilter
+                                        }
+                                        availableProducts.forEach { prod ->
+                                            DropdownMenuItem(
+                                                text = { CurrencyText(prod.getDisplayName(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) },
+                                                leadingIcon = { UniversalProductIcon(product = prod, size = 22.dp) },
+                                                onClick = {
+                                                    selectedProductVarietyFilter = prod.id
+                                                    showProductMenu = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // 4. SIRALAMA DROPDOWN
+                                var showSortMenu by remember { mutableStateOf(false) }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    val activeSortText = when (sortBy) {
+                                        "PRICE_ASC" -> "📈 Fiyat ↑"
+                                        "PRICE_DESC" -> "📉 Fiyat ↓"
+                                        "QTY_DESC" -> "📦 Miktar ↓"
+                                        else -> "🚛 Lojistik ↑"
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFF101726),
+                                        border = BorderStroke(1.dp, ThemeBorder),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showSortMenu = !showSortMenu }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            CurrencyText(
+                                                text = activeSortText,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Rounded.ArrowDropDown,
+                                                contentDescription = null,
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showSortMenu,
+                                        onDismissRequest = { showSortMenu = false },
+                                        modifier = Modifier
+                                            .background(Color(0xFF162032))
+                                            .widthIn(min = 180.dp)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("📈 Fiyat (Düşükten Yükseğe)", color = Color.White) },
+                                            onClick = { sortBy = "PRICE_ASC"; showSortMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("📉 Fiyat (Yüksekten Düşüğe)", color = Color.White) },
+                                            onClick = { sortBy = "PRICE_DESC"; showSortMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("📦 Miktar (En Yüksek)", color = Color.White) },
+                                            onClick = { sortBy = "QTY_DESC"; showSortMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { CurrencyText("🚛 Lojistik (En Yakın Şehir)", color = Color.White) },
+                                            onClick = { sortBy = "LOGISTICS_ASC"; showSortMenu = false }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Aktif Filtre Sıfırlama Butonu (eğer herhangi bir filtre aktifse)
+                            if (selectedQualityFilter != null || selectedTierFilter != null || selectedProductVarietyFilter != null || searchQuery.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF261010),
+                                    border = BorderStroke(1.dp, ThemeNegative.copy(alpha = 0.5f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            selectedQualityFilter = null
+                                            selectedTierFilter = null
+                                            selectedProductVarietyFilter = null
+                                            searchQuery = ""
+                                        }
                                 ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.SwapVert,
-                                        contentDescription = null,
-                                        tint = ThemeNeonCyan,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    CurrencyText(
-                                        text = when (sortBy) {
-                                            "PRICE_ASC" -> tr("Fiyat ↑", "Price ↑")
-                                            "PRICE_DESC" -> tr("Fiyat ↓", "Price ↓")
-                                            "QTY_DESC" -> tr("Miktar ↓", "Qty ↓")
-                                            else -> tr("Lojistik ↑", "Logistics ↑")
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        fontFamily = RobotoMonoFontFamily
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Rounded.FilterAltOff, contentDescription = null, tint = ThemeNegative, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        CurrencyText("Tüm Filtreleri Temizle", color = ThemeNegative, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
             // 4. TAB CONTENTS
             when (selectedTab) {
                 0 -> {
                     val filteredPeerListings = peerListings.filter { offer ->
-                        val product = Product.values().find { it.id == offer.itemId }
+                        val baseId = com.example.data.ItemQuality.extractBaseProductId(offer.itemId)
+                        val product = Product.values().find { it.id == baseId }
                         val originCityName = cities.find { it.id == offer.originCityId }?.name ?: ""
                         val matchesSearch = searchQuery.isEmpty() ||
                                 (product?.getDisplayName()?.contains(searchQuery, ignoreCase = true) == true) ||
                                 offer.sellerName.contains(searchQuery, ignoreCase = true) ||
                                 originCityName.contains(searchQuery, ignoreCase = true)
                         val matchesTier = selectedTierFilter == null || product?.tier == selectedTierFilter
-                        matchesSearch && matchesTier
+                        val matchesQuality = selectedQualityFilter == null || offer.quality.stars == selectedQualityFilter
+                        val matchesVariety = selectedProductVarietyFilter == null || baseId == selectedProductVarietyFilter
+                        matchesSearch && matchesTier && matchesQuality && matchesVariety
                     }.sortedWith { a, b ->
                         val logCostA = viewModel.calculateLogisticsCost(a.originCityId, myCurrentCity, a.quantity)
                         val logCostB = viewModel.calculateLogisticsCost(b.originCityId, myCurrentCity, b.quantity)
@@ -560,12 +771,16 @@ fun MarketScreen(
                     } else {
                         itemsIndexed(filteredPeerListings, key = { _, it -> it.id }) { index, offer ->
                             com.example.ui.components.AnimatedListItem(index = index) {
-                                val product = Product.values().find { it.id == offer.itemId }
+                                val baseId = com.example.data.ItemQuality.extractBaseProductId(offer.itemId)
+                                val product = Product.values().find { it.id == baseId }
                                 val originCity = cities.find { it.id == offer.originCityId }
                                 val originCityName = originCity?.name ?: offer.originCityId.replaceFirstChar { it.uppercase() }
                                 val logisticsCost = viewModel.calculateLogisticsCost(offer.originCityId, myCurrentCity, offer.quantity)
 
-                                val spotPrice = marketPrices.find { it.itemId == offer.itemId }?.price ?: product?.basePrice ?: 0L
+                                val rawSpot = marketPrices.find { it.itemId == baseId }?.price ?: product?.basePrice ?: 0L
+                                val spotPrice = (rawSpot * offer.quality.priceMultiplier).toLong()
+                                val isMyListing = offer.sellerName.equals(myName, ignoreCase = true) || (offer.sellerId.isNotBlank() && offer.sellerId == myUid)
+
                                 PeerListingCard(
                                     offer = offer,
                                     product = product,
@@ -573,9 +788,18 @@ fun MarketScreen(
                                     logisticsCost = logisticsCost,
                                     marketSpotPrice = spotPrice,
                                     isExpertMode = isExpertMode,
+                                    isMyListing = isMyListing,
+                                    onCardClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        selectedListingForDetail = offer
+                                    },
                                     onBuyClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        selectedListingForBuy = offer
+                                        if (isMyListing) {
+                                            selectedListingForEdit = offer
+                                        } else {
+                                            selectedListingForDetail = offer
+                                        }
                                     }
                                 )
                             }
@@ -619,12 +843,17 @@ fun MarketScreen(
                         }
                     } else {
                         items(myActiveListings, key = { it.id }) { myListing ->
-                            val product = Product.values().find { it.id == myListing.itemId }
+                            val baseId = com.example.data.ItemQuality.extractBaseProductId(myListing.itemId)
+                            val product = Product.values().find { it.id == baseId }
                             val cancelMsg = "İlan başarıyla iptal edildi ve ürünler depoya iade edildi.".trAuto()
 
                             MyActiveListingCard(
                                 listing = myListing,
                                 product = product,
+                                onCardClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedListingForDetail = myListing
+                                },
                                 onCancelClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     viewModel.handleIntent(com.example.viewmodel.GameIntent.CancelMarketListing(myListing.id))
@@ -979,21 +1208,53 @@ fun MarketScreen(
         )
     }
 
-    if (selectedListingForBuy != null) {
-        val listing = selectedListingForBuy!!
-        val product = Product.values().find { it.id == listing.itemId }
+    val activeListingForDetail = selectedListingForDetail ?: selectedListingForBuy
+    if (activeListingForDetail != null) {
+        val listing = activeListingForDetail
+        val baseId = com.example.data.ItemQuality.extractBaseProductId(listing.itemId)
+        val product = Product.values().find { it.id == baseId }
+        val isMyListing = listing.sellerName.equals(myName, ignoreCase = true) || (listing.sellerId.isNotBlank() && listing.sellerId == myUid)
 
-        BuyListingDialog(
+        MarketListingDetailsDialog(
             listing = listing,
             product = product,
             playerMoney = player?.money ?: 0L,
             currentCity = myCurrentCity,
             viewModel = viewModel,
-            onDismiss = { selectedListingForBuy = null },
+            isMyListing = isMyListing,
+            onDismiss = {
+                selectedListingForDetail = null
+                selectedListingForBuy = null
+            },
             onConfirmBuy = { buyQty ->
                 viewModel.handleIntent(com.example.viewmodel.GameIntent.BuyFromGlobalMarket(listing.id, buyQty))
+                selectedListingForDetail = null
                 selectedListingForBuy = null
+            },
+            onEditPrice = {
+                selectedListingForDetail = null
+                selectedListingForBuy = null
+                selectedListingForEdit = listing
+            },
+            onCancelListing = {
+                selectedListingForDetail = null
+                selectedListingForBuy = null
+                viewModel.handleIntent(com.example.viewmodel.GameIntent.CancelMarketListing(listing.id))
+                com.example.ui.components.SmartNotificationManager.show("İlan başarıyla iptal edildi ve ürünler depoya iade edildi.", com.example.ui.components.NotificationType.INFO)
             }
+        )
+    }
+
+    if (selectedListingForEdit != null) {
+        val listing = selectedListingForEdit!!
+        val baseId = com.example.data.ItemQuality.extractBaseProductId(listing.itemId)
+        val product = Product.values().find { it.id == baseId }
+        EditListingDialog(
+            uiState = uiState,
+            listing = listing,
+            product = product,
+            viewModel = viewModel,
+            onDismiss = { selectedListingForEdit = null }
         )
     }
 }
@@ -1127,16 +1388,22 @@ fun PeerListingCard(
     logisticsCost: Long,
     marketSpotPrice: Long = 0L,
     isExpertMode: Boolean = false,
-    onBuyClick: () -> Unit
+    isMyListing: Boolean = false,
+    onCardClick: () -> Unit = {},
+    onBuyClick: () -> Unit = {}
 ) {
-    val itemName = product?.displayName ?: offer.itemId
+    val baseId = com.example.data.ItemQuality.extractBaseProductId(offer.itemId)
+    val itemName = product?.displayName ?: baseId
     val brandColor = if (product != null) Color(product.colorTint) else ThemeNeonCyan
+    val offerQuality = offer.quality
+    val qualityBorderColor = offerQuality.badgeColor
+
     val totalProductPrice = offer.pricePerUnit * offer.quantity
     val totalDeliveredCost = totalProductPrice + logisticsCost
 
     val avgCostPerUnit = if (offer.quantity > 0) totalDeliveredCost / offer.quantity else offer.pricePerUnit
-    val isOpportunity = avgCostPerUnit < (marketSpotPrice * 0.85) // %15+ cheaper than spot
-    val discountPercent = if (marketSpotPrice > 0) ((marketSpotPrice - avgCostPerUnit).toFloat() / marketSpotPrice.toFloat() * 100).toInt() else 0
+    val isOpportunity = !isMyListing && marketSpotPrice > 0 && avgCostPerUnit < (marketSpotPrice * 0.88)
+    val discountPercent = if (marketSpotPrice > 0) ((marketSpotPrice - avgCostPerUnit).toFloat() / marketSpotPrice.toFloat() * 100).toInt().coerceAtLeast(0) else 0
 
     val tierText = when (product?.tier) {
         ProductTier.TIER_1 -> tr("T1 Ham", "T1 Raw")
@@ -1147,41 +1414,45 @@ fun PeerListingCard(
     }
 
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(4.dp),
-        color = ThemeSurface,
-        borderWidth = if (isOpportunity) 2.dp else 1.dp,
-        borderColor = if (isOpportunity) ThemePositive else ThemeBorder,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onCardClick),
+        shape = RoundedCornerShape(6.dp),
+        color = Color(0xFF111726),
+        borderWidth = if (isOpportunity) 2.dp else if (isMyListing) 1.5.dp else 1.dp,
+        borderColor = if (isOpportunity) ThemePositive else if (isMyListing) ThemeGold else qualityBorderColor.copy(alpha = 0.5f),
         pulsing = isOpportunity
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            // Header Row: Seller & Location Info + Tier Badge
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // 1. HEADER ROW: Seller, Origin City, Quality Badge & Owner Tag
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
                     Surface(
                         shape = CircleShape,
-                        color = ThemeNeonCyan.copy(alpha = 0.15f),
+                        color = if (isMyListing) ThemeGold.copy(alpha = 0.2f) else ThemeNeonCyan.copy(alpha = 0.15f),
                         modifier = Modifier.size(24.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Rounded.Business,
+                                imageVector = if (isMyListing) Icons.Rounded.Person else Icons.Rounded.Business,
                                 contentDescription = null,
-                                tint = ThemeNeonCyan,
+                                tint = if (isMyListing) ThemeGold else ThemeNeonCyan,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
                     }
                     Spacer(modifier = Modifier.width(6.dp))
                     CurrencyText(
-                        text = offer.sellerName,
+                        text = if (isMyListing) tr("Siz (Kendi İlanınız)", "You (Your Listing)") else offer.sellerName,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = if (isMyListing) ThemeGold else Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CurrencyText(
@@ -1202,46 +1473,81 @@ fun PeerListingCard(
                             text = originCityName,
                             style = MaterialTheme.typography.labelSmall,
                             color = ThemeGold,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            maxLines = 1
                         )
                     }
                 }
 
-                // Tier Pill (Uzman Görünümde)
-                if (isExpertMode) {
+                // Quality Badge (Prominently displayed)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isMyListing) {
+                        Surface(
+                            shape = RoundedCornerShape(3.dp),
+                            color = ThemeGold.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, ThemeGold)
+                        ) {
+                            CurrencyText(
+                                text = "SİZİN İLANINIZ".trAuto(),
+                                fontSize = 9.sp,
+                                fontFamily = RobotoMonoFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                color = ThemeGold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     Surface(
-                        shape = RoundedCornerShape(2.dp),
-                        color = brandColor.copy(alpha = 0.15f),
-                        border = BorderStroke(0.5.dp, brandColor.copy(alpha = 0.5f))
+                        shape = RoundedCornerShape(4.dp),
+                        color = offerQuality.badgeColor.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, offerQuality.badgeColor.copy(alpha = 0.8f))
                     ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CurrencyText(
+                                text = offerQuality.label,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = offerQuality.badgeColor
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            CurrencyText(
+                                text = "x${offerQuality.priceMultiplier}",
+                                fontSize = 10.sp,
+                                fontFamily = RobotoMonoFontFamily,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (isOpportunity && discountPercent >= 10) {
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = ThemePositive.copy(alpha = 0.12f),
+                    border = BorderStroke(0.8.dp, ThemePositive.copy(alpha = 0.5f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.LocalFireDepartment, contentDescription = null, tint = ThemePositive, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         CurrencyText(
-                            text = tierText,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 9.sp,
-                            fontFamily = RobotoMonoFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            color = brandColor,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            text = tr("PİYASA FIRSATI: Spot ortalamasından %${discountPercent} daha uygun!", "MARKET OPPORTUNITY: ${discountPercent}% cheaper than spot!"),
+                            color = ThemePositive,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
-            if (isOpportunity && discountPercent >= 15) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.LocalFireDepartment, contentDescription = null, tint = ThemePositive, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    CurrencyText(
-                        text = tr("GERÇEK FIRSAT: Piyasa ortalamasından %${discountPercent} daha ucuz!", "HOT DEAL: ${discountPercent}% cheaper than market average!"),
-                        color = ThemePositive,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(10.dp))
 
-            // Body Row: Product Icon & Info
+            // 2. MAIN BODY ROW: Product Icon, Quantity & Unit Price, Delivered Total
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1249,115 +1555,88 @@ fun PeerListingCard(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = RoundedCornerShape(6.dp),
                         color = brandColor.copy(alpha = 0.15f),
                         border = BorderStroke(1.dp, brandColor.copy(alpha = 0.5f)),
                         modifier = Modifier.size(44.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            if(product!=null) UniversalProductIcon(product, 24.dp, brandColor) else Icon(Icons.Rounded.ShoppingCart, null, tint=brandColor, modifier=Modifier.size(24.dp))
+                            if (product != null) UniversalProductIcon(product, 24.dp, brandColor) else Icon(Icons.Rounded.ShoppingCart, null, tint = brandColor, modifier = Modifier.size(24.dp))
                         }
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        CurrencyText(
-                            text = itemName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CurrencyText(
+                                text = itemName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isExpertMode) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                CurrencyText(
+                                    text = "[$tierText]",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = brandColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CurrencyText(
                                 text = "${offer.quantity} Ton",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = RobotoMonoFontFamily,
-                                color = ThemeNeonCyan,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = ThemeNeonCyan
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             CurrencyText(
                                 text = "(${formatMoney(offer.pricePerUnit)} / Ton)",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color.Gray,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = Color.Gray
                             )
                         }
                     }
                 }
 
-                // Mini Sparkline Graph (Uzman Görünümde)
-                if (isExpertMode) {
-                    MiniSparklineGraph(
-                        price = offer.pricePerUnit,
-                        basePrice = product?.basePrice ?: offer.pricePerUnit,
-                        productId = offer.itemId
-                    )
-                }
-
-                // Price Breakdown Summary Block
+                // Price Summary Column (Right-aligned, balanced)
                 Column(horizontalAlignment = Alignment.End) {
-                    val stateTax = (totalProductPrice * 0.05f).toLong()
                     CurrencyText(
                         text = formatMoney(totalDeliveredCost),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Black,
                         fontFamily = RobotoMonoFontFamily,
-                        color = ThemeGold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = ThemeGold
                     )
-                    if (isExpertMode) {
-                        CurrencyText(
-                            text = tr("Nakliye: +${formatMoney(logisticsCost)}", "Shipping: +${formatMoney(logisticsCost)}"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = if (logisticsCost == 0L) ThemePositive else ThemeNegative,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        CurrencyText(
-                            text = tr("Satıcıdan Kesilen Vergi (%5): -${formatMoney(stateTax)}", "Seller Tax (5%): -${formatMoney(stateTax)}"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 9.sp,
-                            color = Color.LightGray.copy(alpha = 0.7f),
-                            fontFamily = RobotoMonoFontFamily,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        CurrencyText(
-                            text = if (logisticsCost == 0L) "Aynı Şehir Teslimat".trAuto() else "Teslimat Dahil Toplam".trAuto(),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 10.sp,
-                            color = Color.LightGray,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    CurrencyText(
+                        text = if (logisticsCost == 0L) tr("Aynı Şehir Teslimat", "Same City Delivery") else tr("Teslimat: +${formatMoney(logisticsCost)}", "Delivery: +${formatMoney(logisticsCost)}"),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        color = if (logisticsCost == 0L) ThemePositive else Color.LightGray.copy(alpha = 0.8f)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Action Row: Details & Buy Button
+            // 3. ACTION ROW: Shipping Route Info + Inspect / Buy Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = Color(0xFF1A2130),
+                    shape = RoundedCornerShape(3.dp),
+                    color = Color(0xFF161E2E),
+                    border = BorderStroke(0.5.dp, ThemeBorder),
                     modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
                 ) {
                     Row(
@@ -1368,14 +1647,14 @@ fun PeerListingCard(
                             imageVector = Icons.Rounded.LocalShipping,
                             contentDescription = null,
                             tint = Color.Gray,
-                            modifier = Modifier.size(12.dp)
+                            modifier = Modifier.size(13.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         CurrencyText(
-                            text = if (logisticsCost == 0L) "Aynı Şehir (Ücretsiz Teslim)".trAuto() else tr("$originCityName ➔ Merkez Depo", "$originCityName ➔ Main Warehouse"),
+                            text = if (logisticsCost == 0L) "Aynı Şehir (Ücretsiz Nakliye)".trAuto() else tr("$originCityName ➔ Deponuz", "$originCityName ➔ Warehouse"),
                             style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,
-                            color = Color.Gray,
+                            color = Color.LightGray,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1386,23 +1665,22 @@ fun PeerListingCard(
                     onClick = onBuyClick,
                     shape = RoundedCornerShape(4.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = ThemeNeonCyan,
-                        contentColor = Color(0xFF002026)
+                        containerColor = if (isMyListing) ThemeGold else ThemeNeonCyan,
+                        contentColor = if (isMyListing) Color(0xFF1A1300) else Color(0xFF002026)
                     ),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.ShoppingCart,
+                        imageVector = if (isMyListing) Icons.Rounded.Edit else Icons.Rounded.ShoppingCart,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     CurrencyText(
-                        text = "Satın Al".trAuto(),
+                        text = if (isMyListing) "Yönet / Fiyat".trAuto() else "İncele / Al".trAuto(),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = RobotoMonoFontFamily,
-                        maxLines = 1
+                        fontFamily = RobotoMonoFontFamily
                     )
                 }
             }
@@ -1417,6 +1695,7 @@ fun PeerListingCard(
 fun MyActiveListingCard(
     listing: MarketListing,
     product: Product?,
+    onCardClick: () -> Unit = {},
     onCancelClick: () -> Unit,
     onEditClick: () -> Unit = {}
 ) {
@@ -1425,7 +1704,9 @@ fun MyActiveListingCard(
     val totalRevenue = listing.pricePerUnit * listing.quantity
 
     GlassCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onCardClick),
         shape = RoundedCornerShape(4.dp),
         color = ThemeSurface,
         borderWidth = 1.dp,
@@ -1453,14 +1734,31 @@ fun MyActiveListingCard(
                     Spacer(modifier = Modifier.width(12.dp))
 
                     Column(modifier = Modifier.weight(1f, fill = false)) {
-                        CurrencyText(
-                            text = itemName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        val listingQuality = listing.quality
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CurrencyText(
+                                text = itemName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(3.dp),
+                                color = listingQuality.badgeColor.copy(alpha = 0.2f),
+                                border = BorderStroke(0.8.dp, listingQuality.badgeColor.copy(alpha = 0.8f))
+                            ) {
+                                CurrencyText(
+                                    text = listingQuality.label,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = listingQuality.badgeColor,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                         CurrencyText(
                             text = "${stringResource(R.string.market_quantity)} ${listing.quantity} Ton",
                             style = MaterialTheme.typography.bodySmall,
@@ -1680,12 +1978,15 @@ fun CreateListingDialog(
     var selectedItemId by remember { mutableStateOf(availableInventory.firstOrNull()?.itemId ?: "") }
 
     val currentInv = availableInventory.find { it.itemId == selectedItemId }
+    val currentBaseId = currentInv?.baseProductId ?: com.example.data.ItemQuality.extractBaseProductId(selectedItemId)
+    val currentQuality = currentInv?.quality ?: com.example.data.ItemQuality.extractQuality(selectedItemId)
     val maxStock = currentInv?.quantity ?: 0
 
     var customQuantityText by remember { mutableStateOf((maxStock.coerceAtMost(10)).toString()) }
     val spotPrice = remember(selectedItemId, marketPrices) {
-        val prod = Product.values().find { it.id == selectedItemId }
-        marketPrices.find { it.itemId == selectedItemId }?.price ?: prod?.basePrice ?: 100L
+        val prod = Product.values().find { it.id == currentBaseId }
+        val rawBase = marketPrices.find { it.itemId == currentBaseId }?.price ?: prod?.basePrice ?: 100L
+        (rawBase * currentQuality.priceMultiplier).toLong()
     }
     val minPrice = (spotPrice * 0.60f).toLong()
     val maxPrice = (spotPrice * 1.60f).toLong()
@@ -1737,7 +2038,7 @@ fun CreateListingDialog(
                     )
 
                     var expanded by remember { mutableStateOf(false) }
-                    val currentProduct = Product.values().find { it.id == selectedItemId }
+                    val currentProduct = Product.values().find { it.id == currentBaseId }
                     val brandColor = if (currentProduct != null) Color(currentProduct.colorTint) else ThemeNeonCyan
 
                     Box {
@@ -1757,7 +2058,7 @@ fun CreateListingDialog(
                                     if(currentProduct!=null) UniversalProductIcon(currentProduct, 20.dp, brandColor) else Icon(Icons.Rounded.ShoppingCart, null, tint=brandColor, modifier=Modifier.size(20.dp))
                                     Spacer(modifier = Modifier.width(10.dp))
                                     CurrencyText(
-                                        text = tr("${currentProduct?.displayName ?: selectedItemId} (Stok: $maxStock Ton)", "${currentProduct?.displayName ?: selectedItemId} (Stock: $maxStock Tons)"),
+                                        text = "${currentProduct?.displayName ?: currentBaseId} [${currentQuality.label}] (Stok: $maxStock Ton)",
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,
                                         style = MaterialTheme.typography.bodyMedium
@@ -1775,7 +2076,9 @@ fun CreateListingDialog(
                                 .heightIn(max = 280.dp)
                         ) {
                             availableInventory.forEach { invItem ->
-                                val prod = Product.values().find { it.id == invItem.itemId }
+                                val bId = invItem.baseProductId
+                                val prod = Product.values().find { it.id == bId }
+                                val q = invItem.quality
                                 val pColor = if (prod != null) Color(prod.colorTint) else ThemeNeonCyan
 
                                 DropdownMenuItem(
@@ -1784,7 +2087,7 @@ fun CreateListingDialog(
                                             if(prod!=null) UniversalProductIcon(prod, 18.dp, pColor) else Icon(Icons.Rounded.ShoppingCart, null, tint=pColor, modifier=Modifier.size(18.dp))
                                             Spacer(modifier = Modifier.width(10.dp))
                                             CurrencyText(
-                                                text = tr("${prod?.displayName ?: invItem.itemId} - ${invItem.quantity} Ton", "${prod?.displayName ?: invItem.itemId} - ${invItem.quantity} Tons"),
+                                                text = "${prod?.displayName ?: bId} [${q.label}] - ${invItem.quantity} Ton",
                                                 color = Color.White
                                             )
                                         }
@@ -1793,7 +2096,8 @@ fun CreateListingDialog(
                                         selectedItemId = invItem.itemId
                                         val newMax = invItem.quantity
                                         customQuantityText = (newMax.coerceAtMost(10)).toString()
-                                        val recP = marketPrices.find { it.itemId == invItem.itemId }?.price ?: prod?.basePrice ?: 100L
+                                        val rawBase = marketPrices.find { it.itemId == bId }?.price ?: prod?.basePrice ?: 100L
+                                        val recP = (rawBase * q.priceMultiplier).toLong()
                                         customPriceText = recP.toString()
                                         expanded = false
                                     }
@@ -2298,8 +2602,377 @@ fun CreateAuctionDialog(
 }
 
 // ==========================================
-// DIALOG: BUY LISTING DIALOG
+// DIALOG: MARKET LISTING DETAILS & BUY DIALOG
 // ==========================================
+@Composable
+fun MarketListingDetailsDialog(
+    listing: MarketListing,
+    product: Product?,
+    playerMoney: Long,
+    currentCity: String,
+    viewModel: GameViewModel,
+    isMyListing: Boolean = false,
+    onDismiss: () -> Unit,
+    onConfirmBuy: (buyQuantity: Int) -> Unit,
+    onEditPrice: () -> Unit = {},
+    onCancelListing: () -> Unit = {}
+) {
+    val baseId = com.example.data.ItemQuality.extractBaseProductId(listing.itemId)
+    val itemName = product?.displayName ?: baseId
+    val brandColor = if (product != null) Color(product.colorTint) else ThemeNeonCyan
+    val offerQuality = listing.quality
+    val qualityBorderColor = offerQuality.badgeColor
+
+    val originCity = cities.find { it.id == listing.originCityId }
+    val originCityName = originCity?.name ?: listing.originCityId.replaceFirstChar { it.uppercase() }
+    val destCity = cities.find { it.id == currentCity }
+    val destCityName = destCity?.name ?: currentCity.replaceFirstChar { it.uppercase() }
+
+    val rawSpot = viewModel.marketPrices.value.find { it.itemId == baseId }?.price ?: product?.basePrice ?: 0L
+    val spotPrice = (rawSpot * offerQuality.priceMultiplier).toLong()
+
+    var buyQuantityText by remember { mutableStateOf(listing.quantity.toString()) }
+    val buyQty = (buyQuantityText.toIntOrNull() ?: listing.quantity).coerceIn(1, listing.quantity)
+    val productCost = try { Math.multiplyExact(listing.pricePerUnit, buyQty.toLong()) } catch (e: Exception) { Long.MAX_VALUE }
+    val logisticsCost = viewModel.calculateLogisticsCost(listing.originCityId, currentCity, buyQty)
+    val totalCost = try { Math.addExact(productCost, logisticsCost) } catch (e: Exception) { Long.MAX_VALUE }
+
+    val canAfford = playerMoney >= totalCost
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF101726),
+        titleContentColor = Color.White,
+        textContentColor = Color.LightGray,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = brandColor.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, brandColor.copy(alpha = 0.6f)),
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (product != null) UniversalProductIcon(product, 20.dp, brandColor) else Icon(Icons.Rounded.ShoppingCart, null, tint = brandColor, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        CurrencyText(
+                            text = itemName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontFamily = RobotoMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        CurrencyText(
+                            text = if (isMyListing) tr("Sizin Satış İlanınız", "Your Market Listing") else tr("Satıcı: ${listing.sellerName}", "Seller: ${listing.sellerName}"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isMyListing) ThemeGold else Color.Gray
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = qualityBorderColor.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, qualityBorderColor)
+                ) {
+                    CurrencyText(
+                        text = offerQuality.label,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = qualityBorderColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. QUALITY SPECIFICATION & FACILITY CRAFTING IMPACT
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF161F33),
+                    border = BorderStroke(1.dp, qualityBorderColor.copy(alpha = 0.4f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Star, contentDescription = null, tint = qualityBorderColor, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                CurrencyText(
+                                    text = tr("Kalite Derecesi:", "Quality Rating:"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                            CurrencyText(
+                                text = "${offerQuality.stars} / 5 Yıldız (x${offerQuality.priceMultiplier} Fiyat Çarpanı)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = qualityBorderColor
+                            )
+                        }
+
+                        CurrencyText(
+                            text = tr(
+                                "🏭 Tesis Kalite Etkisi: Bu hammadde tesislerinizde işlendiğinde, çıkan nihai ürünün kalitesi tesisinizin seviyesi (1-5★) ile bu malzemenin kalitesinin ortalaması olarak hesaplanır. (Örnek: 9. Seviye Tesis [5★] + 1★ Hammadde = 3★ Ürün). Kaliteli ürünler borsada ve pazarda çok daha yüksek fiyata satılır.",
+                                "🏭 Facility Quality Impact: When used in facility crafting, the produced item's quality equals the average between your facility level (1-5★) and this material's quality (1-5★). (e.g. Level 9 Facility [5★] + 1★ Material = 3★ Product). High-quality products yield much higher revenue on the market and bourse."
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = Color.LightGray.copy(alpha = 0.9f),
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+
+                // 2. PRICE & LOGISTICS BREAKDOWN CARD
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF141C2B),
+                    border = BorderStroke(0.5.dp, ThemeBorder)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText("İlan Birim Fiyatı:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText("${formatMoney(listing.pricePerUnit)} / Ton", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        if (spotPrice > 0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                CurrencyText("Spot / Borsa Referans Fiyatı:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                CurrencyText("${formatMoney(spotPrice)} / Ton", style = MaterialTheme.typography.bodySmall, color = ThemeNeonCyan)
+                            }
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText("Mevcut İlan Stoğu:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText("${listing.quantity} Ton", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeGold)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText("Menşei Şehir:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText(originCityName, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText("Teslim Şehri (Deponuz):".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText(destCityName, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        }
+                    }
+                }
+
+                if (!isMyListing) {
+                    // 3. PURCHASE QUANTITY SELECTOR (SLIDER & PRESETS)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        CurrencyText(
+                            text = tr("Satın Alınacak Miktar:", "Quantity to Purchase:"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = ThemeNeonCyan
+                        )
+
+                        val currentQtyVal = (buyQuantityText.toIntOrNull() ?: 1).coerceIn(1, listing.quantity)
+                        if (listing.quantity > 1) {
+                            Slider(
+                                value = currentQtyVal.toFloat(),
+                                onValueChange = { buyQuantityText = it.toInt().toString() },
+                                valueRange = 1f..listing.quantity.toFloat(),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = ThemeNeonCyan,
+                                    activeTrackColor = ThemeNeonCyan,
+                                    inactiveTrackColor = Color(0xFF1E2838)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                "%25" to 0.25f,
+                                "%50" to 0.50f,
+                                "%75" to 0.75f,
+                                tr("Maks (%100)", "Max (100%)") to 1.0f
+                            ).forEach { (label, ratio) ->
+                                val qtyPreset = (listing.quantity * ratio).toInt().coerceAtLeast(1)
+                                val isSelected = currentQtyVal == qtyPreset
+
+                                Surface(
+                                    onClick = { buyQuantityText = qtyPreset.toString() },
+                                    shape = RoundedCornerShape(3.dp),
+                                    color = if (isSelected) ThemeNeonCyan.copy(alpha = 0.25f) else Color(0xFF1A2130),
+                                    border = BorderStroke(1.dp, if (isSelected) ThemeNeonCyan else ThemeBorder),
+                                    modifier = Modifier.weight(if (ratio == 1.0f) 1.3f else 1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CurrencyText(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) ThemeNeonCyan else Color.LightGray,
+                                            fontFamily = RobotoMonoFontFamily
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = buyQuantityText,
+                            onValueChange = { buyQuantityText = it },
+                            label = { CurrencyText(tr("Miktar (1 - ${listing.quantity} Ton)", "Quantity (1 - ${listing.quantity} Tons)")) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = ThemeNeonCyan,
+                                unfocusedBorderColor = ThemeBorder,
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // 4. TOTAL COST BREAKDOWN PANEL
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF141C2B),
+                        border = BorderStroke(1.dp, if (canAfford) ThemeGold.copy(alpha = 0.5f) else ThemeNegative)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                CurrencyText(tr("Ürün Tutarı ($buyQty Ton):", "Product Amount ($buyQty Tons):"), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                CurrencyText(formatMoney(productCost), style = MaterialTheme.typography.bodySmall, color = Color.White)
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                CurrencyText(tr("Lojistik & Taşıma Bedeli:", "Logistics & Freight:"), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                CurrencyText(
+                                    text = if (logisticsCost == 0L) tr("Ücretsiz (Aynı Şehir)", "Free (Same City)") else "+${formatMoney(logisticsCost)}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (logisticsCost == 0L) ThemePositive else ThemeNegative
+                                )
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = ThemeBorder)
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CurrencyText(text = "TOPLAM ÖDEME:".trAuto(), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                                CurrencyText(text = formatMoney(totalCost), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, fontFamily = RobotoMonoFontFamily, color = ThemeGold)
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                CurrencyText("Şirket Kasası:".trAuto(), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                CurrencyText(
+                                    text = formatMoney(playerMoney),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (canAfford) ThemePositive else ThemeNegative
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // OWNER MANAGEMENT BANNER
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(6.dp),
+                        color = ThemeGold.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Info, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                CurrencyText("Bu İlan Size Aittir".trAuto(), fontWeight = FontWeight.Bold, color = ThemeGold)
+                            }
+                            CurrencyText(
+                                text = "İlanınız şu anda tüm Türkiye ve dünya pazarında aktiftir. Dilediğiniz zaman satış fiyatını güncelleyebilir veya ilanı iptal ederek ürünlerinizi anında deponuza geri alabilirsiniz.".trAuto(),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = Color.LightGray
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (!isMyListing) {
+                AppButton(
+                    onClick = { onConfirmBuy(buyQty) },
+                    enabled = canAfford,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ThemeNeonCyan,
+                        contentColor = Color(0xFF002026)
+                    ),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Icon(imageVector = Icons.Rounded.ShoppingCart, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CurrencyText("Satın Alımı Onayla".trAuto(), fontWeight = FontWeight.Bold, fontFamily = RobotoMonoFontFamily)
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onEditPrice,
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, ThemeNeonCyan),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ThemeNeonCyan)
+                    ) {
+                        Icon(Icons.Rounded.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        CurrencyText("Fiyatı Düzenle".trAuto(), fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = onCancelListing,
+                        shape = RoundedCornerShape(4.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = ThemeNegative, contentColor = Color.White)
+                    ) {
+                        Icon(Icons.Rounded.Cancel, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        CurrencyText("İlanı Kaldır".trAuto(), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                CurrencyText("Kapat".trAuto(), color = Color.Gray)
+            }
+        }
+    )
+}
+
+// Backward-compatible wrapper for existing BuyListingDialog callers
 @Composable
 fun BuyListingDialog(
     listing: MarketListing,
@@ -2310,237 +2983,15 @@ fun BuyListingDialog(
     onDismiss: () -> Unit,
     onConfirmBuy: (buyQuantity: Int) -> Unit
 ) {
-    val itemName = product?.displayName ?: listing.itemId
-    val brandColor = if (product != null) Color(product.colorTint) else ThemeNeonCyan
-    var buyQuantityText by remember { mutableStateOf(listing.quantity.toString()) }
-
-    val buyQty = (buyQuantityText.toIntOrNull() ?: listing.quantity).coerceIn(1, listing.quantity)
-    val productCost = try { Math.multiplyExact(listing.pricePerUnit, buyQty.toLong()) } catch(e: Exception) { Long.MAX_VALUE }
-    val logisticsCost = viewModel.calculateLogisticsCost(listing.originCityId, currentCity, buyQty)
-    val totalCost = try { Math.addExact(productCost, logisticsCost) } catch(e: Exception) { Long.MAX_VALUE }
-
-    val canAfford = playerMoney >= totalCost
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF121824),
-        titleContentColor = Color.White,
-        textContentColor = Color.LightGray,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = brandColor.copy(alpha = 0.2f),
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        if(product!=null) UniversalProductIcon(product, 16.dp, brandColor) else Icon(Icons.Rounded.ShoppingCart, null, tint=brandColor, modifier=Modifier.size(16.dp))
-                    }
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                CurrencyText(
-                    text = tr("$itemName Satın Al", "Buy $itemName"),
-                    fontFamily = RobotoMonoFontFamily,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Info Summary Card
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF1A2130)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(stringResource(R.string.market_seller), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText(listing.sellerName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(stringResource(R.string.market_quantity), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText(tr("${listing.quantity} Ton", "${listing.quantity} Tons"), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = ThemeNeonCyan)
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(stringResource(R.string.market_price_per_ton), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText(tr("${formatMoney(listing.pricePerUnit)} / Ton", "${formatMoney(listing.pricePerUnit)} / Ton"), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
-                }
-
-                // Slider & Quick Quantity Selector Presets
-                val currentQtyVal = (buyQuantityText.toIntOrNull() ?: 1).coerceIn(1, listing.quantity)
-                if (listing.quantity > 1) {
-                    Slider(
-                        value = currentQtyVal.toFloat(),
-                        onValueChange = { buyQuantityText = it.toInt().toString() },
-                        valueRange = 1f..listing.quantity.toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = ThemeNeonCyan,
-                            activeTrackColor = ThemeNeonCyan,
-                            inactiveTrackColor = Color(0xFF1E2838)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(
-                        "%25" to 0.25f,
-                        "%50" to 0.50f,
-                        "%75" to 0.75f,
-                        tr("Maks (%100)", "Max (100%)") to 1.0f
-                    ).forEach { (label, ratio) ->
-                        val qtyPreset = (listing.quantity * ratio).toInt().coerceAtLeast(1)
-                        val isSelected = currentQtyVal == qtyPreset
-
-                        Surface(
-                            onClick = { buyQuantityText = qtyPreset.toString() },
-                            shape = RoundedCornerShape(2.dp),
-                            color = if (isSelected) ThemeNeonCyan.copy(alpha = 0.25f) else Color(0xFF1A2130),
-                            border = BorderStroke(1.dp, if (isSelected) ThemeNeonCyan else ThemeBorder),
-                            modifier = Modifier.weight(if (ratio == 1.0f) 1.3f else 1f)
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(vertical = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CurrencyText(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) ThemeNeonCyan else Color.LightGray,
-                                    fontFamily = RobotoMonoFontFamily
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Quantity Text Field
-                OutlinedTextField(
-                    value = buyQuantityText,
-                    onValueChange = { buyQuantityText = it },
-                    label = { CurrencyText(tr("Satın Alınacak Miktar (1 - ${listing.quantity} Ton)", "Quantity to Buy (1 - ${listing.quantity} Tons)")) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = ThemeNeonCyan,
-                        unfocusedBorderColor = ThemeBorder,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                // Cost Breakdown Panel
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF1A2130),
-                    border = BorderStroke(1.dp, if (canAfford) ThemeGold.copy(alpha = 0.5f) else ThemeNegative)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText("Ürün Bedeli:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText(formatMoney(productCost), style = MaterialTheme.typography.bodySmall, color = Color.White)
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(tr("Lojistik / Depo Nakliye (⛽ Petrol Endeksli):", "Logistics / Whse Shipping (⛽ Petrol-Indexed):"), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                            CurrencyText(
-                                text = if (logisticsCost == 0L) "Ücretsiz (Depo Aynı Şehirde)".trAuto() else "+${formatMoney(logisticsCost)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (logisticsCost == 0L) ThemePositive else ThemeNegative
-                            )
-                        }
-
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 6.dp),
-                            color = ThemeBorder
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CurrencyText(
-                                text = "TOPLAM MALİYET:".trAuto(),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            CurrencyText(
-                                text = formatMoney(totalCost),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = RobotoMonoFontFamily,
-                                color = ThemeGold
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText("Mevcut Kasanız:".trAuto(), style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            CurrencyText(
-                                text = formatMoney(playerMoney),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (canAfford) ThemePositive else ThemeNegative
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            AppButton(
-                onClick = { onConfirmBuy(buyQty) },
-                enabled = canAfford,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ThemeNeonCyan,
-                    contentColor = Color(0xFF002026)
-                )
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.ShoppingCart,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                CurrencyText("Satın Alımı Onayla".trAuto(), fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                CurrencyText("İptal".trAuto(), color = Color.Gray)
-            }
-        }
+    MarketListingDetailsDialog(
+        listing = listing,
+        product = product,
+        playerMoney = playerMoney,
+        currentCity = currentCity,
+        viewModel = viewModel,
+        isMyListing = false,
+        onDismiss = onDismiss,
+        onConfirmBuy = onConfirmBuy
     )
 }
 

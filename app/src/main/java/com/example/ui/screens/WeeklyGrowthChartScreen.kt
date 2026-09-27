@@ -90,8 +90,9 @@ fun WeeklyGrowthChartScreen(
     val depositVal = (player.depositBalance + player.lockedDepositBalance).toDouble().coerceAtLeast(0.0)
     val facilityVal = uiState.facilityValuation.toDouble().coerceAtLeast(0.0)
     val inventoryVal = uiState.inventoryValuation.toDouble().coerceAtLeast(0.0)
+    val consortiumVal = uiState.consortiumValuation.toDouble().coerceAtLeast(0.0)
     val loanDebt = player.loanAmount.toDouble().coerceAtLeast(0.0)
-    val currentAssets = (cashVal + depositVal + facilityVal + inventoryVal).coerceAtLeast(0.0)
+    val currentAssets = (cashVal + depositVal + facilityVal + inventoryVal + consortiumVal).coerceAtLeast(0.0)
 
     val rawHistory = uiState.growthHistory
 
@@ -292,6 +293,7 @@ fun WeeklyGrowthChartScreen(
                             deposit = depositVal,
                             facilities = facilityVal,
                             inventory = inventoryVal,
+                            consortium = consortiumVal,
                             loanDebt = loanDebt,
                             netWorth = currentNetWorth,
                             theme = theme
@@ -914,6 +916,7 @@ private fun AssetAllocationView(
     deposit: Double,
     facilities: Double,
     inventory: Double,
+    consortium: Double = 0.0,
     loanDebt: Double,
     netWorth: Double,
     theme: AppThemeOption
@@ -923,8 +926,8 @@ private fun AssetAllocationView(
 
     val safeTotal = totalAssets.coerceAtLeast(1.0)
 
-    val slices = remember(cash, deposit, facilities, inventory, safeTotal) {
-        listOf(
+    val slices = remember(cash, deposit, facilities, inventory, consortium, safeTotal) {
+        val baseList = mutableListOf(
             AssetSlice(
                 id = "CASH",
                 title = if (isEng) "Liquid Cash" else "Nakit & Cüzdan",
@@ -962,6 +965,20 @@ private fun AssetAllocationView(
                 percentage = ((inventory / safeTotal) * 100f).toFloat()
             )
         )
+        if (consortium > 0.0) {
+            baseList.add(
+                AssetSlice(
+                    id = "CONSORTIUM",
+                    title = if (isEng) "Consortium Materials & Equity" else "Konsorsiyum & Hammadde",
+                    subtitle = if (isEng) "Delivered commodities & project equity" else "Teslim edilen hammaddeler & mega proje payı",
+                    value = consortium,
+                    color = Color(0xFFA855F7),
+                    icon = Icons.Rounded.AccountBalance,
+                    percentage = ((consortium / safeTotal) * 100f).toFloat()
+                )
+            )
+        }
+        baseList
     }
 
     var selectedSliceId by remember { mutableStateOf<String?>(null) }

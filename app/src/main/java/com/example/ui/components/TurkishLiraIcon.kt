@@ -94,24 +94,27 @@ fun formatMoney(amount: Long): String {
 }
 
 fun formatStockTons(ton: Long, isEnglish: Boolean = false): String {
-    if (ton <= 0L) return if (isEnglish) "0 Ton (CRISIS)" else "0 Ton (KRİZ)"
+    if (ton <= 0L) return if (isEnglish) "0 Tons (CRISIS)" else "0 Ton (KRİZ)"
     val absVal = kotlin.math.abs(ton)
     val unit = if (isEnglish) "Tons" else "Ton"
     val formatted = when {
         absVal >= 1_000_000_000_000_000L -> String.format(Locale.US, "%.2fQ", absVal / 1e15)
         absVal >= 1_000_000_000_000L -> String.format(Locale.US, "%.2fT", absVal / 1e12)
         absVal >= 1_000_000_000L -> String.format(Locale.US, "%.2fB", absVal / 1e9)
-        absVal >= 1_000_000L -> String.format(Locale.US, "%.2fM", absVal / 1e6)
-        absVal >= 100_000L -> String.format(Locale.US, "%.1fK", absVal / 1e3)
-        else -> NumberFormat.getNumberInstance(Locale.US).format(absVal)
+        absVal >= 10_000_000L -> String.format(Locale.US, "%.2fM", absVal / 1e6)
+        else -> {
+            val nf = NumberFormat.getNumberInstance(if (isEnglish) Locale.US else Locale("tr", "TR"))
+            nf.format(absVal)
+        }
     }
     return "$formatted $unit"
 }
 
 fun formatStockTonsExact(ton: Long, isEnglish: Boolean = false): String {
-    if (ton <= 0L) return if (isEnglish) "0 Ton (CRISIS)" else "0 Ton (KRİZ)"
+    if (ton <= 0L) return if (isEnglish) "0 Tons (CRISIS)" else "0 Ton (KRİZ)"
     val unit = if (isEnglish) "Tons" else "Ton"
-    return "${NumberFormat.getNumberInstance(Locale.US).format(kotlin.math.abs(ton))} $unit"
+    val nf = NumberFormat.getNumberInstance(if (isEnglish) Locale.US else Locale("tr", "TR"))
+    return "${nf.format(kotlin.math.abs(ton))} $unit"
 }
 
 fun formatMoney(amount: Double): String = formatMoney(amount.toLong())

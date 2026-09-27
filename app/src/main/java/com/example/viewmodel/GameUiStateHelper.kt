@@ -105,7 +105,7 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
                     val current = h.last().toFloat()
                     val prev = h[h.size - 2].toFloat()
                     if (prev > 0) {
-                        trends[mp.itemId] = (current - prev) / prev
+                        trends[mp.itemId] = ((current - prev) / prev).coerceIn(-0.90f, 5.0f)
                     }
                 }
             }
@@ -265,6 +265,9 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
                 (price * i.quantity * 0.8f).toLong()
             }
             
+            val consortiumDeliveredVal = this@startUiStateSync.calculateConsortiumDeliveredMaterialsValuation()
+            val consortiumTotalVal = this@startUiStateSync.calculateConsortiumValuation()
+            val guildSharesVal = (consortiumTotalVal - consortiumDeliveredVal).coerceAtLeast(0L)
             val nw = this@startUiStateSync.calculateCompanyValuation()
             
             updateUiState {
@@ -274,10 +277,30 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
                     topInventory = top.toPersistentList(),
                     facilityValuation = facVal,
                     inventoryValuation = invVal,
+                    consortiumValuation = consortiumTotalVal,
+                    consortiumDeliveredValuation = consortiumDeliveredVal,
+                    guildSharesValuation = guildSharesVal,
                     netWorth = nw,
                     growthHistory = _growthHistory.value.toPersistentList()
                 )
             }
         }.collect {}
+    }
+
+    scope.launch {
+        _megaProjects.collect {
+            val consortiumDeliveredVal = this@startUiStateSync.calculateConsortiumDeliveredMaterialsValuation()
+            val consortiumTotalVal = this@startUiStateSync.calculateConsortiumValuation()
+            val guildSharesVal = (consortiumTotalVal - consortiumDeliveredVal).coerceAtLeast(0L)
+            val nw = this@startUiStateSync.calculateCompanyValuation()
+            updateUiState {
+                copy(
+                    consortiumValuation = consortiumTotalVal,
+                    consortiumDeliveredValuation = consortiumDeliveredVal,
+                    guildSharesValuation = guildSharesVal,
+                    netWorth = nw
+                )
+            }
+        }
     }
 }

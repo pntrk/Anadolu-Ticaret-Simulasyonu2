@@ -548,6 +548,15 @@ class EconomicDataStore(val context: Context) {
         }
     }
 
+    suspend fun getLastSavedTime(): Long {
+        return try {
+            val prefs = context.economicDataStore.data.first()
+            prefs[KEY_LAST_SAVED_TIME] ?: 0L
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
     fun serializeGrowthHistory(list: List<GrowthPointDto>): String {
         return try {
             AppJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(GrowthPointDto.serializer()), list)
@@ -811,8 +820,11 @@ class EconomicDataStore(val context: Context) {
                 level = b.level,
                 cityId = migrateLegacyCity(b.cityId),
                 wearLevel = b.wearLevel.toDouble(),
+                wearLevelSnake = b.wearLevel.toDouble(),
                 storageCapacity = b.getEffectiveStorageCapacity(),
+                storageCapacitySnake = b.getEffectiveStorageCapacity(),
                 storedItemsJson = b.storedItemsJson,
+                storedItemsJsonSnake = b.storedItemsJson,
                 isUpgrading = b.isUpgrading,
                 isUpgradingSnake = b.isUpgrading,
                 upgradeEndTime = b.upgradeEndTime,
@@ -827,7 +839,7 @@ class EconomicDataStore(val context: Context) {
     }
 
     fun deserializeBusinesses(json: String): List<BusinessEntity> {
-        if (json.isBlank() || json == "[]") return emptyList()
+        if (json.isBlank() || json == "[]" || json == "null") return emptyList()
         return try {
             val dtos = AppJson.decodeFromString<List<BusinessDto>>(json)
             dtos.map {
@@ -836,9 +848,9 @@ class EconomicDataStore(val context: Context) {
                     type = it.type,
                     level = it.level,
                     cityId = migrateLegacyCity(it.cityId),
-                    wearLevel = it.wearLevel.toFloat(),
-                    storageCapacity = if (it.storageCapacity > 0) it.storageCapacity else 2500,
-                    storedItemsJson = if (it.storedItemsJson.isNotBlank()) it.storedItemsJson else "{}",
+                    wearLevel = it.effectiveWearLevel.toFloat(),
+                    storageCapacity = if (it.effectiveStorageCapacity > 0) it.effectiveStorageCapacity else 2500,
+                    storedItemsJson = if (it.effectiveStoredItemsJson.isNotBlank()) it.effectiveStoredItemsJson else "{}",
                     isUpgrading = it.effectiveIsUpgrading,
                     upgradeEndTime = it.effectiveUpgradeEndTime,
                     isConstructing = it.effectiveIsConstructing,
@@ -846,7 +858,51 @@ class EconomicDataStore(val context: Context) {
                 )
             }
         } catch (e: Exception) {
-            emptyList()
+            try {
+                val array = AppJson.parseToJsonElement(json) as? JsonArray ?: return emptyList()
+                array.mapNotNull { item ->
+                    val obj = item as? JsonObject ?: return@mapNotNull null
+                    val id = (obj["id"] as? JsonPrimitive)?.intOrNull ?: 0
+                    val type = (obj["type"] as? JsonPrimitive)?.content ?: ""
+                    val level = (obj["level"] as? JsonPrimitive)?.intOrNull ?: 1
+                    val cityId = (obj["cityId"] as? JsonPrimitive)?.content
+                        ?: (obj["city_id"] as? JsonPrimitive)?.content ?: "istanbul"
+                    val wear = (obj["wearLevel"] as? JsonPrimitive)?.doubleOrNull
+                        ?: (obj["wear_level"] as? JsonPrimitive)?.doubleOrNull ?: 0.0
+                    val cap = (obj["storageCapacity"] as? JsonPrimitive)?.intOrNull
+                        ?: (obj["storage_capacity"] as? JsonPrimitive)?.intOrNull ?: 2500
+                    val stored = (obj["storedItemsJson"] as? JsonPrimitive)?.content
+                        ?: (obj["stored_items_json"] as? JsonPrimitive)?.content ?: "{}"
+                    val isUpg = (obj["isUpgrading"] as? JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_upgrading"] as? JsonPrimitive)?.booleanOrNull ?: false
+                    val upgEnd = (obj["upgradeEndTime"] as? JsonPrimitive)?.longOrNull
+                        ?: (obj["upgrade_end_time"] as? JsonPrimitive)?.longOrNull
+                    val isCons = (obj["isConstructing"] as? JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_constructing"] as? JsonPrimitive)?.booleanOrNull ?: false
+                    val consEnd = (obj["constructionEndTime"] as? JsonPrimitive)?.longOrNull
+                        ?: (obj["construction_end_time"] as? JsonPrimitive)?.longOrNull
+
+                    val secureNow = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
+                    val finalIsCons = isCons || (consEnd != null && consEnd > secureNow)
+                    val finalIsUpg = isUpg || (upgEnd != null && upgEnd > secureNow)
+
+                    BusinessEntity(
+                        id = id,
+                        type = type,
+                        level = level,
+                        cityId = migrateLegacyCity(cityId),
+                        wearLevel = wear.toFloat(),
+                        storageCapacity = if (cap > 0) cap else 2500,
+                        storedItemsJson = if (stored.isNotBlank()) stored else "{}",
+                        isUpgrading = finalIsUpg,
+                        upgradeEndTime = upgEnd,
+                        isConstructing = finalIsCons,
+                        constructionEndTime = consEnd
+                    )
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
         }
     }
 
