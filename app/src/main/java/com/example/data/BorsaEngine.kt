@@ -71,29 +71,8 @@ class BorsaEngine(
                 dailyExpense = currentP.dailyExpense + finalRequired
             ))
 
-            // Borsa alımını Supabase RPC (PostgreSQL FOR UPDATE) ile stok çakışmasız gerçekleştir
-            val rpcResult = repository.executeBorsaBuy(
-                playerId = currentP.id,
-                itemId = itemId,
-                quantity = quantity,
-                maxAcceptablePrice = currentPrice * 2
-            )
-
-            if (!rpcResult.success) {
-                // Çevrimdışı veya RPC bağlantısı yoksa yerel borsa motorunu çalıştır
-                viewModel.onBorsaItemBought(itemId, quantity, "Global")
-            } else {
-                // Sunucu onaylı yeni fiyat ve stok yerel Room DB'ye repository tarafından işlendi
-                // Oyuncu meta verisini de hafifçe senkronize et
-                val netWorth = currentP.money + currentP.depositBalance
-                repository.syncPlayerMeta(
-                    playerId = currentP.id,
-                    name = currentP.name,
-                    level = currentP.level,
-                    netWorth = netWorth,
-                    hash = ""
-                )
-            }
+            // Borsa alımı yerel simülasyon ve Room DB üzerinde anında gerçekleştirilir (Sıfır ağ gecikmesi, sıfır sunucu kotası)
+            viewModel.onBorsaItemBought(itemId, quantity, "Global")
 
             val prodName = product.getDisplayName()
             com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)

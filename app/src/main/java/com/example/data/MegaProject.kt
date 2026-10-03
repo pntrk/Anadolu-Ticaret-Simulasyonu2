@@ -71,13 +71,13 @@ enum class ConsortiumQualityTier(
 
     fun getTitle(isEnglish: Boolean = false): String = if (isEnglish) titleEn else titleTr
     fun getDescription(isEnglish: Boolean = false): String = if (isEnglish) descriptionEn else descriptionTr
-    fun getAllowedQualityRangeText(isEnglish: Boolean = false): String = if (isEnglish) allowedQualityRangeTextEn else allowedQualityRangeTextTr
+    fun getAllowedQualityRangeText(isEnglish: Boolean = false): String = if (isEnglish) "1★ - 5★ All Qualities Accepted" else "1★ - 5★ Tüm Kaliteler Kabul"
 
-    fun isStarsAllowed(stars: Int): Boolean = stars.coerceIn(1, 5) in allowedStars
+    fun isStarsAllowed(stars: Int): Boolean = true
 
-    fun isQualityAllowed(quality: ItemQuality): Boolean = isStarsAllowed(quality.stars)
+    fun isQualityAllowed(quality: ItemQuality): Boolean = true
 
-    fun isProductQualityAllowed(quality: ProductQuality): Boolean = isStarsAllowed(quality.tier)
+    fun isProductQualityAllowed(quality: ProductQuality): Boolean = true
 
     companion object {
         fun fromString(str: String?): ConsortiumQualityTier {
@@ -782,7 +782,7 @@ data class MegaProject(
     val contractSignedAtMs: Long? = null,
     val preparationCountdownDurationMs: Long = 24 * 3600 * 1000L, // 1 Günlük Hazırlık/Tedarik Geri Sayımı
     val totalItemsProduced: Int = 0,
-    val isAutoSellActive: Boolean = true,
+    val isAutoSellActive: Boolean = false,
     val lastBatchStartTimeMs: Long = System.currentTimeMillis(),
     val lastBatchDurationMs: Long = 0L,
     val previousSharePrice: Double = 0.0,
@@ -880,7 +880,7 @@ data class MegaProject(
                 contractSignedAtMs = (map["contractSignedAtMs"] as? Number)?.toLong(),
                 preparationCountdownDurationMs = (map["preparationCountdownDurationMs"] as? Number)?.toLong() ?: (24 * 3600 * 1000L),
                 totalItemsProduced = (map["totalItemsProduced"] as? Number)?.toInt() ?: 0,
-                isAutoSellActive = map["isAutoSellActive"] as? Boolean ?: true,
+                isAutoSellActive = map["isAutoSellActive"] as? Boolean ?: false,
                 lastBatchStartTimeMs = (map["lastBatchStartTimeMs"] as? Number)?.toLong() ?: System.currentTimeMillis(),
                 lastBatchDurationMs = (map["lastBatchDurationMs"] as? Number)?.toLong() ?: 0L,
                 previousSharePrice = (map["previousSharePrice"] as? Number)?.toDouble() ?: 0.0,
@@ -1246,12 +1246,24 @@ data class MegaProject(
         return when (targetProductId) {
             "defense_frigate" -> Icons.Rounded.Security
             "space_rocket" -> Icons.Rounded.RocketLaunch
-            "quantum_supercomputer" -> Icons.Rounded.Memory
+            "quantum_supercomputer" -> Icons.Rounded.Terminal
             "fusion_reactor_core" -> Icons.Rounded.Bolt
             "super_yacht" -> Icons.Rounded.DirectionsBoat
             "ai_datacenter" -> Icons.Rounded.Dns
             "cargo_ship" -> Icons.Rounded.DirectionsBoat
             "bullet_train" -> Icons.Rounded.Train
+            "ev" -> Icons.Rounded.ElectricCar
+            "uav" -> Icons.Rounded.FlightTakeoff
+            "satellite" -> Icons.Rounded.SatelliteAlt
+            "hydrogen_plant" -> Icons.Rounded.PropaneTank
+            "smart_grid" -> Icons.Rounded.ElectricBolt
+            "smart_skyscraper" -> Icons.Rounded.Apartment
+            "autonomous_drone_swarm" -> Icons.Rounded.FlightTakeoff
+            "hyperloop_capsule" -> Icons.Rounded.Train
+            "luxury_aircraft_interior" -> Icons.Rounded.AirlineSeatReclineExtra
+            "turbine_engine" -> Icons.Rounded.WindPower
+            "chip" -> Icons.Rounded.Memory
+            "nano_battery" -> Icons.Rounded.BatteryChargingFull
             else -> Icons.Rounded.PrecisionManufacturing
         }
     }
@@ -1266,6 +1278,18 @@ data class MegaProject(
             "ai_datacenter" -> Color(0xFF3B82F6) // Electric Blue
             "cargo_ship" -> Color(0xFF0284C7) // Ocean Navy
             "bullet_train" -> Color(0xFFF97316) // Hyper Orange
+            "ev" -> Color(0xFF00E676) // Electric Green
+            "uav" -> Color(0xFF29B6F6) // Aero Blue
+            "satellite" -> Color(0xFFBA68C8) // Satellite Purple
+            "hydrogen_plant" -> Color(0xFF00B0FF) // Hydrogen Cyan
+            "smart_grid" -> Color(0xFF76FF03) // Neon Grid Green
+            "smart_skyscraper" -> Color(0xFF00BCD4) // Architecture Cyan
+            "autonomous_drone_swarm" -> Color(0xFF00E5FF) // Swarm Cyan
+            "hyperloop_capsule" -> Color(0xFFFFD700) // Maglev Gold
+            "luxury_aircraft_interior" -> Color(0xFFFFB300) // VIP Amber
+            "turbine_engine" -> Color(0xFF00E676) // Jet Green
+            "chip" -> Color(0xFFE040FB) // Silicon Magenta
+            "nano_battery" -> Color(0xFF22C55E) // Battery Green
             else -> Color(0xFFEC4899) // Hot Magenta
         }
     }
@@ -1280,6 +1304,18 @@ data class MegaProject(
             "ai_datacenter" -> Color(0xFF1D4ED8)
             "cargo_ship" -> Color(0xFF075985)
             "bullet_train" -> Color(0xFFC2410C)
+            "ev" -> Color(0xFF00A152)
+            "uav" -> Color(0xFF0277BD)
+            "satellite" -> Color(0xFF8E24AA)
+            "hydrogen_plant" -> Color(0xFF0288D1)
+            "smart_grid" -> Color(0xFF64DD17)
+            "smart_skyscraper" -> Color(0xFF00838F)
+            "autonomous_drone_swarm" -> Color(0xFF0097A7)
+            "hyperloop_capsule" -> Color(0xFFC49000)
+            "luxury_aircraft_interior" -> Color(0xFFFF8F00)
+            "turbine_engine" -> Color(0xFF00897B)
+            "chip" -> Color(0xFFAB47BC)
+            "nano_battery" -> Color(0xFF15803D)
             else -> Color(0xFFBE185D)
         }
     }
@@ -1460,14 +1496,26 @@ object MegaProjectFactory {
         val totalValue = (totalCostSum * 1.8f * qualityTier.borsaMultiplier).toLong()
 
         val baseBatchDuration = when (targetProductId) {
-            "defense_frigate" -> 300
             "space_rocket" -> 450
-            "quantum_supercomputer" -> 225
             "fusion_reactor_core" -> 375
+            "defense_frigate" -> 300
             "super_yacht" -> 300
+            "cargo_ship" -> 275
+            "bullet_train" -> 250
+            "quantum_supercomputer" -> 250
+            "smart_skyscraper" -> 250
+            "hyperloop_capsule" -> 225
             "ai_datacenter" -> 225
-            "cargo_ship" -> 225
-            "bullet_train" -> 225
+            "satellite" -> 225
+            "hydrogen_plant" -> 200
+            "smart_grid" -> 200
+            "autonomous_drone_swarm" -> 200
+            "luxury_aircraft_interior" -> 200
+            "ev" -> 200
+            "uav" -> 200
+            "turbine_engine" -> 180
+            "chip" -> 180
+            "nano_battery" -> 180
             else -> 225
         }
         val actualBatchDuration = (baseBatchDuration * qualityTier.durationMultiplier).toInt()

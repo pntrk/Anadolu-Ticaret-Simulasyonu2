@@ -18,11 +18,19 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.ui.components.LeaderboardPodiumSection
+import com.example.ui.components.LeaderboardLeagueMetricsStrip
+import com.example.ui.components.LeaderboardSearchAndFilterBar
+import com.example.ui.components.LeaderboardFilterOption
+import com.example.ui.components.LeaderboardUserStickyHud
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.rounded.AccountBalance
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -37,6 +45,7 @@ import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MilitaryTech
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Store
 import androidx.compose.material.icons.rounded.TrendingUp
@@ -104,9 +113,17 @@ fun SocialScreen(
 
     var selectedPlayerForDetail by remember { mutableStateOf<OnlinePlayer?>(null) }
     var selectedTab by remember { mutableStateOf(0) } // 0: CANLI LİG (Mevcut Ay), 1: GEÇMİŞ AY SONUÇLARI (Top 20)
+    var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         MultiplayerManager.listenToLeaderboard()
+        MultiplayerManager.refreshLeaderboardFromSupabase()
+    }
+
+    LaunchedEffect(isGoogleSignedIn) {
+        if (isGoogleSignedIn) {
+            viewModel?.checkAndClaimMonthlyLeaderboardReward(forceManualCheck = false)
+        }
     }
 
     val onlinePlayers by MultiplayerManager.onlinePlayers.collectAsStateWithLifecycle()
@@ -148,6 +165,106 @@ fun SocialScreen(
         sdf.format(cal.time).uppercase(locale)
     }
 
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf(LeaderboardFilterOption.ALL) }
+    val listState = rememberLazyListState()
+
+    val validOnlinePlayers = remember(onlinePlayers) {
+        onlinePlayers
+            .filter { player -> !isBotPlayer(player) }
+            .groupBy { getCleanPlayerKey(it) }
+            .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
+    }
+
+    val myNetWorth = remember(uiState.netWorth, localPlayerState?.money, localPlayerState?.depositBalance, localPlayerState?.lockedDepositBalance, localPlayerState?.loanAmount) {
+        if (uiState.netWorth > 0L) uiState.netWorth
+        else (viewModel?.calculateCompanyValuation() ?: (((localPlayerState?.money ?: 0L) + (localPlayerState?.depositBalance ?: 0L) + (localPlayerState?.lockedDepositBalance ?: 0L) - (localPlayerState?.loanAmount ?: 0L)).coerceAtLeast(0L)))
+    }
+
+    val sortedPlayers = remember(validOnlinePlayers, isGoogleSignedIn, localPlayerState, myNetWorth) {
+        val rawSortedPlayers = if (isGoogleSignedIn && localPlayerState != null) {
+            val myId = localPlayerState.id
+            val myName = localPlayerState.name
+            val myCleanKey = getCleanPlayerKey(OnlinePlayer(id = myId, name = myName, companyName = "${myName} Holding", netWorth = 0L, city = "istanbul", level = 1))
+            val existsInList = validOnlinePlayers.any { getCleanPlayerKey(it) == myCleanKey || it.id == myId || it.name.equals(myName, ignoreCase = true) }
+            val baseList = if (existsInList) {
+                validOnlinePlayers.map { player ->
+                    if (getCleanPlayerKey(player) == myCleanKey || player.id == myId || player.name.equals(myName, ignoreCase = true)) {
+                        val myGrowth = if (player.monthlyScore > 0L) player.monthlyScore else (myNetWorth * 0.20f).toLong()
+                        player.copy(id = myId, name = myName, netWorth = myNetWorth, monthlyScore = myGrowth)
+                    } else {
+                        val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
+                        player.copy(monthlyScore = growth)
+                    }
+                }
+            } else {
+                val myGrowth = (myNetWorth * 0.20f).toLong()
+                validOnlinePlayers.map { player ->
+                    val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
+                    player.copy(monthlyScore = growth)
+                } + OnlinePlayer(
+                    id = myId,
+                    name = myName,
+                    companyName = "${myName} Holding",
+                    netWorth = myNetWorth,
+                    city = localPlayerState.currentCity,
+                    level = localPlayerState.level,
+                    isOnline = true,
+                    badge = if (localPlayerState.level > 15) "CEO" else if (localPlayerState.level > 10) "LİDER" else "TÜCCAR",
+                    bankBalance = localPlayerState.depositBalance,
+                    monthlyScore = myGrowth
+                )
+            }
+            baseList.sortedByDescending { it.netWorth }
+        } else {
+            validOnlinePlayers.map { player ->
+                val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
+                player.copy(monthlyScore = growth)
+            }.sortedByDescending { it.netWorth }
+        }
+
+        rawSortedPlayers
+            .groupBy { getCleanPlayerKey(it) }
+            .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
+            .sortedByDescending { it.netWorth }
+    }
+
+    val myCleanKey = remember(localPlayerState) {
+        localPlayerState?.let { getCleanPlayerKey(OnlinePlayer(id = it.id, name = it.name, companyName = "${it.name} Holding", netWorth = 0L, city = it.currentCity, level = 1)) }
+    }
+    val myRankIndex = remember(sortedPlayers, localPlayerState, myCleanKey) {
+        sortedPlayers.indexOfFirst { player ->
+            player.id == localPlayerState?.id || (myCleanKey != null && getCleanPlayerKey(player) == myCleanKey)
+        }
+    }
+    val myRank = if (myRankIndex >= 0) myRankIndex + 1 else null
+    val nextRankPlayer = if (myRankIndex != null && myRankIndex > 0) sortedPlayers.getOrNull(myRankIndex - 1) else null
+    val gapToNextRank = if (nextRankPlayer != null) (nextRankPlayer.netWorth - myNetWorth).coerceAtLeast(0L) else null
+
+    val filteredPlayersWithRank = remember(sortedPlayers, searchQuery, selectedFilter, context) {
+        sortedPlayers.mapIndexed { idx, player -> (idx + 1) to player }
+            .filter { (rank, player) ->
+                val matchesSearch = searchQuery.isBlank() ||
+                    player.name.contains(searchQuery, ignoreCase = true) ||
+                    player.companyName.contains(searchQuery, ignoreCase = true) ||
+                    player.city.contains(searchQuery, ignoreCase = true)
+
+                val matchesFilter = when (selectedFilter) {
+                    LeaderboardFilterOption.ALL -> true
+                    LeaderboardFilterOption.TOP_10 -> rank <= 10
+                    LeaderboardFilterOption.REWARDS_ZONE -> rank <= 3
+                    LeaderboardFilterOption.MUSEUM_OWNERS -> {
+                        if (player.id == localPlayerState?.id) {
+                            MuseumHeritageManager.getOwnedArtifactIds(context).isNotEmpty()
+                        } else {
+                            MuseumHeritageManager.getArtifactsForOnlinePlayerSync(context, player.id, player.name, player.companyName).isNotEmpty()
+                        }
+                    }
+                }
+                matchesSearch && matchesFilter
+            }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -175,24 +292,58 @@ fun SocialScreen(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = ThemePositive.copy(alpha = 0.15f),
-                    border = BorderStroke(1.dp, ThemePositive.copy(alpha = 0.6f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                isRefreshing = true
+                                com.example.ui.components.SmartNotificationManager.show(
+                                    "🏆 Sıralama sunucudan güncelleniyor...",
+                                    "🏆 Updating leaderboard from server...",
+                                    com.example.ui.components.NotificationType.INFO
+                                )
+                                MultiplayerManager.refreshLeaderboardFromSupabase()
+                                kotlinx.coroutines.delay(600L)
+                                isRefreshing = false
+                                com.example.ui.components.SmartNotificationManager.show(
+                                    "✅ Güncel holding sıralaması yüklendi!",
+                                    "✅ Live holding leaderboard updated!",
+                                    com.example.ui.components.NotificationType.SUCCESS
+                                )
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
                     ) {
-                        Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = ThemePositive, modifier = Modifier.size(14.dp))
-                        CurrencyText(
-                            text = tr("CANLI SÜREÇ", "LIVE PROCESS"),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ThemePositive,
-                            fontFamily = RobotoMonoFontFamily
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = tr("Yenile", "Refresh"),
+                            tint = if (isRefreshing) theme.primaryColor else Color.White,
+                            modifier = Modifier.size(18.dp)
                         )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(2.dp),
+                        color = ThemePositive.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ThemePositive.copy(alpha = 0.6f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Rounded.CloudDone, contentDescription = null, tint = ThemePositive, modifier = Modifier.size(14.dp))
+                            CurrencyText(
+                                text = tr("CANLI SÜREÇ", "LIVE PROCESS"),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ThemePositive,
+                                fontFamily = RobotoMonoFontFamily
+                            )
+                        }
                     }
                 }
             }
@@ -271,13 +422,15 @@ fun SocialScreen(
             }
         }
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             item {
                 Card(
                     modifier = Modifier
@@ -408,7 +561,7 @@ fun SocialScreen(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     CurrencyText(
-                                        text = tr("Holding Sıralaması = Oyuncuların güncel Net Şirket Değerine (Nakit, Banka Mevduatı, Döviz, Fabrikalar, Depo Malları ve Konsorsiyum Varlıkları) göre büyükten küçüğe oluşturulur.\nAy sonunda ilk 3'e giren holdinglere elmas ödülleri aktarılır:\n🥇 1. 2000 💎  |  🥈 2. 1000 💎  |  🥉 3. 500 💎", "Holding Leaderboard = Ranked descending by players' current Net Company Valuation (Cash, Bank Deposits, FX, Factories, Warehouse Stocks, and Consortium Assets).\nAt month end, top 3 holdings receive diamond rewards:\n🥇 1st: 2000 💎  |  🥈 2nd: 1000 💎  |  🥉 3rd: 500 💎"),
+                                        text = tr("Holding Sıralaması = Oyuncuların güncel Net Şirket Değerine göre belirlenir.\nAy sonunda ilk 3'e giren holdinglere elmas ödülleri ay başında otomatik olarak hesaplara yansıtılır ve bildirim gönderilir:\n🥇 1. 2000 💎  |  🥈 2. 1000 💎  |  🥉 3. 500 💎", "Holding Leaderboard = Ranked descending by players' Net Company Valuation.\nAt month end, top 3 holdings receive diamond rewards automatically credited at month start with push notification:\n🥇 1st: 2000 💎  |  🥈 2nd: 1000 💎  |  🥉 3rd: 500 💎"),
                                         style = MaterialTheme.typography.bodySmall,
                                         fontSize = 11.sp,
                                         color = theme.textSecondaryColor
@@ -416,38 +569,35 @@ fun SocialScreen(
                                 }
                             }
 
-                            Button(
-                                onClick = {
-                                    if (!isGoogleSignedIn) {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            if (isEnglish) "Please sign in with Google to claim monthly leaderboard rewards." else "Aylık sıralama ödüllerini toplamak için lütfen Google ile giriş yapınız.",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        viewModel?.handleIntent(com.example.viewmodel.GameIntent.CheckAndClaimMonthlyLeaderboardReward(true))
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(38.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = theme.primaryColor
-                                ),
-                                shape = RoundedCornerShape(2.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            Surface(
+                                color = theme.primaryColor.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(4.dp),
+                                border = BorderStroke(1.dp, theme.primaryColor.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(Icons.Rounded.Diamond, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(16.dp))
-                                    CurrencyText(
-                                        text = tr("ÖDÜL HAK EDİŞİ SORGULA / TOPLA", "CHECK / CLAIM REWARD ELIGIBILITY"),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(18.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        CurrencyText(
+                                            text = tr("⚡ OTOMATİK AY BAŞI ÖDÜL DAĞITIMI AKTİF", "⚡ AUTO MONTHLY REWARD ACTIVE"),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ThemeGold
+                                        )
+                                        CurrencyText(
+                                            text = tr(
+                                                "Butona basmaya gerek yoktur; her ay başında ilk 3 sıradaki hesaplara ödülleri anlık bildirimle otomatik yüklenir.",
+                                                "No button click required; top 3 accounts receive rewards automatically at month start with instant notification."
+                                            ),
+                                            fontSize = 10.sp,
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            lineHeight = 13.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -563,62 +713,37 @@ fun SocialScreen(
                     }
                 }
 
-                // CURRENT MONTH LEADERBOARD ITEMS (SORTED BY NET COMPANY VALUATION DESCENDING)
-                // Sadece gerçek oyuncular sıralanır; bot oyuncular sıralama listelerinde yer almaz
-
-                val validOnlinePlayers = onlinePlayers
-                    .filter { player -> !isBotPlayer(player) }
-                    .groupBy { getCleanPlayerKey(it) }
-                    .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
-
-                val rawSortedPlayers = if (isGoogleSignedIn && localPlayerState != null) {
-                    val myId = localPlayerState.id
-                    val myName = localPlayerState.name
-                    val myCleanKey = getCleanPlayerKey(OnlinePlayer(id = myId, name = myName, companyName = "${myName} Holding", netWorth = 0L, city = "istanbul", level = 1))
-                    val myNetWorth = if (uiState.netWorth > 0L) uiState.netWorth else (viewModel?.calculateCompanyValuation() ?: ((localPlayerState.money + localPlayerState.depositBalance + localPlayerState.lockedDepositBalance - localPlayerState.loanAmount).coerceAtLeast(0L)))
-                    val existsInList = validOnlinePlayers.any { getCleanPlayerKey(it) == myCleanKey || it.id == myId || it.name.equals(myName, ignoreCase = true) }
-                    val baseList = if (existsInList) {
-                        validOnlinePlayers.map { player ->
-                            if (getCleanPlayerKey(player) == myCleanKey || player.id == myId || player.name.equals(myName, ignoreCase = true)) {
-                                val myGrowth = if (player.monthlyScore > 0L) player.monthlyScore else (myNetWorth * 0.20f).toLong()
-                                player.copy(id = myId, name = myName, netWorth = myNetWorth, monthlyScore = myGrowth)
-                            } else {
-                                val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
-                                player.copy(monthlyScore = growth)
-                            }
-                        }
-                    } else {
-                        val myGrowth = (myNetWorth * 0.20f).toLong()
-                        validOnlinePlayers.map { player ->
-                            val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
-                            player.copy(monthlyScore = growth)
-                        } + OnlinePlayer(
-                            id = myId,
-                            name = myName,
-                            companyName = "${myName} Holding",
-                            netWorth = myNetWorth,
-                            city = localPlayerState.currentCity,
-                            level = localPlayerState.level,
-                            isOnline = true,
-                            badge = if (localPlayerState.level > 15) "CEO" else if (localPlayerState.level > 10) "LİDER" else "TÜCCAR",
-                            bankBalance = localPlayerState.depositBalance,
-                            monthlyScore = myGrowth
-                        )
-                    }
-                    baseList.sortedByDescending { it.netWorth }
-                } else {
-                    // Google girişi yoksa oyuncu çevrimdışı yerel belleğinde oynar; sadece sunucudaki kayıtlı oyuncular listelenir
-                    validOnlinePlayers.map { player ->
-                        val growth = if (player.monthlyScore > 0L) player.monthlyScore else (player.netWorth * 0.20f).toLong()
-                        player.copy(monthlyScore = growth)
-                    }.sortedByDescending { it.netWorth }
+                // 1. Lig İstatistikleri & Ödül Havuzu Şeridi
+                item {
+                    LeaderboardLeagueMetricsStrip(
+                        totalHoldingsCount = sortedPlayers.size,
+                        currentMonthName = currentMonthName,
+                        userRank = myRank
+                    )
                 }
 
-                val sortedPlayers = rawSortedPlayers
-                    .groupBy { getCleanPlayerKey(it) }
-                    .map { (_, list) -> list.maxByOrNull { it.netWorth }!! }
-                    .sortedByDescending { it.netWorth }
+                // 2. 3D Şampiyonlar Kürsüsü (Olympic-style Top 3 Podium)
+                if (sortedPlayers.isNotEmpty()) {
+                    item {
+                        LeaderboardPodiumSection(
+                            topThreePlayers = sortedPlayers.take(3),
+                            myPlayerId = localPlayerState?.id,
+                            onPlayerClick = { selectedPlayerForDetail = it }
+                        )
+                    }
+                }
 
+                // 3. Arama ve Filtreleme Barı
+                item {
+                    LeaderboardSearchAndFilterBar(
+                        searchQuery = searchQuery,
+                        onSearchQueryChange = { searchQuery = it },
+                        selectedFilter = selectedFilter,
+                        onFilterSelect = { selectedFilter = it }
+                    )
+                }
+
+                // 4. Liderlik Listesi Öğeleri
                 if (sortedPlayers.isEmpty()) {
                     item {
                         Card(
@@ -657,42 +782,81 @@ fun SocialScreen(
                             }
                         }
                     }
-                } else {
-                    items(sortedPlayers.size, key = { "lb_rank_${it}_${getCleanPlayerKey(sortedPlayers[it])}" }) { index ->
-                    val player = sortedPlayers[index]
-                    val score = player.monthlyScore
-                    val isMe = (player.id == localPlayerState?.id || player.name == localPlayerState?.name)
-
-                    // Enrich player details for local user if clicked
-                    val displayPlayer = if (isMe && localPlayerState != null) {
-                        player.copy(
-                            netWorth = player.netWorth,
-                            city = localPlayerState!!.currentCity.uppercase(),
-                            centralWarehouseLocation = tr("${localPlayerState!!.currentCity.uppercase()} Ana Lojistik Merkezi", "${localPlayerState!!.currentCity.uppercase()} Main Logistics Center"),
-                            facilities = if (localBusinesses.isNotEmpty()) {
-                                localBusinesses.map { b ->
-                                    PlayerFacilityInfo(
-                                        name = b.type.split("_").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } },
-                                        city = b.cityId.uppercase(),
-                                        level = b.level,
-                                        category = tr("Tesis", "Facility")
-                                    )
-                                }
-                            } else player.facilities
-                        )
-                    } else player
-
-                    EliteLeaderboardCard(
-                        rank = index + 1,
-                        player = displayPlayer,
-                        score = score,
-                        isMe = isMe,
-                        onClick = {
-                            selectedPlayerForDetail = displayPlayer
+                } else if (filteredPlayersWithRank.isEmpty()) {
+                    item {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (theme.isDark) Color(0xFF10192A) else theme.surfaceColor),
+                            border = BorderStroke(1.dp, theme.borderColor),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .padding(24.dp)
+                                    .fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = theme.textSecondaryColor,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                CurrencyText(
+                                    text = tr("Aramanıza Uygun Holding Bulunamadı", "No Holdings Match Your Filter"),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = theme.textPrimaryColor
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CurrencyText(
+                                    text = tr("Farklı bir arama terimi deneyin veya filtreyi sıfırlayın.", "Try a different search term or reset the filter."),
+                                    fontSize = 11.sp,
+                                    color = theme.textSecondaryColor,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
-                    )
+                    }
+                } else {
+                    items(filteredPlayersWithRank.size, key = { "lb_rank_${filteredPlayersWithRank[it].first}_${getCleanPlayerKey(filteredPlayersWithRank[it].second)}" }) { index ->
+                        val (actualRank, player) = filteredPlayersWithRank[index]
+                        val score = player.monthlyScore
+                        val isMe = (player.id == localPlayerState?.id || player.name == localPlayerState?.name)
+
+                        // Enrich player details for local user if clicked
+                        val displayPlayer = if (isMe && localPlayerState != null) {
+                            player.copy(
+                                netWorth = player.netWorth,
+                                city = localPlayerState!!.currentCity.uppercase(),
+                                centralWarehouseLocation = tr("${localPlayerState!!.currentCity.uppercase()} Ana Lojistik Merkezi", "${localPlayerState!!.currentCity.uppercase()} Main Logistics Center"),
+                                facilities = if (localBusinesses.isNotEmpty()) {
+                                    localBusinesses.map { b ->
+                                        PlayerFacilityInfo(
+                                            name = b.type.split("_").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } },
+                                            city = b.cityId.uppercase(),
+                                            level = b.level,
+                                            category = tr("Tesis", "Facility")
+                                        )
+                                    }
+                                } else player.facilities
+                            )
+                        } else player
+
+                        EliteLeaderboardCard(
+                            rank = actualRank,
+                            player = displayPlayer,
+                            score = score,
+                            isMe = isMe,
+                            onClick = {
+                                selectedPlayerForDetail = displayPlayer
+                            }
+                        )
+                    }
                 }
-            }
         } else {
             // --- PAST MONTH RESULTS BANNER & TOP 20 ---
                 item {
@@ -844,7 +1008,35 @@ fun SocialScreen(
             }
         }
     }
-}
+    }
+
+    // Pinned Bottom Sticky HUD for user's rank & quick scroll
+    if (selectedTab == 0 && isGoogleSignedIn && localPlayerState != null) {
+        LeaderboardUserStickyHud(
+            rank = myRank,
+            holdingName = "${localPlayerState.name} Holding",
+            netWorth = myNetWorth,
+            gapToNextRank = gapToNextRank,
+            onScrollToMe = {
+                val myItemIndex = filteredPlayersWithRank.indexOfFirst { it.second.id == localPlayerState.id }
+                if (myItemIndex >= 0) {
+                    scope.launch {
+                        listState.animateScrollToItem((myItemIndex + 3).coerceAtLeast(0))
+                    }
+                } else {
+                    searchQuery = ""
+                    selectedFilter = LeaderboardFilterOption.ALL
+                    val directIdx = sortedPlayers.indexOfFirst { it.id == localPlayerState.id }
+                    if (directIdx >= 0) {
+                        scope.launch {
+                            listState.animateScrollToItem((directIdx + 3).coerceAtLeast(0))
+                        }
+                    }
+                }
+            }
+        )
+    }
+    }
 
     // PLAYER DETAIL DIALOG / BOTTOM SHEET CARD
     selectedPlayerForDetail?.let { player ->
@@ -1082,7 +1274,7 @@ fun EliteLeaderboardCard(
                             modifier = Modifier.size(13.dp)
                         )
                         CurrencyText(
-                            text = "₳${formatCredit(player.netWorth)}",
+                            text = formatCredit(player.netWorth),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Black,
                             fontFamily = RobotoMonoFontFamily,
@@ -1137,11 +1329,18 @@ fun OnlinePlayerDetailDialog(
 
     val artifacts = remember(player.id) {
         if (isMe) MuseumHeritageManager.getOwnedArtifacts(context)
-        else MuseumHeritageManager.getArtifactsForOnlinePlayer(player.id, player.level)
+        else MuseumHeritageManager.getArtifactsForOnlinePlayerSync(context, player.id, player.name, player.companyName)
     }
-    val museumPrestige = remember(player.id) {
+    var verifiedArtifacts by remember(player.id) { mutableStateOf(artifacts) }
+    LaunchedEffect(player.id) {
+        if (!isMe) {
+            val remote = MuseumHeritageManager.getArtifactsForOnlinePlayer(context, player.id, player.name, player.companyName)
+            verifiedArtifacts = remote
+        }
+    }
+    val museumPrestige = remember(verifiedArtifacts, isMe) {
         if (isMe) MuseumHeritageManager.getTotalMuseumPrestige(context)
-        else artifacts.sumOf { it.prestigeScore }
+        else verifiedArtifacts.sumOf { it.prestigeScore }
     }
 
     Dialog(
@@ -1272,7 +1471,7 @@ fun OnlinePlayerDetailDialog(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 CurrencyText(
-                                    text = formatCurrency(player.netWorth, isEnglishLanguage()),
+                                    text = formatCredit(player.netWorth),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Black,
                                     color = theme.textPrimaryColor,
@@ -1286,7 +1485,7 @@ fun OnlinePlayerDetailDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // ŞİRKET DEĞERİ
+                        // BANKA MEVDUATI & LİKİDİTE
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(4.dp),
@@ -1295,12 +1494,12 @@ fun OnlinePlayerDetailDialog(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Rounded.AccountBalance, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(14.dp))
-                                    CurrencyText(tr("ŞİRKET DEĞERİ", "COMPANY VALUATION"), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = ThemeGold, fontFamily = RobotoMonoFontFamily)
+                                    Icon(Icons.Rounded.AccountBalance, contentDescription = null, tint = theme.primaryColor, modifier = Modifier.size(14.dp))
+                                    CurrencyText(tr("BANKA MEVDUATI", "BANK DEPOSIT"), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.primaryColor, fontFamily = RobotoMonoFontFamily)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 CurrencyText(
-                                    text = formatCredit(player.netWorth),
+                                    text = formatCredit(player.bankBalance),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = theme.textPrimaryColor
@@ -1343,7 +1542,7 @@ fun OnlinePlayerDetailDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CurrencyText(
-                            text = tr("🏛️ AHİLİK MİRASI MÜZESİ (${artifacts.size} Eser)", "🏛️ AHILIK HERITAGE MUSEUM (${artifacts.size} Artifacts)"),
+                            text = tr("🏛️ AHİLİK MİRASI MÜZESİ (${verifiedArtifacts.size} Eser)", "🏛️ AHILIK HERITAGE MUSEUM (${verifiedArtifacts.size} Artifacts)"),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = RobotoMonoFontFamily,
@@ -1392,14 +1591,14 @@ fun OnlinePlayerDetailDialog(
                         }
                     }
 
-                    if (artifacts.isEmpty()) {
+                    if (verifiedArtifacts.isEmpty()) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(4.dp),
                             color = if (theme.isDark) Color(0xFF162136) else theme.surfaceVariantColor
                         ) {
                             CurrencyText(
-                                text = tr("Bu holding henüz müzesine tarihi Ahilik eseri dahil etmedi.", "This holding has not included historical Ahilik artifacts in its museum yet."),
+                                text = tr("Bu holding henüz müzesine tescilli bir Ahilik tarihi eseri dahil etmedi.", "This holding has not included verified Ahilik artifacts in its museum yet."),
                                 fontSize = 11.sp,
                                 color = theme.textSecondaryColor,
                                 modifier = Modifier.padding(12.dp),
@@ -1408,7 +1607,7 @@ fun OnlinePlayerDetailDialog(
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            artifacts.forEach { artifact ->
+                            verifiedArtifacts.forEach { artifact ->
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(4.dp),
@@ -1569,16 +1768,41 @@ fun OnlinePlayerDetailDialog(
                     }
                 }
 
-                // FOOTER BUTTON
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(42.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = theme.primaryColor),
-                    shape = RoundedCornerShape(4.dp)
+                // FOOTER ACTIONS
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CurrencyText(tr("KAPAT", "CLOSE"), fontWeight = FontWeight.Bold, color = Color.White)
+                    if (!isMe) {
+                        OutlinedButton(
+                            onClick = {
+                                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.LIGHT_CLICK)
+                                com.example.ui.components.SmartNotificationManager.show(
+                                    message = "👏 ${player.companyName} holdingine tebrik mesajınız iletildi!",
+                                    enMessage = "👏 Congratulations sent to ${player.companyName}!",
+                                    type = com.example.ui.components.NotificationType.SUCCESS
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(42.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(1.dp, ThemeGold)
+                        ) {
+                            CurrencyText(tr("👏 Tebrik Et", "👏 Congratulate"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThemeGold)
+                        }
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.primaryColor),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        CurrencyText(tr("KAPAT", "CLOSE"), fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
         }

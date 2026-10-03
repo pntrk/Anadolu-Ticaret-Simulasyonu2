@@ -59,6 +59,8 @@ import com.example.ui.components.NotificationType
 import com.example.ui.components.ParticleManager
 import com.example.ui.components.SmartNotificationManager
 import com.example.ui.components.TurkishLiraIcon
+import com.example.ui.components.GameUnifiedDropdownMenu
+import com.example.ui.components.GameUnifiedDropdownMenuItem
 import com.example.ui.components.formatMoney
 import com.example.ui.components.formatCurrency
 import com.example.ui.theme.isEnglishLanguage
@@ -87,7 +89,9 @@ fun MarketScreen(
     uiState: com.example.viewmodel.GameUiState,
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
-    onNavigateHome: () -> Unit = {}
+    onNavigateHome: () -> Unit = {},
+    onNavigateToProduction: ((productId: String?, cityId: String?) -> Unit)? = null,
+    onNavigateToBorsa: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -103,8 +107,15 @@ fun MarketScreen(
         return
     }
 
+    DisposableEffect(Unit) {
+        viewModel.setMarketScreenActive(true)
+        onDispose {
+            viewModel.setMarketScreenActive(false)
+        }
+    }
+
     val inventory = uiState.inventoryState.items
-    val allListings = uiState.marketState.marketListings
+    val allListings = uiState.marketState.marketListings.filter { !it.isExpired }
     val player = uiState.playerState.player
     val marketPrices = uiState.marketState.prices
     val isExpertMode = uiState.settingsState.isExpertMode
@@ -437,26 +448,29 @@ fun MarketScreen(
                                         }
                                     }
 
-                                    DropdownMenu(
+                                    GameUnifiedDropdownMenu(
                                         expanded = showQualityMenu,
                                         onDismissRequest = { showQualityMenu = false },
-                                        modifier = Modifier
-                                            .background(Color(0xFF162032))
-                                            .widthIn(min = 160.dp)
+                                        widthMin = 180.dp
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("Tüm Kaliteler".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
-                                            leadingIcon = { Icon(Icons.Rounded.FilterList, contentDescription = null, tint = ThemeNeonCyan) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "Tüm Kaliteler".trAuto(),
+                                            leadingIcon = Icons.Rounded.FilterList,
+                                            iconTint = ThemeNeonCyan,
+                                            isSelected = selectedQualityFilter == null,
                                             onClick = {
                                                 selectedQualityFilter = null
                                                 showQualityMenu = false
                                             }
                                         )
-                                        HorizontalDivider(color = Color(0xFF26334D))
+                                        HorizontalDivider(color = Color(0xFF26334D), thickness = 1.dp)
                                         listOf(1, 2, 3, 4, 5).forEach { stars ->
                                             val qObj = com.example.data.ItemQuality.fromStars(stars)
-                                            DropdownMenuItem(
-                                                text = { CurrencyText(qObj.label, color = qObj.badgeColor, fontWeight = FontWeight.Bold) },
+                                            GameUnifiedDropdownMenuItem(
+                                                text = qObj.label,
+                                                isSelected = selectedQualityFilter == stars,
+                                                selectedColor = qObj.badgeColor,
+                                                iconTint = qObj.badgeColor,
                                                 onClick = {
                                                     selectedQualityFilter = stars
                                                     showQualityMenu = false
@@ -507,36 +521,44 @@ fun MarketScreen(
                                         }
                                     }
 
-                                    DropdownMenu(
+                                    GameUnifiedDropdownMenu(
                                         expanded = showTierMenu,
                                         onDismissRequest = { showTierMenu = false },
-                                        modifier = Modifier
-                                            .background(Color(0xFF162032))
-                                            .widthIn(min = 180.dp)
+                                        widthMin = 200.dp
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("Tüm Kategori & Tier'lar".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
-                                            leadingIcon = { Icon(Icons.Rounded.Category, contentDescription = null, tint = ThemeGold) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "Tüm Kategori & Tier'lar".trAuto(),
+                                            leadingIcon = Icons.Rounded.Category,
+                                            iconTint = ThemeGold,
+                                            isSelected = selectedTierFilter == null,
                                             onClick = {
                                                 selectedTierFilter = null
                                                 showTierMenu = false
                                             }
                                         )
-                                        HorizontalDivider(color = Color(0xFF26334D))
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("🌾 Tier 1 - Ham Madde & Tarım", color = ThemeGold) },
+                                        HorizontalDivider(color = Color(0xFF26334D), thickness = 1.dp)
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "🌾 Tier 1 - Ham Madde & Tarım",
+                                            isSelected = selectedTierFilter == ProductTier.TIER_1,
+                                            selectedColor = ThemeGold,
                                             onClick = { selectedTierFilter = ProductTier.TIER_1; showTierMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("🏭 Tier 2 - İşlenmiş Sanayi", color = ThemeNeonCyan) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "🏭 Tier 2 - İşlenmiş Sanayi",
+                                            isSelected = selectedTierFilter == ProductTier.TIER_2,
+                                            selectedColor = ThemeNeonCyan,
                                             onClick = { selectedTierFilter = ProductTier.TIER_2; showTierMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("📱 Tier 3 - İleri Teknoloji", color = Color(0xFFE040FB)) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "📱 Tier 3 - İleri Teknoloji",
+                                            isSelected = selectedTierFilter == ProductTier.TIER_3,
+                                            selectedColor = Color(0xFFE040FB),
                                             onClick = { selectedTierFilter = ProductTier.TIER_3; showTierMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("🚀 Tier 4 - Mega Projeler", color = Color(0xFF00E676)) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "🚀 Tier 4 - Mega Projeler",
+                                            isSelected = selectedTierFilter == ProductTier.TIER_4,
+                                            selectedColor = Color(0xFF00E676),
                                             onClick = { selectedTierFilter = ProductTier.TIER_4; showTierMenu = false }
                                         )
                                     }
@@ -595,23 +617,22 @@ fun MarketScreen(
                                         }
                                     }
 
-                                    DropdownMenu(
+                                    GameUnifiedDropdownMenu(
                                         expanded = showProductMenu,
                                         onDismissRequest = { showProductMenu = false },
-                                        modifier = Modifier
-                                            .background(Color(0xFF162032))
-                                            .widthIn(min = 220.dp)
-                                            .heightIn(max = 320.dp)
+                                        widthMin = 220.dp
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("Tüm Ürün Çeşitleri".trAuto(), color = Color.White, fontWeight = FontWeight.Bold) },
-                                            leadingIcon = { Icon(Icons.Rounded.Inventory2, contentDescription = null, tint = Color(0xFFE040FB)) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "Tüm Ürün Çeşitleri".trAuto(),
+                                            leadingIcon = Icons.Rounded.Inventory2,
+                                            iconTint = Color(0xFFE040FB),
+                                            isSelected = selectedProductVarietyFilter == null,
                                             onClick = {
                                                 selectedProductVarietyFilter = null
                                                 showProductMenu = false
                                             }
                                         )
-                                        HorizontalDivider(color = Color(0xFF26334D))
+                                        HorizontalDivider(color = Color(0xFF26334D), thickness = 1.dp)
 
                                         // Filtrelenmiş veya tüm ürün listesi (Gerçek Ürün Görselleri ile)
                                         val availableProducts = Product.values().filter { p ->
@@ -670,27 +691,29 @@ fun MarketScreen(
                                         }
                                     }
 
-                                    DropdownMenu(
+                                    GameUnifiedDropdownMenu(
                                         expanded = showSortMenu,
                                         onDismissRequest = { showSortMenu = false },
-                                        modifier = Modifier
-                                            .background(Color(0xFF162032))
-                                            .widthIn(min = 180.dp)
+                                        widthMin = 200.dp
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("📈 Fiyat (Düşükten Yükseğe)", color = Color.White) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "📈 Fiyat (Düşükten Yükseğe)",
+                                            isSelected = sortBy == "PRICE_ASC",
                                             onClick = { sortBy = "PRICE_ASC"; showSortMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("📉 Fiyat (Yüksekten Düşüğe)", color = Color.White) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "📉 Fiyat (Yüksekten Düşüğe)",
+                                            isSelected = sortBy == "PRICE_DESC",
                                             onClick = { sortBy = "PRICE_DESC"; showSortMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("📦 Miktar (En Yüksek)", color = Color.White) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "📦 Miktar (En Yüksek)",
+                                            isSelected = sortBy == "QTY_DESC",
                                             onClick = { sortBy = "QTY_DESC"; showSortMenu = false }
                                         )
-                                        DropdownMenuItem(
-                                            text = { CurrencyText("🚛 Lojistik (En Yakın Şehir)", color = Color.White) },
+                                        GameUnifiedDropdownMenuItem(
+                                            text = "🚛 Lojistik (En Yakın Şehir)",
+                                            isSelected = sortBy == "LOGISTICS_ASC",
                                             onClick = { sortBy = "LOGISTICS_ASC"; showSortMenu = false }
                                         )
                                     }
@@ -1182,6 +1205,25 @@ fun MarketScreen(
             events = activeCityEvents,
             newsTickerMessage = newsTickerMessage,
             macroState = macroState,
+            bulletinOpportunities = uiState.bulletinOpportunities,
+            ownedFacilities = uiState.businesses,
+            onClaimReward = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.ClaimBulletinOpportunityReward(oppId))
+            },
+            onQuickProduce = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.QuickProduceForBulletinOpportunity(oppId))
+            },
+            onNavigateToFacility = { prodId, cityId ->
+                showNewsBulletinDialog = false
+                onNavigateToProduction?.invoke(prodId, cityId)
+            },
+            onNavigateToBorsa = {
+                showNewsBulletinDialog = false
+                onNavigateToBorsa?.invoke()
+            },
+            onNavigateToMarket = {
+                showNewsBulletinDialog = false
+            },
             onDismiss = { showNewsBulletinDialog = false },
             onNavigateToCity = { targetCityId ->
                 showNewsBulletinDialog = false
@@ -1518,6 +1560,30 @@ fun PeerListingCard(
                                 fontSize = 10.sp,
                                 fontFamily = RobotoMonoFontFamily,
                                 color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    }
+
+                    // 3-Day Maximum Expiration Countdown Pill Badge
+                    val remMs = offer.remainingMs
+                    val remDays = remMs / (24 * 3600 * 1000L)
+                    val remHours = (remMs % (24 * 3600 * 1000L)) / (3600 * 1000L)
+                    val remTimeText = if (remDays > 0) "${remDays}g ${remHours}sa" else "${remHours}sa"
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF161F30),
+                        border = BorderStroke(1.dp, if (remDays == 0L) ThemeNegative.copy(alpha = 0.6f) else Color(0xFF3B4861))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CurrencyText(
+                                text = "⏳ $remTimeText",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (remDays == 0L) ThemeNegative else Color(0xFFCBD5E1),
+                                fontFamily = RobotoMonoFontFamily
                             )
                         }
                     }
@@ -2773,6 +2839,15 @@ fun MarketListingDetailsDialog(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             CurrencyText("Teslim Şehri (Deponuz):".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             CurrencyText(destCityName, style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        }
+                        
+                        val remMs = listing.remainingMs
+                        val remDays = remMs / (24 * 3600 * 1000L)
+                        val remHours = (remMs % (24 * 3600 * 1000L)) / (3600 * 1000L)
+                        val remMinutes = (remMs % (3600 * 1000L)) / (60 * 1000L)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            CurrencyText("Maksimum Yayın Süresi:".trAuto(), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            CurrencyText("⏳ 3 Gün (Kalan: ${remDays}g ${remHours}sa ${remMinutes}dk)", style = MaterialTheme.typography.bodySmall, color = ThemeGold, fontWeight = FontWeight.Bold, fontFamily = RobotoMonoFontFamily)
                         }
                     }
                 }

@@ -81,6 +81,14 @@ import com.example.ui.components.ConsortiumHonorPodium
 import com.example.ui.components.ConsortiumBoardVotingCard
 import com.example.ui.components.ConsortiumSynergyPanel
 import com.example.ui.components.QualityBadge
+import com.example.ui.components.ConsortiumGuidedStep
+import com.example.ui.components.ConsortiumGuidedStepBar
+import com.example.ui.components.ConsortiumProductHeroCard
+import com.example.ui.components.ConsortiumNextStepGuidanceCard
+import com.example.ui.components.ConsortiumDepotVisualCard
+import com.example.ui.components.ConsortiumMembersVisualSection
+import com.example.ui.components.ConsortiumMemberDetailDialog
+import com.example.ui.components.ConsortiumLiveTacticalChat
 import com.example.ui.theme.RobotoMonoFontFamily
 import com.example.ui.theme.ThemeBorder
 import com.example.ui.theme.ThemeGold
@@ -99,7 +107,7 @@ fun MegaProjectHubScreen(
     viewModel: GameViewModel,
     onNavigateBack: () -> Unit = {},
     onNavigateToRd: (String?) -> Unit = {},
-    onNavigateToFacilities: () -> Unit = {},
+    onNavigateToFacilities: (String?) -> Unit = {},
     onNavigateToBorsa: () -> Unit = {},
     onNavigateToMarket: () -> Unit = {}
 ) {
@@ -138,13 +146,20 @@ fun MegaProjectHubScreen(
     var completedProjectsCount by remember { mutableIntStateOf(0) }
     var totalBrandReputation by remember { mutableIntStateOf(0) }
 
-    // Poll Supabase periodically while screen is open to reflect instant changes
+    DisposableEffect(Unit) {
+        viewModel.setConsortiumScreenActive(true)
+        onDispose {
+            viewModel.setConsortiumScreenActive(false)
+        }
+    }
+
+    // Refresh Supabase while screen is open (every 15s for egress optimization)
     LaunchedEffect(Unit) {
         while (true) {
             withContext(Dispatchers.IO) {
                 com.example.data.MultiplayerManager.refreshGuildsFromSupabase()
             }
-            kotlinx.coroutines.delay(3000L)
+            kotlinx.coroutines.delay(15_000L)
         }
     }
 
@@ -656,10 +671,11 @@ fun MegaProjectHubScreen(
             ) {
                 Surface(
                     modifier = Modifier
-                        .fillMaxWidth(0.95f)
-                        .fillMaxHeight(0.9f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF090D16).copy(alpha = 0.4f)
+                        .fillMaxWidth(0.96f)
+                        .fillMaxHeight(0.92f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF080F1E),
+                    border = BorderStroke(1.2.dp, ThemeNeonCyan.copy(alpha = 0.8f))
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Row(
@@ -795,7 +811,7 @@ fun ConsortiumSlotItemCard(
     onTakeoverBottleneck: (ConsortiumSupplierSlot) -> Unit,
     onKickPartnerFromSlot: (ConsortiumSupplierSlot) -> Unit,
     onNavigateToMarket: () -> Unit,
-    onNavigateToFacilities: () -> Unit
+    onNavigateToFacilities: (String?) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     val pId = uiState.playerState.player?.id ?: "local_player"
@@ -1106,7 +1122,10 @@ fun ConsortiumSlotItemCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             CurrencyText(
                                 text = tr("🛒 Pazardan Al", "🛒 Buy Market"),
                                 fontSize = 8.5.sp,
@@ -1115,12 +1134,20 @@ fun ConsortiumSlotItemCard(
                                 modifier = Modifier.clickable { onNavigateToMarket() }
                             )
                             CurrencyText("•", fontSize = 8.5.sp, color = Color.DarkGray)
+                            
+                            val prodObj = Product.values().find { it.id == slot.productId || it.facilityId.equals(slot.productId, ignoreCase = true) }
+                            val userBiz = uiState.businesses.find { it.type == prodObj?.facilityId }
+                            val hasFacility = userBiz != null
+
                             CurrencyText(
-                                text = tr("🏭 Tesisimde Üret", "🏭 Manufacture"),
+                                text = if (hasFacility) tr("🏭 Tesisimde Üret (Sv.${userBiz.level})", "🏭 Manufacture (Lv.${userBiz.level})") else tr("➕ Tesis Kur & Üret", "➕ Build Facility"),
                                 fontSize = 8.5.sp,
-                                color = ThemeGold,
+                                color = if (hasFacility) ThemeGold else Color(0xFF60A5FA),
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { onNavigateToFacilities() }
+                                modifier = Modifier.clickable { 
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onNavigateToFacilities(slot.productId) 
+                                }
                             )
                         }
 
@@ -1199,7 +1226,7 @@ fun MegaProjectCard(
     project: MegaProject,
     viewModel: GameViewModel,
     onNavigateToRd: (String?) -> Unit = {},
-    onNavigateToFacilities: () -> Unit = {},
+    onNavigateToFacilities: (String?) -> Unit = {},
     onNavigateToBorsa: () -> Unit = {},
     onNavigateToMarket: () -> Unit = {},
     isExpanded: Boolean,
@@ -1222,7 +1249,14 @@ fun MegaProjectCard(
     val isEng = isEnglishLanguage()
     var showDisbandDialog by remember { mutableStateOf(false) }
     var showLeaveProjectDialog by remember { mutableStateOf(false) }
-    var selectedDetailTab by remember { mutableStateOf(0) }
+    var guidedStep by remember { mutableStateOf(ConsortiumGuidedStep.OVERVIEW) }
+    var selectedMemberForDetail by remember { mutableStateOf<Pair<String, String>?>(null) }
+
+    LaunchedEffect(guidedStep) {
+        if (guidedStep == ConsortiumGuidedStep.TACTICAL_CHAT) {
+            viewModel.handleIntent(com.example.viewmodel.GameIntent.ListenToConsortiumChat(project.id))
+        }
+    }
 
     var showStampOverlay by remember { mutableStateOf(false) }
     var stampTitle by remember { mutableStateOf("SERİ ÜRETİM ONAYLANDI") }
@@ -1586,695 +1620,433 @@ fun MegaProjectCard(
                         }
                     }
 
-                    // ================= 🎯 ACTION HUD: SMART CONTEXT BAR =================
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF0F1E36),
-                        border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Rounded.Explore, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    CurrencyText(tr("🎯 Ne Yapmalısın? (Hızlı Eylem)", "🎯 What to do next? (Quick Action)"), fontSize = 10.sp, fontWeight = FontWeight.Black, color = ThemeGold)
-                                }
 
-                                val hasUnread = uiState.consortiumState.unreadChatProjects.contains(project.id)
-                                Row(
-                                    modifier = Modifier.clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onOpenChat()
-                                    },
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Rounded.Forum, contentDescription = null, tint = if (hasUnread) Color.Red else ThemeNeonCyan, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    CurrencyText(tr("💬 Telsiz", "💬 Radio"), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (hasUnread) Color.Red else ThemeNeonCyan)
-                                }
-                            }
 
-                            if (mySlot != null) {
-                                if (!mySlot.isFullyDelivered) {
-                                    val invItem = uiState.inventoryState.items.find { it.itemId == mySlot.productId }
-                                    val availableInInventory = invItem?.quantity ?: 0
-                                    val remaining = (mySlot.quantityRequired - mySlot.quantityDelivered).coerceAtLeast(0)
-                                    val fastDeliverQty = minOf(availableInInventory, remaining)
+                    // ================= 🎯 ADIM ADIM YÖNLENDİREN MENÜ (GUIDED STEPS) =================
+                    ConsortiumGuidedStepBar(
+                        currentStep = guidedStep,
+                        onStepSelected = { guidedStep = it },
+                        hasUnreadChat = uiState.consortiumState.unreadChatProjects.contains(project.id),
+                        openSlotsCount = openSlotsCount,
+                        warehouseStock = project.warehouseStock
+                    )
 
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
+                    when (guidedStep) {
+                        ConsortiumGuidedStep.OVERVIEW -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // 1. Üretilen Ürün Vitrini & Hedef Bilgisi
+                                ConsortiumProductHeroCard(project = project)
+
+                                // 2. Adım Adım Kullanıcı Yönlendirici Kartı
+                                ConsortiumNextStepGuidanceCard(
+                                    project = project,
+                                    mySlot = mySlot,
+                                    isLeader = isLeader,
+                                    openSlotsCount = openSlotsCount,
+                                    inventory = uiState.inventoryState.items,
+                                    onNavigateToProductionTab = { guidedStep = ConsortiumGuidedStep.PRODUCTION_SLOTS },
+                                    onNavigateToDepotTab = { guidedStep = ConsortiumGuidedStep.WAREHOUSE_DEPOT }
+                                )
+
+                                // 3. İzometrik Proje Şantiyesi Preview
+                                ConsortiumAssemblyLineCanvas(
+                                    project = project,
+                                    modifier = Modifier.fillMaxWidth().height(130.dp)
+                                )
+
+                                // 4. İlk Teslimat Geri Sayımı (varsa)
+                                if (project.isPreparationCountdownActive) {
+                                    val remainingMs = project.remainingPreparationCountdownMs
+                                    val hours = remainingMs / (1000 * 3600)
+                                    val mins = (remainingMs / (1000 * 60)) % 60
+                                    val secs = (remainingMs / 1000) % 60
+                                    val countdownStr = String.format("%02d:%02d:%02d", hours, mins, secs)
+
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF1E293B),
+                                        border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.6f)),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Column {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Rounded.HourglassTop, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                CurrencyText(tr("İlk Teslimat & Hazırlık Süreci", "Initial Delivery & Preparation"), color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                            CurrencyText(countdownStr, color = ThemeNeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                        }
+                                    }
+                                }
+
+                                // 5. Proje Süreç Açıklaması
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0D172A),
+                                    border = BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Icon(Icons.Rounded.AccountTree, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(15.dp))
                                             CurrencyText(
-                                                text = "📦 ${mySlot.productName}: ${mySlot.quantityDelivered}/${mySlot.quantityRequired} Adet",
-                                                fontSize = 9.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White
-                                            )
-                                            CurrencyText(
-                                                text = if (fastDeliverQty > 0) tr("Depoda $availableInInventory adet hazır malzeme var!", "$availableInInventory items ready in storage!") else tr("Depoda malzeme yok. Pazardan al veya üret.", "Out of stock. Buy or produce."),
-                                                fontSize = 8.5.sp,
-                                                color = if (fastDeliverQty > 0) Color(0xFF34D399) else Color(0xFFFBBF24)
+                                                text = tr("GÜNCEL ÜRETİM AŞAMASI: ", "CURRENT PRODUCTION STAGE: ") + if (isEng) project.currentStage.titleEn else project.currentStage.titleTr,
+                                                color = Color.White,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 9.5.sp
                                             )
                                         }
+                                        val guidanceText = if (isEng) project.currentStage.descriptionEn else project.currentStage.descriptionTr
+                                        CurrencyText(text = "ℹ️ $guidanceText", fontSize = 8.5.sp, color = Color(0xFF94A3B8))
+                                    }
+                                }
+                            }
+                        }
 
-                                        if (fastDeliverQty > 0) {
-                                            AppButton(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.OneTapDeliverToConsortium(project.id, mySlot.slotId))
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
-                                                modifier = Modifier.height(28.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                CurrencyText("⚡ $fastDeliverQty Adet Ver", fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        ConsortiumGuidedStep.PRODUCTION_SLOTS -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // 👑 Konsorsiyum Kalite Mirası & Sinerji Paneli
+                                ConsortiumSynergyPanel(project = project)
+
+                                // Seri Üretim Bandı Durumu
+                                ConsortiumProductionLineCard(project = project)
+
+                                // 1 PARTİ TEST ÜRETİMİ & KURUCU ONAYI
+                                if (project.isTestProductProduced && !project.isMassProductionApproved) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF064E3B),
+                                        border = BorderStroke(1.2.dp, Color(0xFF34D399)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                CurrencyText(tr("🧪 1. PARTİ TEST ÜRETİMİ BAŞARILI!", "🧪 1ST BATCH TEST PRODUCTION SUCCESS!"), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
                                             }
-                                        } else {
-                                            AppButton(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    onNavigateToMarket()
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color.Black),
-                                                modifier = Modifier.height(28.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.ShoppingCart, contentDescription = null, modifier = Modifier.size(13.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                CurrencyText("🛒 Pazardan Al", fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                            if (isLeader) {
+                                                AppButton(
+                                                    onClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        viewModel.approveConsortiumMassProduction(project.id)
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
+                                                    modifier = Modifier.fillMaxWidth().height(32.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.RocketLaunch, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    CurrencyText(tr("👑 SERİ ÜRETİMİ ONAYLA & BAŞLAT", "👑 APPROVE & START MASS PRODUCTION"), fontSize = 9.5.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            } else {
+                                                CurrencyText(
+                                                    text = tr("⏳ Kurucu (${project.leaderPlayerName}) onayı bekleniyor...", "⏳ Waiting for Founder (${project.leaderPlayerName}) approval..."),
+                                                    color = Color(0xFFFDE68A),
+                                                    fontSize = 8.5.sp
+                                                )
                                             }
                                         }
                                     }
-                                } else {
-                                    CurrencyText(
-                                        text = tr("✅ Kotanı eksiksiz teslim ettin! Diğer ortakların parçaları tamamlaması bekleniyor.", "✅ You fully delivered your quota! Waiting for other partners to complete assembly."),
-                                        fontSize = 9.sp,
-                                        color = Color(0xFF34D399),
-                                        fontWeight = FontWeight.Medium
-                                    )
                                 }
-                            } else if (openSlotsCount > 0) {
+
+                                // Tedarikçi Kotaları Başlığı
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     CurrencyText(
-                                        text = tr("🤝 Projede $openSlotsCount açık kota var. Katılıp kâr payı kazan!", "🤝 $openSlotsCount open quota available. Join & earn dividends!"),
-                                        fontSize = 9.sp,
-                                        color = Color(0xFF93C5FD),
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.weight(1f)
+                                        text = tr("📋 Tedarikçi Kotaları & Hammaddeler", "📋 Supplier Quotas & Materials"),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = Color.White
                                     )
+                                    CurrencyText(
+                                        text = "${project.slots.count { it.isFullyDelivered }}/${project.slots.size} " + tr("Tamamlandı", "Completed"),
+                                        fontSize = 9.sp,
+                                        color = Color.LightGray
+                                    )
+                                }
+
+                                // Slots Cards
+                                project.slots.forEach { slot ->
+                                    ConsortiumSlotItemCard(
+                                        project = project,
+                                        slot = slot,
+                                        uiState = uiState,
+                                        viewModel = viewModel,
+                                        isLeader = isLeader,
+                                        onJoinSlot = onJoinSlot,
+                                        onDeliverClick = onDeliverClick,
+                                        onLeaveSlot = onLeaveSlot,
+                                        onTakeoverBottleneck = onTakeoverBottleneck,
+                                        onKickPartnerFromSlot = onKickPartnerFromSlot,
+                                        onNavigateToMarket = onNavigateToMarket,
+                                        onNavigateToFacilities = onNavigateToFacilities
+                                    )
+                                }
+
+                                // Advance Stage Button
+                                if (!isFinished && project.isCurrentStageFinished) {
                                     AppButton(
-                                        onClick = { selectedDetailTab = 0 },
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onAdvanceStage()
+                                        },
                                         colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                                        modifier = Modifier.height(26.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                        modifier = Modifier.fillMaxWidth().height(36.dp)
                                     ) {
-                                        CurrencyText(tr("Kotaları Gör", "View Quotas"), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Rounded.FastForward, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        CurrencyText(tr("AŞAMAYI TAMAMLA & SONRAKİNE GEÇ", "COMPLETE STAGE & ADVANCE"), fontWeight = FontWeight.Black, fontSize = 10.sp)
                                     }
                                 }
-                            } else {
-                                CurrencyText(
-                                    text = tr("⚙️ Tüm kotalar dolu. Montaj ve seri üretim süreçleri devam ediyor.", "⚙️ All quotas filled. Assembly and mass production active."),
-                                    fontSize = 9.sp,
-                                    color = Color.LightGray
+                            }
+                        }
+
+                        ConsortiumGuidedStep.WAREHOUSE_DEPOT -> {
+                            val allMarketListings by viewModel.marketListings.collectAsStateWithLifecycle()
+                            val consortiumListings = remember(allMarketListings, project.id, project.targetProductId) {
+                                allMarketListings.filter { listing ->
+                                    listing.id.startsWith("clist_") && (listing.id.contains(project.id.take(6)) || listing.itemId == project.targetProductId)
+                                }
+                            }
+                            val userSlotPct = mySlot?.sharePercentage ?: (if (isLeader) 100f else 0f)
+                            val playerGems = uiState.playerState.player?.gems ?: 0
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Visual Depot Management with Warehouse Shelves & Pallet Canvas
+                                ConsortiumDepotVisualCard(
+                                    project = project,
+                                    isLeader = isLeader,
+                                    isMember = isMember,
+                                    onSellWarehouseStock = { qty ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.SellConsortiumWarehouseStock(project.id, qty))
+                                    },
+                                    onListStockOnMarket = { qty, price ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ListConsortiumStockOnMarket(project.id, qty, price))
+                                    },
+                                    onUpgradeWarehouse = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        viewModel.upgradeConsortiumWarehouseWithGems(project.id, 100)
+                                    },
+                                    onChangeSalesChannel = { channel ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ChangeConsortiumSalesChannel(project.id, channel))
+                                    },
+                                    onToggleAutoSell = { autoSell ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleConsortiumAutoSell(project.id, autoSell))
+                                    },
+                                    activeMarketListings = consortiumListings,
+                                    onCancelMarketListing = { listingId ->
+                                        viewModel.cancelMarketListing(listingId)
+                                    },
+                                    currentGems = playerGems,
+                                    userSharePercentage = userSlotPct
                                 )
-                            }
-                        }
-                    }
 
-                    // ================= 3 CLEAN TABS =================
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (selectedDetailTab == 0) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF1E293B),
-                            border = BorderStroke(1.dp, if (selectedDetailTab == 0) ThemeNeonCyan else Color(0xFF334155)),
-                            modifier = Modifier.weight(1f).height(34.dp).clickable { selectedDetailTab = 0 }
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.PrecisionManufacturing, contentDescription = null, tint = if (selectedDetailTab == 0) ThemeNeonCyan else Color.Gray, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                CurrencyText(tr("🏭 1. Kotalar", "🏭 1. Quotas"), fontSize = 9.5.sp, fontWeight = if (selectedDetailTab == 0) FontWeight.Black else FontWeight.Normal, color = if (selectedDetailTab == 0) Color.White else Color.Gray)
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (selectedDetailTab == 1) ThemeGold.copy(alpha = 0.2f) else Color(0xFF1E293B),
-                            border = BorderStroke(1.dp, if (selectedDetailTab == 1) ThemeGold else Color(0xFF334155)),
-                            modifier = Modifier.weight(1f).height(34.dp).clickable { selectedDetailTab = 1 }
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.MonetizationOn, contentDescription = null, tint = if (selectedDetailTab == 1) ThemeGold else Color.Gray, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                CurrencyText(tr("💰 2. Finans", "💰 2. Finance"), fontSize = 9.5.sp, fontWeight = if (selectedDetailTab == 1) FontWeight.Black else FontWeight.Normal, color = if (selectedDetailTab == 1) Color.White else Color.Gray)
-                            }
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (selectedDetailTab == 2) Color(0xFF8B5CF6).copy(alpha = 0.2f) else Color(0xFF1E293B),
-                            border = BorderStroke(1.dp, if (selectedDetailTab == 2) Color(0xFF8B5CF6) else Color(0xFF334155)),
-                            modifier = Modifier.weight(1f).height(34.dp).clickable { selectedDetailTab = 2 }
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.Tune, contentDescription = null, tint = if (selectedDetailTab == 2) Color(0xFFC084FC) else Color.Gray, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                CurrencyText(tr("🏛️ 3. Yönetim", "🏛️ 3. Board"), fontSize = 9.5.sp, fontWeight = if (selectedDetailTab == 2) FontWeight.Black else FontWeight.Normal, color = if (selectedDetailTab == 2) Color.White else Color.Gray)
-                            }
-                        }
-                    }
-
-                    // ================= TAB CONTENT 0: ÜRETİM & KOTALAR =================
-                    if (selectedDetailTab == 0) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Isometric Line Preview
-                            ConsortiumAssemblyLineCanvas(
-                                project = project,
-                                modifier = Modifier.fillMaxWidth().height(130.dp)
-                            )
-
-                            // 1 Günlük İlk Malzeme Geri Sayımı (varsa)
-                            if (project.isPreparationCountdownActive) {
-                                val remainingMs = project.remainingPreparationCountdownMs
-                                val hours = remainingMs / (1000 * 3600)
-                                val mins = (remainingMs / (1000 * 60)) % 60
-                                val secs = (remainingMs / 1000) % 60
-                                val countdownStr = String.format("%02d:%02d:%02d", hours, mins, secs)
+                                // Financial Indicators Summary
+                                val shareValue = project.unitBatchPrice.toDouble() / 1000.0
+                                val currentSharePriceDisplay = shareValue * (1.0 + ((playerGuildShares[project.id] ?: 0).toDouble() * 0.002))
 
                                 Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF1E293B),
-                                    border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.6f)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF0F172A),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Rounded.HourglassTop, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(15.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            CurrencyText(tr("İlk Teslimat & Hazırlık Süreci", "Initial Delivery & Preparation"), color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                                    Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        CurrencyText(tr("PARTİ FİNANSAL GÖSTERGELERİ", "BATCH FINANCIAL INDICATORS"), color = Color.Gray, fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.sp)
+
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("Parti Başına Maliyet:", "Cost Per Batch:"), color = Color.LightGray, fontSize = 9.5.sp)
+                                            CurrencyText(formatCurrency(project.unitBatchCost, isEng), color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
                                         }
-                                        CurrencyText(countdownStr, color = ThemeNeonCyan, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("Parti Satış Fiyatı:", "Batch Selling Price:"), color = Color.LightGray, fontSize = 9.5.sp)
+                                            CurrencyText(formatCurrency(project.unitBatchPrice, isEng), color = Color(0xFF34D399), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("Parti Üretim Kârı:", "Batch Net Profit:"), color = Color.LightGray, fontSize = 9.5.sp)
+                                            CurrencyText(formatCurrency(project.unitBatchPrice - project.unitBatchCost, isEng), color = ThemeGold, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                                        }
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("👑 Kurucu Yönetim Payı (%10):", "👑 Founder Management Share (%10):"), color = ThemeGold, fontSize = 9.sp)
+                                            CurrencyText(formatCurrency((project.unitBatchPrice * 0.10f).toLong(), isEng), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("📦 Tedarikçi Havuzu (%90):", "📦 Supplier Pool (%90):"), color = ThemeNeonCyan, fontSize = 9.sp)
+                                            CurrencyText(formatCurrency((project.unitBatchPrice * 0.90f).toLong(), isEng), color = ThemeNeonCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            CurrencyText(tr("Güncel Hisse Değeri (1/1000):", "Current Share Price (1/1000):"), color = Color.LightGray, fontSize = 9.sp)
+                                            CurrencyText(formatCurrency(currentSharePriceDisplay.toLong(), isEng), color = ThemeNeonCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+
+                                if (isFinished && !project.isDividendClaimed) {
+                                    AppButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onClaimDividend()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White),
+                                        modifier = Modifier.fillMaxWidth().height(34.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.MonetizationOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        CurrencyText(tr("KÂR PAYLARINI (TEMETTÜ) HESAPLARA DAĞIT", "DISTRIBUTE DIVIDENDS TO ACCOUNTS"), fontWeight = FontWeight.Black, fontSize = 10.sp)
                                     }
                                 }
                             }
+                        }
 
-                            // 👑 Konsorsiyum Kalite Mirası & Sinerji Paneli
-                            ConsortiumSynergyPanel(project = project)
-
-                            // Seri Üretim Bandı Durumu
-                            ConsortiumProductionLineCard(project = project)
-
-                            // Depo Durumu
-                            val totalStockDelivered = project.slots.sumOf { it.quantityDelivered }
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF0F172A),
-                                border = BorderStroke(1.dp, Color(0xFF334155)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Rounded.Warehouse, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(15.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        CurrencyText(
-                                            text = "Depo: $totalStockDelivered / ${project.warehouseCapacity} Birim",
-                                            color = Color.LightGray,
-                                            fontSize = 9.5.sp
-                                        )
+                        ConsortiumGuidedStep.MEMBERS_EQUITY -> {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Visual Members Section with Clickable Detail Cards
+                                ConsortiumMembersVisualSection(
+                                    project = project,
+                                    currentUserId = pId,
+                                    onMemberClick = { partnerId, partnerName ->
+                                        selectedMemberForDetail = Pair(partnerId, partnerName)
                                     }
+                                )
 
+                                // Kurucu Yönetim Merkezi (Leader controls)
+                                if (isLeader) {
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = Color(0xFF0F172A),
+                                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            CurrencyText(tr("👑 KURUCU YÖNETİM KONTROLLERİ", "👑 FOUNDER MANAGEMENT CONTROLS"), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Black)
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                CurrencyText(
+                                                    text = if (project.isProductionPaused) tr("Üretim Durduruldu", "Production Paused") else tr("Üretim Devam Ediyor", "Production Running"),
+                                                    fontSize = 9.sp,
+                                                    color = if (project.isProductionPaused) Color(0xFFFCA5A5) else Color(0xFFA7F3D0)
+                                                )
+                                                AppButton(
+                                                    onClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleConsortiumProductionState(project.id))
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (project.isProductionPaused) Color(0xFF10B981) else Color(0xFFEF4444),
+                                                        contentColor = Color.White
+                                                    ),
+                                                    modifier = Modifier.height(24.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                                ) {
+                                                    CurrencyText(if (project.isProductionPaused) tr("BAŞLAT", "START") else tr("DURDUR", "PAUSE"), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            }
+
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                CurrencyText(
+                                                    text = tr("🤖 İK Otomatik Satış: ", "🤖 HR Auto Sell: ") + if (project.isAutoSellActive) tr("AÇIK", "ON") else tr("KAPALI", "OFF"),
+                                                    fontSize = 9.sp,
+                                                    color = Color.White
+                                                )
+                                                AppButton(
+                                                    onClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleConsortiumAutoSell(project.id, !project.isAutoSellActive))
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = if (project.isAutoSellActive) ThemeNeonCyan else Color(0xFF334155),
+                                                        contentColor = if (project.isAutoSellActive) Color.Black else Color.White
+                                                    ),
+                                                    modifier = Modifier.height(24.dp),
+                                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                                ) {
+                                                    CurrencyText(if (project.isAutoSellActive) tr("KAPAT", "DISABLE") else tr("AÇ", "ENABLE"), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Board Voting Card
+                                ConsortiumBoardVotingCard(
+                                    project = project,
+                                    currentUserId = pId,
+                                    onSetStrategy = { strategy -> viewModel.handleIntent(com.example.viewmodel.GameIntent.SetConsortiumProductionStrategy(project.id, strategy)) },
+                                    onChangeSalesChannel = { channel -> viewModel.handleIntent(com.example.viewmodel.GameIntent.ChangeConsortiumSalesChannel(project.id, channel)) },
+                                    onVoteProposal = { propId, yes -> viewModel.handleIntent(com.example.viewmodel.GameIntent.VoteOnConsortiumBoardProposal(project.id, propId, yes)) },
+                                    onCreateProposal = { titleTr, titleEn, descTr, descEn, type, proposedVal ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.CreateConsortiumBoardProposal(project.id, titleTr, titleEn, descTr, descEn, type, proposedVal))
+                                    }
+                                )
+
+                                // Telsiz SOS Broadcast Bar
+                                ConsortiumRadioSosBroadcastBar(
+                                    project = project,
+                                    onBroadcastSos = { targetSlotId ->
+                                        viewModel.handleIntent(com.example.viewmodel.GameIntent.BroadcastConsortiumRadioSos(project.id, targetSlotId))
+                                    }
+                                )
+
+                                // Honor Podium
+                                ConsortiumHonorPodium(project = project, currentUserId = pId)
+
+                                // Leave / Disband Actions
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     if (isLeader) {
                                         AppButton(
-                                            onClick = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                viewModel.upgradeConsortiumWarehouseWithGems(project.id, 100)
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7), contentColor = Color.White),
-                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
-                                            modifier = Modifier.height(24.dp)
+                                            onClick = { showDisbandDialog = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF450A0A), contentColor = Color(0xFFFCA5A5)),
+                                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
+                                            modifier = Modifier.weight(1f).height(30.dp)
                                         ) {
-                                            Icon(Icons.Rounded.Diamond, contentDescription = null, tint = Color(0xFF67E8F9), modifier = Modifier.size(11.dp))
-                                            Spacer(modifier = Modifier.width(3.dp))
-                                            CurrencyText("100 💎 (+1000)", fontSize = 8.sp, fontWeight = FontWeight.Black)
+                                            Icon(Icons.Rounded.DeleteForever, contentDescription = null, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            CurrencyText(tr("Konsorsiyumu Feshet", "Disband Consortium"), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else if (isMember) {
+                                        AppButton(
+                                            onClick = { showLeaveProjectDialog = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1065), contentColor = Color(0xFFE9D5FF)),
+                                            border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.5f)),
+                                            modifier = Modifier.weight(1f).height(30.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.ExitToApp, contentDescription = null, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            CurrencyText(tr("Konsorsiyumdan Ayrıl", "Leave Consortium"), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
-                                }
-                            }
-
-                            // 1 PARTİ TEST ÜRETİMİ & KURUCU ONAYI
-                            if (project.isTestProductProduced && !project.isMassProductionApproved) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF064E3B),
-                                    border = BorderStroke(1.2.dp, Color(0xFF34D399)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = Color(0xFF34D399), modifier = Modifier.size(15.dp))
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            CurrencyText(tr("🧪 1. PARTİ TEST ÜRETİMİ BAŞARILI!", "🧪 1ST BATCH TEST PRODUCTION SUCCESS!"), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                                        }
-                                        if (isLeader) {
-                                            AppButton(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    viewModel.approveConsortiumMassProduction(project.id)
-                                                },
-                                                colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
-                                                modifier = Modifier.fillMaxWidth().height(32.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.RocketLaunch, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                CurrencyText(tr("👑 SERİ ÜRETİMİ ONAYLA & BAŞLAT", "👑 APPROVE & START MASS PRODUCTION"), fontSize = 9.5.sp, fontWeight = FontWeight.Black)
-                                            }
-                                        } else {
-                                            CurrencyText(
-                                                text = tr("⏳ Kurucu (${project.leaderPlayerName}) onayı bekleniyor...", "⏳ Waiting for Founder (${project.leaderPlayerName}) approval..."),
-                                                color = Color(0xFFFDE68A),
-                                                fontSize = 8.5.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Tedarikçi Kotaları Başlığı
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CurrencyText(
-                                    text = tr("📋 Tedarikçi Kotaları", "📋 Supplier Quotas"),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Black,
-                                    color = Color.White
-                                )
-                                CurrencyText(
-                                    text = "${project.slots.count { it.isFullyDelivered }}/${project.slots.size} " + tr("Tamamlandı", "Completed"),
-                                    fontSize = 9.sp,
-                                    color = Color.LightGray
-                                )
-                            }
-
-                            // Slots Cards
-                            project.slots.forEach { slot ->
-                                ConsortiumSlotItemCard(
-                                    project = project,
-                                    slot = slot,
-                                    uiState = uiState,
-                                    viewModel = viewModel,
-                                    isLeader = isLeader,
-                                    onJoinSlot = onJoinSlot,
-                                    onDeliverClick = onDeliverClick,
-                                    onLeaveSlot = onLeaveSlot,
-                                    onTakeoverBottleneck = onTakeoverBottleneck,
-                                    onKickPartnerFromSlot = onKickPartnerFromSlot,
-                                    onNavigateToMarket = onNavigateToMarket,
-                                    onNavigateToFacilities = onNavigateToFacilities
-                                )
-                            }
-
-                            // Advance Stage Button
-                            if (!isFinished && project.isCurrentStageFinished) {
-                                AppButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onAdvanceStage()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026)),
-                                    modifier = Modifier.fillMaxWidth().height(36.dp)
-                                ) {
-                                    Icon(Icons.Rounded.FastForward, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    CurrencyText(tr("AŞAMAYI TAMAMLA & SONRAKİNE GEÇ", "COMPLETE STAGE & ADVANCE"), fontWeight = FontWeight.Black, fontSize = 10.sp)
                                 }
                             }
                         }
-                    }
 
-                    // ================= TAB CONTENT 1: FİNANS & TEMETTÜ =================
-                    if (selectedDetailTab == 1) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val shareValue = project.unitBatchPrice.toDouble() / 1000.0
-                            val currentSharePriceDisplay = shareValue * (1.0 + ((playerGuildShares[project.id] ?: 0).toDouble() * 0.002))
-
-                            // Financial Indicators Summary
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF0F172A),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    CurrencyText(tr("PARTİ FİNANSAL GÖSTERGELERİ", "BATCH FINANCIAL INDICATORS"), color = Color.Gray, fontWeight = FontWeight.Black, fontSize = 9.sp, letterSpacing = 1.sp)
-
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("Parti Başına Maliyet:", "Cost Per Batch:"), color = Color.LightGray, fontSize = 9.5.sp)
-                                        CurrencyText(formatCurrency(project.unitBatchCost, isEng), color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("Parti Satış Fiyatı:", "Batch Selling Price:"), color = Color.LightGray, fontSize = 9.5.sp)
-                                        CurrencyText(formatCurrency(project.unitBatchPrice, isEng), color = Color(0xFF34D399), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("Parti Üretim Kârı:", "Batch Net Profit:"), color = Color.LightGray, fontSize = 9.5.sp)
-                                        CurrencyText(formatCurrency(project.unitBatchPrice - project.unitBatchCost, isEng), color = ThemeGold, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                                    }
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("👑 Kurucu Yönetim Payı (%10):", "👑 Founder Management Share (%10):"), color = ThemeGold, fontSize = 9.sp)
-                                        CurrencyText(formatCurrency((project.unitBatchPrice * 0.10f).toLong(), isEng), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("📦 Tedarikçi Havuzu (%90):", "📦 Supplier Pool (%90):"), color = ThemeNeonCyan, fontSize = 9.sp)
-                                        CurrencyText(formatCurrency((project.unitBatchPrice * 0.90f).toLong(), isEng), color = ThemeNeonCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        CurrencyText(tr("Güncel Hisse Değeri (1/1000):", "Current Share Price (1/1000):"), color = Color.LightGray, fontSize = 9.sp)
-                                        CurrencyText(formatCurrency(currentSharePriceDisplay.toLong(), isEng), color = ThemeNeonCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-
-                            // Partners Balance Sheet
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF131D31),
-                                border = BorderStroke(1.dp, Color(0xFF1E2D4A)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    CurrencyText(tr("👥 Ortaklar Bilanço & K/Z Tablosu", "👥 Partners Balance & P/L Sheet"), color = ThemeGold, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-
-                                    val groupedPartners = project.slots.filter { it.assignedPartnerId != null }.groupBy { it.assignedPartnerId }
-
-                                    if (groupedPartners.isEmpty()) {
-                                        CurrencyText(tr("Henüz katılan ortak yok.", "No joined partners yet."), color = Color.Gray, fontSize = 9.sp)
-                                    } else {
-                                        groupedPartners.forEach { (_, slotsForPartner) ->
-                                            val partnerName = slotsForPartner.first().assignedPartnerName ?: tr("Bilinmeyen", "Unknown")
-                                            val totalDividends = slotsForPartner.sumOf { it.totalDividendsEarned }
-                                            val mySharePercent = slotsForPartner.sumOf { it.sharePercentage.toDouble() }.toFloat()
-                                            val myShareFraction = if (mySharePercent > 0f) mySharePercent / 100f else 0f
-                                            val unrealizedBatchRevenue = (project.warehouseStock * project.unitBatchPrice)
-                                            val unrealizedDividends = (unrealizedBatchRevenue * myShareFraction).toLong()
-
-                                            val activeBeltRevenue = slotsForPartner.sumOf { slot ->
-                                                val slotShareFraction = if (slot.sharePercentage > 0f) slot.sharePercentage / 100f else 0f
-                                                val expectedPayout = (project.unitBatchPrice * slotShareFraction).toLong()
-                                                val deliveryRatio = if (slot.quantityRequired > 0) slot.quantityDelivered.toFloat() / slot.quantityRequired.toFloat() else 0f
-                                                (expectedPayout * deliveryRatio).toLong()
-                                            }
-                                            val totalValue = totalDividends + unrealizedDividends + activeBeltRevenue
-
-                                            val idealCost = slotsForPartner.sumOf { slot ->
-                                                val realizedBatches = if (project.unitBatchPrice > 0 && slot.sharePercentage > 0f) {
-                                                    slot.totalDividendsEarned.toDouble() / (project.unitBatchPrice * (slot.sharePercentage / 100f))
-                                                } else 0.0
-                                                val warehouseBatches = project.warehouseStock.toDouble()
-                                                val activeBatches = if (slot.quantityRequired > 0) slot.quantityDelivered.toDouble() / slot.quantityRequired else 0.0
-                                                (slot.costContributionValue * (realizedBatches + warehouseBatches + activeBatches)).toLong()
-                                            }
-                                            val netProfit = totalValue - idealCost
-
-                                            Column(modifier = Modifier.fillMaxWidth()) {
-                                                CurrencyText("👤 $partnerName", color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                    CurrencyText(tr("Girdi Maliyeti:", "Input Cost:"), color = Color.LightGray, fontSize = 8.5.sp)
-                                                    CurrencyText(formatCurrency(idealCost, isEng), color = Color(0xFFEF4444), fontSize = 8.5.sp)
-                                                }
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                    CurrencyText(tr("Toplam Hakediş:", "Total Payout:"), color = Color.LightGray, fontSize = 8.5.sp)
-                                                    CurrencyText(formatCurrency(totalValue, isEng), color = Color(0xFF34D399), fontSize = 8.5.sp)
-                                                }
-                                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                                    CurrencyText(tr("Net Bilanço:", "Net Balance:"), color = Color.LightGray, fontSize = 8.5.sp)
-                                                    CurrencyText(
-                                                        text = (if (netProfit >= 0) "+" else "-") + formatCurrency(kotlin.math.abs(netProfit), isEng),
-                                                        color = if (netProfit >= 0) Color(0xFF34D399) else Color(0xFFEF4444),
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                                HorizontalDivider(color = Color(0xFF1E2D4A), thickness = 0.5.dp, modifier = Modifier.padding(vertical = 2.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Warehouse Stock Sell & Dividend Actions
-                            if (project.warehouseStock > 0) {
-                                AppButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onSellWarehouseStock()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
-                                    modifier = Modifier.fillMaxWidth().height(32.dp)
-                                ) {
-                                    Icon(Icons.Rounded.Sell, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    CurrencyText(tr("💰 DEPOYU SAT (${project.warehouseStock} Adet)", "💰 SELL WAREHOUSE STOCK (${project.warehouseStock} Units)"), fontWeight = FontWeight.Black, fontSize = 9.5.sp)
-                                }
-                            }
-
-                            if (isFinished && !project.isDividendClaimed) {
-                                AppButton(
-                                    onClick = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onClaimDividend()
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981), contentColor = Color.White),
-                                    modifier = Modifier.fillMaxWidth().height(34.dp)
-                                ) {
-                                    Icon(Icons.Rounded.MonetizationOn, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    CurrencyText(tr("KÂR PAYLARINI (TEMETTÜ) HESAPLARA DAĞIT", "DISTRIBUTE DIVIDENDS TO ACCOUNTS"), fontWeight = FontWeight.Black, fontSize = 10.sp)
-                                }
-                            }
-                        }
-                    }
-
-                    // ================= TAB CONTENT 2: YÖNETİM & STRATEJİ REHBERİ =================
-                    if (selectedDetailTab == 2) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // 1. Proje Durum ve Üretim Yol Haritası (Executive Stage Tracker)
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = Color(0xFF0D172A),
-                                border = BorderStroke(1.dp, Color(0xFF0284C7).copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(Icons.Rounded.AccountTree, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(16.dp))
-                                            CurrencyText(
-                                                text = tr("KONSORSİYUM ÜRETİM SÜREÇ REHBERİ", "CONSORTIUM PRODUCTION ROADMAP"),
-                                                color = Color.White,
-                                                fontWeight = FontWeight.Black,
-                                                fontSize = 9.5.sp
-                                            )
-                                        }
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = when (project.currentStage) {
-                                                MegaProjectStage.STAGE_1_BODY -> Color(0xFF3B82F6).copy(alpha = 0.2f)
-                                                MegaProjectStage.STAGE_2_HARDWARE -> Color(0xFFF59E0B).copy(alpha = 0.2f)
-                                                MegaProjectStage.STAGE_3_TESTING -> Color(0xFFA855F7).copy(alpha = 0.2f)
-                                                MegaProjectStage.STAGE_4_MASS_PRODUCTION -> Color(0xFF10B981).copy(alpha = 0.2f)
-                                                MegaProjectStage.COMPLETED -> Color(0xFF10B981).copy(alpha = 0.2f)
-                                            },
-                                            border = BorderStroke(1.dp, when (project.currentStage) {
-                                                MegaProjectStage.STAGE_1_BODY -> Color(0xFF60A5FA)
-                                                MegaProjectStage.STAGE_2_HARDWARE -> Color(0xFFFBBF24)
-                                                MegaProjectStage.STAGE_3_TESTING -> Color(0xFFC084FC)
-                                                MegaProjectStage.STAGE_4_MASS_PRODUCTION -> Color(0xFF34D399)
-                                                MegaProjectStage.COMPLETED -> Color(0xFF34D399)
-                                            })
-                                        ) {
-                                            CurrencyText(
-                                                text = if (isEng) project.currentStage.titleEn else project.currentStage.titleTr,
-                                                color = Color.White,
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-
-                                    // Stage explanation text
-                                    val guidanceText = if (isEng) project.currentStage.descriptionEn else project.currentStage.descriptionTr
-
-                                    CurrencyText(
-                                        text = "ℹ️ $guidanceText",
-                                        fontSize = 8.5.sp,
-                                        color = Color(0xFF94A3B8)
-                                    )
-                                }
-                            }
-
-                            // Kurucu Yönetim Merkezi (Leader controls)
-                            if (isLeader) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = Color(0xFF0F172A),
-                                    border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        CurrencyText(tr("👑 KURUCU YÖNETİM KONTROLLERİ", "👑 FOUNDER MANAGEMENT CONTROLS"), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Black)
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            CurrencyText(
-                                                text = if (project.isProductionPaused) tr("Üretim Durduruldu", "Production Paused") else tr("Üretim Devam Ediyor", "Production Running"),
-                                                fontSize = 9.sp,
-                                                color = if (project.isProductionPaused) Color(0xFFFCA5A5) else Color(0xFFA7F3D0)
-                                            )
-                                            AppButton(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleConsortiumProductionState(project.id))
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (project.isProductionPaused) Color(0xFF10B981) else Color(0xFFEF4444),
-                                                    contentColor = Color.White
-                                                ),
-                                                modifier = Modifier.height(24.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                CurrencyText(if (project.isProductionPaused) tr("BAŞLAT", "START") else tr("DURDUR", "PAUSE"), fontSize = 8.sp, fontWeight = FontWeight.Black)
-                                            }
-                                        }
-
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            CurrencyText(
-                                                text = tr("🤖 İK Otomatik Satış: ", "🤖 HR Auto Sell: ") + if (project.isAutoSellActive) tr("AÇIK", "ON") else tr("KAPALI", "OFF"),
-                                                fontSize = 9.sp,
-                                                color = Color.White
-                                            )
-                                            AppButton(
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.ToggleConsortiumAutoSell(project.id, !project.isAutoSellActive))
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = if (project.isAutoSellActive) ThemeNeonCyan else Color(0xFF334155),
-                                                    contentColor = if (project.isAutoSellActive) Color.Black else Color.White
-                                                ),
-                                                modifier = Modifier.height(24.dp),
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                CurrencyText(if (project.isAutoSellActive) tr("KAPAT", "DISABLE") else tr("AÇ", "ENABLE"), fontSize = 8.sp, fontWeight = FontWeight.Black)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Board Voting Card
-                            ConsortiumBoardVotingCard(
+                        ConsortiumGuidedStep.TACTICAL_CHAT -> {
+                            ConsortiumLiveTacticalChat(
                                 project = project,
-                                currentUserId = pId,
-                                onSetStrategy = { strategy -> viewModel.handleIntent(com.example.viewmodel.GameIntent.SetConsortiumProductionStrategy(project.id, strategy)) },
-                                onChangeSalesChannel = { channel -> viewModel.handleIntent(com.example.viewmodel.GameIntent.ChangeConsortiumSalesChannel(project.id, channel)) },
-                                onVoteProposal = { propId, yes -> viewModel.handleIntent(com.example.viewmodel.GameIntent.VoteOnConsortiumBoardProposal(project.id, propId, yes)) },
-                                onCreateProposal = { titleTr, titleEn, descTr, descEn, type, proposedVal ->
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.CreateConsortiumBoardProposal(project.id, titleTr, titleEn, descTr, descEn, type, proposedVal))
-                                }
+                                messages = uiState.consortiumState.chatMessages[project.id] ?: emptyList(),
+                                onSendMessage = { text ->
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.SendConsortiumChatMessage(project.id, text))
+                                },
+                                isMember = isMember
                             )
-
-                            // Telsiz SOS Broadcast Bar
-                            ConsortiumRadioSosBroadcastBar(
-                                project = project,
-                                onBroadcastSos = { targetSlotId ->
-                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.BroadcastConsortiumRadioSos(project.id, targetSlotId))
-                                }
-                            )
-
-                            // Honor Podium
-                            ConsortiumHonorPodium(project = project, currentUserId = pId)
-
-                            // Leave / Disband Actions
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                if (isLeader) {
-                                    AppButton(
-                                        onClick = { showDisbandDialog = true },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF450A0A), contentColor = Color(0xFFFCA5A5)),
-                                        border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.5f)),
-                                        modifier = Modifier.weight(1f).height(30.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.DeleteForever, contentDescription = null, modifier = Modifier.size(13.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        CurrencyText(tr("Konsorsiyumu Feshet", "Disband Consortium"), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                } else if (isMember) {
-                                    AppButton(
-                                        onClick = { showLeaveProjectDialog = true },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E1065), contentColor = Color(0xFFE9D5FF)),
-                                        border = BorderStroke(1.dp, Color(0xFFA855F7).copy(alpha = 0.5f)),
-                                        modifier = Modifier.weight(1f).height(30.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.ExitToApp, contentDescription = null, modifier = Modifier.size(13.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        CurrencyText(tr("Konsorsiyumdan Ayrıl", "Leave Consortium"), fontSize = 8.5.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
                         }
                     }
                 } // Close AnimatedVisibility Column
@@ -2383,6 +2155,28 @@ fun MegaProjectCard(
         )
     }
 
+    selectedMemberForDetail?.let { (partnerId, partnerName) ->
+        ConsortiumMemberDetailDialog(
+            project = project,
+            partnerId = partnerId,
+            partnerName = partnerName,
+            currentUserId = pId,
+            isLeader = isLeader,
+            onDismiss = { selectedMemberForDetail = null },
+            onNudgePartner = { slotId ->
+                viewModel.handleIntent(com.example.viewmodel.GameIntent.NudgeConsortiumPartner(project.id, slotId))
+            },
+            onKickPartner = { slotId ->
+                viewModel.handleIntent(com.example.viewmodel.GameIntent.KickPartnerFromConsortiumSlot(project.id, slotId))
+            },
+            onOpenChat = {
+                selectedMemberForDetail = null
+                guidedStep = ConsortiumGuidedStep.TACTICAL_CHAT
+                viewModel.handleIntent(com.example.viewmodel.GameIntent.ListenToConsortiumChat(project.id))
+            }
+        )
+    }
+
     CorporateStampOverlay(
         isVisible = showStampOverlay,
         title = stampTitle,
@@ -2402,7 +2196,7 @@ fun ConsortiumSlotRow(
     viewModel: GameViewModel,
     projectId: String = "",
     onNavigateToRd: (String?) -> Unit = {},
-    onNavigateToFacilities: () -> Unit = {},
+    onNavigateToFacilities: (String?) -> Unit = {},
     onNavigateToBorsa: () -> Unit = {},
     onNavigateToMarket: () -> Unit = {},
     currentProjectStage: MegaProjectStage,
@@ -2787,15 +2581,20 @@ fun ConsortiumSlotRow(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
+                    val prodObj = Product.values().find { it.id == slot.productId || it.facilityId.equals(slot.productId, ignoreCase = true) }
+                    val userBiz = uiState.businesses.find { it.type == prodObj?.facilityId }
+                    val hasFacility = userBiz != null
+
                     AppButton(
                         onClick = {
                             showDetailModal = false
-                            onNavigateToFacilities()
+                            onNavigateToFacilities(slot.productId)
                         },
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan)
+                        colors = ButtonDefaults.buttonColors(containerColor = if (hasFacility) ThemeGold else ThemeNeonCyan)
                     ) {
-                        CurrencyText("🏭 Tesis Kur", color = Color.Black, fontWeight = FontWeight.Bold)
+                        val btnLabel = if (hasFacility) tr("🏭 Tesisimde Üret (Sv.${userBiz.level})", "🏭 Manufacture in Facility (Lv.${userBiz.level})") else tr("🏭 Tesis Kur & Üret", "🏭 Build Facility & Produce")
+                        CurrencyText(btnLabel, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
 
                     AppButton(
@@ -3571,7 +3370,7 @@ fun DeliverMaterialDialog(
     userStock: Int,
     onDismiss: () -> Unit,
     onNavigateToMarket: () -> Unit = {},
-    onNavigateToFacilities: () -> Unit = {},
+    onNavigateToFacilities: (String?) -> Unit = {},
     onDeliver: (quantity: Int) -> Unit
 ) {
     val allProductInv = uiState.inventoryState.items.filter { 
@@ -3815,15 +3614,20 @@ fun DeliverMaterialDialog(
                                 ) {
                                     Text("🛒 Pazardan Al", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 }
+                                val prodObj = Product.values().find { it.id == slot.productId || it.facilityId.equals(slot.productId, ignoreCase = true) }
+                                val userBiz = uiState.businesses.find { it.type == prodObj?.facilityId }
+                                val hasFacility = userBiz != null
+
                                 AppButton(
                                     onClick = {
                                         onDismiss()
-                                        onNavigateToFacilities()
+                                        onNavigateToFacilities(slot.productId)
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (hasFacility) ThemeGold else ThemeNeonCyan, contentColor = Color.Black),
                                     modifier = Modifier.weight(1f).height(32.dp)
                                 ) {
-                                    Text("🏭 Tesisime Git", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    val btnText = if (hasFacility) tr("🏭 Tesisimde Üret", "🏭 Manufacture") else tr("➕ Tesis Kur", "➕ Build Facility")
+                                    Text(btnText, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -4605,7 +4409,7 @@ fun ConsortiumHolographicMatrix(
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
     onNavigateToRd: (String?) -> Unit,
-    onNavigateToFacilities: () -> Unit,
+    onNavigateToFacilities: (String?) -> Unit,
     onNavigateToBorsa: () -> Unit,
     onNavigateToMarket: () -> Unit,
     isLeader: Boolean,

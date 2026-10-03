@@ -33,6 +33,9 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 
+@kotlinx.serialization.Serializable
+data class LocalPendingSaleJsonDto(val id: String, val sellerName: String, val sellerId: String, val itemId: String, val quantity: Int, val pricePerUnit: Long, val originCityId: String, val qualityLevel: Int = 1, val createdAt: Long)
+
 val Context.economicDataStore: DataStore<Preferences> by preferencesDataStore(name = "economic_data_store")
 
 data class EconomicSnapshot(
@@ -93,6 +96,8 @@ data class EconomicSnapshot(
     val techHeavyIndustry: Int = 0,
     val techConsumerGoods: Int = 0,
     val techPetrochem: Int = 0,
+    val techGlobalFinance: Int = 0,
+    val techCulturalHeritage: Int = 0,
     val activeResearchTechKey: String = "",
     val researchEndTimeMs: Long = 0L,
     val activeResearchesJson: String = "{}",
@@ -123,8 +128,10 @@ data class EconomicSnapshot(
     val dailyQuestStateJson: String = "{}",
     val megaProjectsJson: String = "[]",
     val growthHistoryJson: String = "[]",
+    val bulletinOpportunitiesJson: String = "[]",
     val selectedTheme: String = "cyber_blue",
-    val selectedLanguage: String = "tr"
+    val selectedLanguage: String = com.example.ui.theme.getDefaultDeviceLanguage(),
+    val saveVersion: Long = 1L
 )
 
 class EconomicDataStore(val context: Context) {
@@ -145,6 +152,7 @@ class EconomicDataStore(val context: Context) {
         val KEY_XP = intPreferencesKey("xp")
         val KEY_LEVEL = intPreferencesKey("level")
         val KEY_INVENTORY_CAPACITY = intPreferencesKey("inventory_capacity")
+        val KEY_WAREHOUSE_LEVEL = intPreferencesKey("warehouse_level")
         val KEY_CURRENT_CITY = stringPreferencesKey("current_city")
         val KEY_IS_VIP = booleanPreferencesKey("is_vip")
         val KEY_GEMS = intPreferencesKey("gems")
@@ -188,6 +196,8 @@ class EconomicDataStore(val context: Context) {
         val KEY_TECH_HEAVY_INDUSTRY = intPreferencesKey("tech_heavy_industry")
         val KEY_TECH_CONSUMER_GOODS = intPreferencesKey("tech_consumer_goods")
         val KEY_TECH_PETROCHEM = intPreferencesKey("tech_petrochem")
+        val KEY_TECH_GLOBAL_FINANCE = intPreferencesKey("tech_global_finance")
+        val KEY_TECH_CULTURAL_HERITAGE = intPreferencesKey("tech_cultural_heritage")
         val KEY_ACTIVE_RESEARCH_TECH_KEY = stringPreferencesKey("active_research_tech_key")
         val KEY_RESEARCH_END_TIME_MS = longPreferencesKey("research_end_time_ms")
         val KEY_ACTIVE_RESEARCHES_JSON = stringPreferencesKey("active_researches_json")
@@ -212,13 +222,16 @@ class EconomicDataStore(val context: Context) {
         val KEY_BORSA_LIMIT_ORDERS_JSON = stringPreferencesKey("borsa_limit_orders_json")
 
         val KEY_LAST_SAVED_TIME = longPreferencesKey("last_saved_time")
-    val KEY_LAST_KNOWN_ELAPSED_REALTIME = longPreferencesKey("last_known_elapsed_realtime")
+        val KEY_SAVE_VERSION = longPreferencesKey("save_version")
+        val KEY_LAST_KNOWN_ELAPSED_REALTIME = longPreferencesKey("last_known_elapsed_realtime")
         val KEY_IS_DATA_SAVED = booleanPreferencesKey("is_data_saved")
         val KEY_HAS_SET_WAREHOUSE = booleanPreferencesKey("has_set_warehouse")
         val KEY_HAS_COMPLETED_FIRST_TRADE = booleanPreferencesKey("has_completed_first_trade")
         val KEY_DAILY_QUEST_STATE_JSON = stringPreferencesKey("daily_quest_state_json")
         val KEY_MEGA_PROJECTS_JSON = stringPreferencesKey("mega_projects_json")
+        val KEY_PENDING_SALES_JSON = stringPreferencesKey("pending_sales_json")
         val KEY_GROWTH_HISTORY_JSON = stringPreferencesKey("growth_history_json")
+        val KEY_BULLETIN_OPPORTUNITIES_JSON = stringPreferencesKey("bulletin_opportunities_json")
         val KEY_SELECTED_THEME = stringPreferencesKey("selected_theme")
         val KEY_SELECTED_LANGUAGE = stringPreferencesKey("selected_language")
         val KEY_LAST_CLAIMED_MONTHLY_REWARD_KEY = stringPreferencesKey("last_claimed_monthly_reward_key")
@@ -303,6 +316,13 @@ class EconomicDataStore(val context: Context) {
         val rawGems = prefs.getIntSafe("gems", 0).coerceIn(0, 1_000_000)
         val rawLevel = prefs.getIntSafe("level", 1).coerceIn(1, 100)
         val rawXp = prefs.getIntSafe("xp", 0).coerceAtLeast(0)
+        val rawCapacity = prefs.getIntSafe("inventory_capacity", 5000)
+        val storedWarehouseLevel = prefs.getIntSafe("warehouse_level", 0)
+        val resolvedCapacity = if (storedWarehouseLevel > 0) {
+            maxOf(rawCapacity, 5000 + (storedWarehouseLevel - 1) * 2500)
+        } else {
+            rawCapacity
+        }.coerceIn(100, 1_000_000_000)
 
         EconomicSnapshot(
             name = prefs.getStringSafe("player_name", "Tüccar"),
@@ -317,7 +337,7 @@ class EconomicDataStore(val context: Context) {
             totalProfit = rawTotalProfit,
             xp = rawXp,
             level = rawLevel,
-            inventoryCapacity = prefs.getIntSafe("inventory_capacity", 5000).coerceIn(100, 1_000_000_000),
+            inventoryCapacity = resolvedCapacity,
             currentCity = migrateLegacyCity(prefs.getStringSafe("current_city", "istanbul")),
             isUsdAccount = false,
             isVip = prefs.getBooleanSafe("is_vip", false),
@@ -362,6 +382,8 @@ class EconomicDataStore(val context: Context) {
             techHeavyIndustry = prefs.getIntSafe("tech_heavy_industry", 0),
             techConsumerGoods = prefs.getIntSafe("tech_consumer_goods", 0),
             techPetrochem = prefs.getIntSafe("tech_petrochem", 0),
+            techGlobalFinance = prefs.getIntSafe("tech_global_finance", 0),
+            techCulturalHeritage = prefs.getIntSafe("tech_cultural_heritage", 0),
             activeResearchTechKey = prefs.getStringSafe("active_research_tech_key", ""),
             researchEndTimeMs = prefs.getLongSafe("research_end_time_ms", 0L),
             activeResearchesJson = prefs.getStringSafe("active_researches_json", "{}"),
@@ -392,8 +414,10 @@ class EconomicDataStore(val context: Context) {
             hasSetWarehouse = prefs.getBooleanSafe("has_set_warehouse", false),
             hasCompletedFirstTrade = prefs.getBooleanSafe("has_completed_first_trade", false),
             growthHistoryJson = prefs.getStringSafe("growth_history_json", "[]"),
+            bulletinOpportunitiesJson = prefs.getStringSafe("bulletin_opportunities_json", "[]"),
             selectedTheme = prefs.getStringSafe("selected_theme", "cyber_blue"),
-            selectedLanguage = prefs.getStringSafe("selected_language", "tr")
+            selectedLanguage = prefs.getStringSafe("selected_language", com.example.ui.theme.getDefaultDeviceLanguage()),
+            saveVersion = prefs.getLongSafe("save_version", 1L).let { if (it > 0L) it else prefs.getLongSafe("backup_version", 1L) }
         )
     }
 
@@ -428,6 +452,8 @@ class EconomicDataStore(val context: Context) {
         techHeavyIndustry: Int = 0,
         techConsumerGoods: Int = 0,
         techPetrochem: Int = 0,
+        techGlobalFinance: Int = 0,
+        techCulturalHeritage: Int = 0,
         activeResearchTechKey: String = "",
         researchEndTimeMs: Long = 0L,
         activeResearches: Map<String, Long> = emptyMap(),
@@ -444,7 +470,9 @@ class EconomicDataStore(val context: Context) {
         deliveries: List<DeliveryItem> = emptyList(),
         activeProductions: List<ActiveProduction> = emptyList(),
         growthHistoryJson: String = "[]",
-        dailyQuestStateJson: String = "{}"
+        bulletinOpportunitiesJson: String = "[]",
+        dailyQuestStateJson: String = "{}",
+        pendingSales: List<PendingMarketSaleEntity> = emptyList()
     ) {
         context.economicDataStore.edit { prefs ->
             // Player & Finances
@@ -461,6 +489,7 @@ class EconomicDataStore(val context: Context) {
             prefs[KEY_XP] = player.xp
             prefs[KEY_LEVEL] = player.level
             prefs[KEY_INVENTORY_CAPACITY] = player.inventoryCapacity
+            prefs[KEY_WAREHOUSE_LEVEL] = player.warehouseLevel
             prefs[KEY_CURRENT_CITY] = migrateLegacyCity(player.currentCity)
             prefs[KEY_IS_USD_ACCOUNT] = player.isUsdAccount
             prefs[KEY_IS_VIP] = player.isVip
@@ -503,6 +532,8 @@ class EconomicDataStore(val context: Context) {
             prefs[KEY_TECH_HEAVY_INDUSTRY] = techHeavyIndustry
             prefs[KEY_TECH_CONSUMER_GOODS] = techConsumerGoods
             prefs[KEY_TECH_PETROCHEM] = techPetrochem
+            prefs[KEY_TECH_GLOBAL_FINANCE] = techGlobalFinance
+            prefs[KEY_TECH_CULTURAL_HERITAGE] = techCulturalHeritage
             prefs[KEY_ACTIVE_RESEARCH_TECH_KEY] = activeResearchTechKey
             prefs[KEY_RESEARCH_END_TIME_MS] = researchEndTimeMs
             prefs[KEY_ACTIVE_RESEARCHES_JSON] = serializeActiveResearches(activeResearches)
@@ -529,8 +560,10 @@ class EconomicDataStore(val context: Context) {
             prefs[KEY_MEGA_PROJECTS_JSON] = AppJson.encodeToString(megaJsonElements)
             
             prefs[KEY_AUCTIONS_JSON] = serializeAuctions(auctions)
+            prefs[KEY_PENDING_SALES_JSON] = serializePendingSales(pendingSales)
             prefs[KEY_MUSEUM_HERITAGE_JSON] = MuseumHeritageManager.exportToJson(context)
             prefs[KEY_GROWTH_HISTORY_JSON] = growthHistoryJson
+            prefs[KEY_BULLETIN_OPPORTUNITIES_JSON] = bulletinOpportunitiesJson
 
             // Metadata & Anti-Cheat Cryptographic Signing
             val secureSaveTime = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
@@ -538,6 +571,10 @@ class EconomicDataStore(val context: Context) {
             prefs[KEY_LAST_KNOWN_ELAPSED_REALTIME] = android.os.SystemClock.elapsedRealtime()
             prefs[KEY_IS_DATA_SAVED] = true
             prefs[KEY_SINGLE_CURRENCY_MIGRATED] = true
+
+            if (prefs[KEY_SAVE_VERSION] == null) {
+                prefs[KEY_SAVE_VERSION] = 1L
+            }
 
             val integritySignature = com.example.data.security.AntiCheatEngine.computeIntegrityHash(
                 playerId = player.id.ifBlank { "local_player" },
@@ -560,6 +597,16 @@ class EconomicDataStore(val context: Context) {
         } catch (_: Exception) {
             0L
         }
+    }
+
+    suspend fun incrementSaveVersion(): Long {
+        var newVer = 1L
+        context.economicDataStore.edit { prefs ->
+            val current = prefs.getLongSafe("save_version", 0L).let { if (it > 0L) it else prefs.getLongSafe("backup_version", 0L) }
+            newVer = if (current <= 0L) 1L else current + 1L
+            prefs[KEY_SAVE_VERSION] = newVer
+        }
+        return newVer
     }
 
     fun serializeGrowthHistory(list: List<GrowthPointDto>): String {
@@ -611,47 +658,67 @@ class EconomicDataStore(val context: Context) {
 
         val savedMap = mutableMapOf<String, CompanyManagerDto>()
         try {
-            val dtos = AppJson.decodeFromString<List<CompanyManagerDto>>(json)
-            for (dto in dtos) {
-                if (dto.id.isNotBlank()) {
-                    savedMap[dto.id] = dto
-                }
+            val elem = AppJson.parseToJsonElement(json)
+            val itemsList: List<JsonObject> = when (elem) {
+                is kotlinx.serialization.json.JsonArray -> elem.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+                is kotlinx.serialization.json.JsonObject -> elem.values.mapNotNull { it as? kotlinx.serialization.json.JsonObject }
+                else -> emptyList()
             }
-        } catch (e: Exception) {
-            try {
-                val elem = AppJson.parseToJsonElement(json)
-                if (elem is kotlinx.serialization.json.JsonArray) {
-                    for (item in elem) {
-                        val obj = item as? kotlinx.serialization.json.JsonObject ?: continue
-                        val id = (obj["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: continue
-                        val isHired = (obj["isHired"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
-                            ?: (obj["is_hired"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
-                            ?: false
-                        val level = (obj["level"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: 1
-                        val eff = (obj["efficiency"] as? kotlinx.serialization.json.JsonPrimitive)?.doubleOrNull ?: 1.0
-                        val sal = (obj["dailySalary"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull
-                            ?: (obj["daily_salary"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: 0L
-                        val name = (obj["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
-                        val title = (obj["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
-                        val spec = (obj["specialty"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
-                        val desc = (obj["description"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
-                        savedMap[id] = CompanyManagerDto(
-                            id = id,
-                            name = name,
-                            title = title,
-                            specialty = spec,
-                            level = level,
-                            dailySalary = sal,
-                            efficiency = eff,
-                            isHired = isHired,
-                            isActive = true,
-                            description = desc
-                        )
+            if (itemsList.isNotEmpty()) {
+                for (obj in itemsList) {
+                    val id = (obj["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: continue
+                    val isHired = (obj["isHired"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_hired"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
+                        ?: ((obj["isHired"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: ((obj["is_hired"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: ((obj["isHired"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull?.let { it == 1 })
+                        ?: ((obj["is_hired"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull?.let { it == 1 })
+                        ?: false
+                    val level = (obj["level"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: 1
+                    val eff = (obj["efficiency"] as? kotlinx.serialization.json.JsonPrimitive)?.doubleOrNull ?: 1.0
+                    val sal = (obj["dailySalary"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull
+                        ?: (obj["daily_salary"] as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: 0L
+                    val name = (obj["name"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                    val title = (obj["title"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                    val spec = (obj["specialty"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                    val desc = (obj["description"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                    val isActive = (obj["isActive"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_active"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull
+                        ?: true
+                    val logs = mutableListOf<ManagerActionLogDto>()
+                    val logsElem = (obj["actionLogs"] ?: obj["action_logs"]) as? kotlinx.serialization.json.JsonArray
+                    logsElem?.forEach { lItem ->
+                        val lObj = lItem as? kotlinx.serialization.json.JsonObject ?: return@forEach
+                        val logId = (lObj["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                        val ts = ((lObj["timestampMs"] ?: lObj["timestamp_ms"]) as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: 0L
+                        val lDesc = (lObj["description"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
+                        val impact = ((lObj["financialImpact"] ?: lObj["financial_impact"]) as? kotlinx.serialization.json.JsonPrimitive)?.longOrNull ?: 0L
+                        logs.add(ManagerActionLogDto(logId, ts, lDesc, impact))
+                    }
+                    savedMap[id] = CompanyManagerDto(
+                        id = id,
+                        name = name,
+                        title = title,
+                        specialty = spec,
+                        level = level,
+                        dailySalary = sal,
+                        efficiency = eff,
+                        isHired = isHired || level > 1 || logs.isNotEmpty(),
+                        isActive = isActive,
+                        description = desc,
+                        actionLogs = logs
+                    )
+                }
+            } else {
+                val dtos = AppJson.decodeFromString<List<CompanyManagerDto>>(json)
+                for (dto in dtos) {
+                    if (dto.id.isNotBlank()) {
+                        savedMap[dto.id] = dto
                     }
                 }
-            } catch (_: Exception) {
-                return defaultList
             }
+        } catch (_: Exception) {
+            return defaultList
         }
 
         return defaultList.map { defaultMgr ->
@@ -660,7 +727,7 @@ class EconomicDataStore(val context: Context) {
             val savedName = obj.name.trim()
             val hasHireEvidence = obj.isHired || obj.level > 1 || obj.actionLogs.isNotEmpty() || (savedName.isNotBlank() && savedName != defaultMgr.name)
             val isHired = hasHireEvidence
-            val name = if (savedName.isNotBlank()) savedName else if (isHired) defaultMgr.name else ""
+            val name = if (savedName.isNotBlank()) savedName else defaultMgr.name
             val title = obj.title.ifBlank { defaultMgr.title }
             val specialty = obj.specialty.ifBlank { defaultMgr.specialty }
             val description = obj.description.ifBlank { defaultMgr.description }
@@ -1129,6 +1196,14 @@ class EconomicDataStore(val context: Context) {
         return clean
     }
 
+    fun serializePendingSales(list: List<PendingMarketSaleEntity>): String {
+        return AppJson.encodeToString(list.map { LocalPendingSaleJsonDto(it.id, it.sellerName, it.sellerId, it.itemId, it.quantity, it.pricePerUnit, it.originCityId, it.qualityLevel, it.createdAt) })
+    }
+    fun deserializePendingSales(json: String): List<PendingMarketSaleEntity> {
+        if (json.isBlank() || json == "[]") return emptyList()
+        return try { AppJson.decodeFromString<List<LocalPendingSaleJsonDto>>(json).map { PendingMarketSaleEntity(it.id, it.sellerName, it.sellerId, it.itemId, it.quantity, it.pricePerUnit, it.originCityId, it.qualityLevel, it.createdAt) } } catch (e: Exception) { emptyList() }
+    }
+
     fun serializeAuctions(auctions: List<Auction>): String {
         val dtos = auctions.map { a ->
             AuctionDto(
@@ -1263,7 +1338,6 @@ class EconomicDataStore(val context: Context) {
         val excludedKeys = setOf(
             KEY_MARKET_PRICES_JSON.name,
             KEY_MARKET_LISTINGS_JSON.name,
-            KEY_MEGA_PROJECTS_JSON.name,
             KEY_AUCTIONS_JSON.name
         )
         for ((key, value) in prefs.asMap()) {
@@ -1271,6 +1345,16 @@ class EconomicDataStore(val context: Context) {
                 map[key.name] = value
             }
         }
+        val curSaveVer = prefs.getLongSafe("save_version", 1L).let { if (it > 0L) it else prefs.getLongSafe("backup_version", 1L) }
+        val invCap = (prefs[KEY_INVENTORY_CAPACITY] ?: 5000)
+        val wLvl = (prefs[KEY_WAREHOUSE_LEVEL] ?: maxOf(1, 1 + ((invCap - 5000) / 2500)))
+        map["inventory_capacity"] = invCap
+        map["inventoryCapacity"] = invCap
+        map["warehouse_level"] = wLvl
+        map["warehouseLevel"] = wLvl
+        map["save_version"] = curSaveVer
+        map["backup_version"] = curSaveVer
+        map["saveVersion"] = curSaveVer
         map["exportedAtMs"] = System.currentTimeMillis()
         
         val jsonObj = anyToJsonElement(map) as? JsonObject
@@ -1294,24 +1378,32 @@ class EconomicDataStore(val context: Context) {
                 }
             }
 
-            // Extract incoming last saved time
+            // Extract incoming last saved time & save version
             val incomingLastSavedTime = jsonElement["last_saved_time"]?.jsonPrimitive?.longOrNull 
                 ?: jsonElement["exportedAtMs"]?.jsonPrimitive?.longOrNull 
+                ?: 0L
+            val incomingSaveVersion = jsonElement["save_version"]?.jsonPrimitive?.longOrNull 
+                ?: jsonElement["backup_version"]?.jsonPrimitive?.longOrNull 
+                ?: jsonElement["saveVersion"]?.jsonPrimitive?.longOrNull
                 ?: 0L
             
             val currentPrefs = context.economicDataStore.data.first()
             val localLastSavedTime = currentPrefs[KEY_LAST_SAVED_TIME] ?: 0L
+            val localSaveVersion = currentPrefs[KEY_SAVE_VERSION] ?: 0L
             val localMoney = currentPrefs[KEY_MONEY] ?: 0L
             val localLevel = currentPrefs[KEY_LEVEL] ?: 1
             val localProfit = currentPrefs[KEY_TOTAL_PROFIT] ?: 0L
             val localXp = currentPrefs[KEY_XP] ?: 0
+            val localCap = currentPrefs[KEY_INVENTORY_CAPACITY] ?: 5000
+            val localWLevel = currentPrefs[KEY_WAREHOUSE_LEVEL] ?: maxOf(1, 1 + ((localCap - 5000) / 2500))
             
-            // Check if local save is strictly newer and has some actual substantial progress (not default startup state)
-            val isLocalNewer = localLastSavedTime > incomingLastSavedTime
+            // Check if local save is strictly newer in version or timestamp and has actual substantial progress
+            val isLocalNewerVersion = (localSaveVersion > incomingSaveVersion) && (incomingSaveVersion > 0L)
+            val isLocalNewerTime = localLastSavedTime > incomingLastSavedTime
             val hasLocalProgress = localLevel > 1 || localMoney > 300_000L || localProfit > 0L || localXp > 100
             
-            if (isLocalNewer && hasLocalProgress && !force) {
-                android.util.Log.i("EconomicDataStore", "Skipping import: local save is newer ($localLastSavedTime) than incoming cloud save ($incomingLastSavedTime).")
+            if ((isLocalNewerVersion || (localSaveVersion == incomingSaveVersion && isLocalNewerTime)) && hasLocalProgress && !force) {
+                android.util.Log.i("EconomicDataStore", "Skipping import: local save is newer (v#$localSaveVersion, time $localLastSavedTime) than incoming cloud save (v#$incomingSaveVersion, time $incomingLastSavedTime).")
                 return false
             }
 
@@ -1336,13 +1428,19 @@ class EconomicDataStore(val context: Context) {
                     "dollar_balance" to KEY_DOLLAR_BALANCE,
                     "dollar_deposit_balance" to KEY_DOLLAR_DEPOSIT_BALANCE,
                     "dollar_loan_amount" to KEY_DOLLAR_LOAN_AMOUNT,
-                    "last_saved_time" to KEY_LAST_SAVED_TIME
+                    "last_saved_time" to KEY_LAST_SAVED_TIME,
+                    "save_version" to KEY_SAVE_VERSION,
+                    "backup_version" to KEY_SAVE_VERSION,
+                    "saveVersion" to KEY_SAVE_VERSION
                 )
 
                 val intKeys = mapOf(
                     "xp" to KEY_XP,
                     "level" to KEY_LEVEL,
                     "inventory_capacity" to KEY_INVENTORY_CAPACITY,
+                    "inventoryCapacity" to KEY_INVENTORY_CAPACITY,
+                    "warehouse_level" to KEY_WAREHOUSE_LEVEL,
+                    "warehouseLevel" to KEY_WAREHOUSE_LEVEL,
                     "gems" to KEY_GEMS,
                     "login_streak" to KEY_LOGIN_STREAK,
                     "tech_green_energy" to KEY_TECH_GREEN_ENERGY,
@@ -1357,6 +1455,10 @@ class EconomicDataStore(val context: Context) {
                     "tech_heavy_industry" to KEY_TECH_HEAVY_INDUSTRY,
                     "tech_consumer_goods" to KEY_TECH_CONSUMER_GOODS,
                     "tech_petrochem" to KEY_TECH_PETROCHEM,
+                    "tech_global_finance" to KEY_TECH_GLOBAL_FINANCE,
+                    "global_finance" to KEY_TECH_GLOBAL_FINANCE,
+                    "tech_cultural_heritage" to KEY_TECH_CULTURAL_HERITAGE,
+                    "cultural_heritage" to KEY_TECH_CULTURAL_HERITAGE,
                     "public_share_percent" to KEY_PUBLIC_SHARE_PERCENT
                 )
 
@@ -1416,6 +1518,8 @@ class EconomicDataStore(val context: Context) {
                     "managers" to KEY_MANAGERS_JSON,
                     "daily_quest_state_json" to KEY_DAILY_QUEST_STATE_JSON,
                     "daily_quest_state" to KEY_DAILY_QUEST_STATE_JSON,
+                    "mega_projects_json" to KEY_MEGA_PROJECTS_JSON,
+                    "pending_sales_json" to KEY_PENDING_SALES_JSON,
                     "museum_heritage_json" to KEY_MUSEUM_HERITAGE_JSON,
                     "borsa_limit_orders_json" to KEY_BORSA_LIMIT_ORDERS_JSON,
                     "growth_history_json" to KEY_GROWTH_HISTORY_JSON,
@@ -1439,7 +1543,7 @@ class EconomicDataStore(val context: Context) {
                             else -> 0
                         }
                         val prefKey = intKeys[k]!!
-                        if (k.startsWith("tech_")) {
+                        if (k.startsWith("tech_") || k == "global_finance" || k == "cultural_heritage") {
                             val currentLvl = prefs[prefKey] ?: 0
                             prefs[prefKey] = maxOf(currentLvl, intVal).coerceIn(0, 5)
                         } else {
@@ -1467,57 +1571,21 @@ class EconomicDataStore(val context: Context) {
                             KEY_CURRENT_CITY -> migrateLegacyCity(rawStr)
                             KEY_BUSINESSES_JSON -> serializeBusinesses(deserializeBusinesses(rawStr))
                             KEY_ACTIVE_DELIVERIES_JSON -> serializeDeliveries(deserializeDeliveries(rawStr))
-                            KEY_ACTIVE_PRODUCTIONS_JSON -> serializeActiveProductions(deserializeActiveProductions(rawStr))
+                            KEY_ACTIVE_PRODUCTIONS_JSON -> {
+                                val existing = deserializeActiveProductions(prefs[KEY_ACTIVE_PRODUCTIONS_JSON] ?: "[]")
+                                val incoming = deserializeActiveProductions(rawStr)
+                                val merged = (existing + incoming).distinctBy { it.id }
+                                serializeActiveProductions(merged)
+                            }
                             KEY_DAILY_QUEST_STATE_JSON -> mergeDailyQuestStatesJson(prefs[KEY_DAILY_QUEST_STATE_JSON] ?: "{}", rawStr)
                             KEY_MANAGERS_JSON -> {
-                                val existingManagersJson = prefs[KEY_MANAGERS_JSON] ?: "[]"
-                                val existingList = deserializeManagers(existingManagersJson)
-                                val incomingList = deserializeManagers(rawStr)
-                                val defaultList = getDefaultCompanyManagers()
-
-                                val mergedList = defaultList.map { def ->
-                                    val ex = existingList.find { it.id == def.id }
-                                    val inc = incomingList.find { it.id == def.id }
-                                    val hasHire = (inc?.isHired == true) || (ex?.isHired == true) || 
-                                                  ((inc?.level ?: 1) > 1) || ((ex?.level ?: 1) > 1) ||
-                                                  (inc?.actionLogs?.isNotEmpty() == true) || (ex?.actionLogs?.isNotEmpty() == true) ||
-                                                  (inc?.name?.isNotBlank() == true && inc.name != def.name) ||
-                                                  (ex?.name?.isNotBlank() == true && ex.name != def.name)
-                                    val isHired = hasHire
-                                    val level = maxOf(ex?.level ?: 1, inc?.level ?: 1).coerceIn(1, 5)
-                                    val eff = maxOf(ex?.efficiency ?: 1.0f, inc?.efficiency ?: 1.0f)
-                                    val name = when {
-                                        inc != null && inc.name.isNotBlank() && inc.name != def.name -> inc.name
-                                        ex != null && ex.name.isNotBlank() && ex.name != def.name -> ex.name
-                                        inc != null && inc.name.isNotBlank() -> inc.name
-                                        ex != null && ex.name.isNotBlank() -> ex.name
-                                        else -> def.name
-                                    }
-                                    val logs = if (inc != null && inc.actionLogs.isNotEmpty()) inc.actionLogs else (ex?.actionLogs ?: emptyList())
-                                    val sal = maxOf(ex?.dailySalary ?: 0L, inc?.dailySalary ?: 0L).let {
-                                        if (it > 0L) it else def.dailySalary
-                                    }
-                                    def.copy(
-                                        isHired = isHired,
-                                        level = level,
-                                        efficiency = eff,
-                                        name = if (isHired) name else "",
-                                        dailySalary = sal,
-                                        actionLogs = logs,
-                                        isActive = inc?.isActive ?: ex?.isActive ?: true
-                                    )
-                                }
-                                serializeManagers(mergedList)
+                                SupabaseManager.mergeManagersPreservingHighest(prefs[KEY_MANAGERS_JSON], rawStr)
                             }
                             KEY_RESEARCH_LEVELS_JSON -> {
-                                val existingLevels = deserializeResearchLevels(prefs[KEY_RESEARCH_LEVELS_JSON] ?: "{}").toMutableMap()
-                                val incomingLevels = deserializeResearchLevels(rawStr)
-                                val techKeys = listOf(
-                                    "green_energy", "quality_control", "logistics", "automation",
-                                    "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
-                                    "aerospace", "heavy_industry", "consumer_goods", "petrochem",
-                                    "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics"
-                                )
+                                val mergedLevelsJson = SupabaseManager.mergeResearchLevelsPreservingHighest(prefs[KEY_RESEARCH_LEVELS_JSON], rawStr)
+                                val parsedLevels = try {
+                                    AppJson.decodeFromString<Map<String, Int>>(mergedLevelsJson)
+                                } catch (_: Exception) { emptyMap() }
                                 val techPrefMap = mapOf(
                                     "green_energy" to KEY_TECH_GREEN_ENERGY,
                                     "quality_control" to KEY_TECH_QUALITY_CONTROL,
@@ -1531,90 +1599,30 @@ class EconomicDataStore(val context: Context) {
                                     "aerospace" to KEY_TECH_AEROSPACE,
                                     "heavy_industry" to KEY_TECH_HEAVY_INDUSTRY,
                                     "consumer_goods" to KEY_TECH_CONSUMER_GOODS,
-                                    "petrochem" to KEY_TECH_PETROCHEM
+                                    "petrochem" to KEY_TECH_PETROCHEM,
+                                    "global_finance" to KEY_TECH_GLOBAL_FINANCE,
+                                    "cultural_heritage" to KEY_TECH_CULTURAL_HERITAGE
                                 )
-                                val merged = mutableMapOf<String, Int>()
-                                techKeys.forEach { tech ->
-                                    val prefKey = techPrefMap[tech]
-                                    val prefVal = if (prefKey != null) prefs[prefKey] ?: 0 else 0
-                                    val exLvl = maxOf(existingLevels[tech] ?: 0, existingLevels["tech_$tech"] ?: 0, prefVal)
-                                    val directLvl = (jsonElement["tech_$tech"] as? JsonPrimitive)?.longOrNull?.toInt() 
-                                        ?: (jsonElement[tech] as? JsonPrimitive)?.longOrNull?.toInt() 
-                                        ?: 0
-                                    val incLvl = maxOf(incomingLevels[tech] ?: 0, incomingLevels["tech_$tech"] ?: 0, directLvl)
-                                    val finalLvl = maxOf(exLvl, incLvl).coerceIn(0, 5)
-                                    merged[tech] = finalLvl
-                                    merged["tech_$tech"] = finalLvl
-                                    if (prefKey != null && finalLvl > 0) {
-                                        prefs[prefKey] = finalLvl
-                                    }
+                                techPrefMap.forEach { (tech, pKey) ->
+                                    val lvl = parsedLevels[tech] ?: parsedLevels["tech_$tech"] ?: 0
+                                    if (lvl > 0) prefs[pKey] = lvl
                                 }
-                                serializeResearchLevels(merged)
+                                mergedLevelsJson
                             }
                             KEY_ACTIVE_RESEARCHES_JSON -> {
-                                val existingMap = try {
-                                    AppJson.decodeFromString<Map<String, Long>>(prefs[KEY_ACTIVE_RESEARCHES_JSON] ?: "{}")
-                                } catch (_: Exception) { emptyMap() }
-                                val incomingMap = try {
-                                    AppJson.decodeFromString<Map<String, Long>>(rawStr)
-                                } catch (_: Exception) { emptyMap() }
-                                val now = System.currentTimeMillis()
-                                val mergedActive = mutableMapOf<String, Long>()
-                                val offlineCompletedTechs = mutableSetOf<String>()
-
-                                (existingMap.keys + incomingMap.keys).forEach { k ->
-                                    val base = k.removePrefix("tech_")
-                                    val exTime = maxOf(existingMap[base] ?: 0L, existingMap["tech_$base"] ?: 0L)
-                                    val incTime = maxOf(incomingMap[base] ?: 0L, incomingMap["tech_$base"] ?: 0L)
-                                    val chosenTime = maxOf(exTime, incTime)
-                                    if (chosenTime > now) {
-                                        mergedActive[base] = chosenTime
-                                    } else if (chosenTime > 0L) {
-                                        offlineCompletedTechs.add(base)
-                                    }
-                                }
-
                                 val singleKey = (jsonElement["active_research_tech_key"] as? JsonPrimitive)?.content?.removePrefix("tech_")
                                 val singleEnd = (jsonElement["research_end_time_ms"] as? JsonPrimitive)?.longOrNull ?: 0L
-                                if (!singleKey.isNullOrBlank() && singleEnd > 0L) {
-                                    if (singleEnd > now) {
-                                        mergedActive[singleKey] = maxOf(mergedActive[singleKey] ?: 0L, singleEnd)
-                                    } else {
-                                        offlineCompletedTechs.add(singleKey)
-                                    }
-                                }
-
-                                // If any research finished while offline, advance tech level
-                                if (offlineCompletedTechs.isNotEmpty()) {
-                                    val currentLevels = deserializeResearchLevels(prefs[KEY_RESEARCH_LEVELS_JSON] ?: "{}").toMutableMap()
-                                    val techPrefMap = mapOf(
-                                        "green_energy" to KEY_TECH_GREEN_ENERGY,
-                                        "quality_control" to KEY_TECH_QUALITY_CONTROL,
-                                        "logistics" to KEY_TECH_LOGISTICS,
-                                        "automation" to KEY_TECH_AUTOMATION,
-                                        "quantum_ai" to KEY_TECH_QUANTUM_AI,
-                                        "nanotech" to KEY_TECH_NANOTECH,
-                                        "cyber_security" to KEY_TECH_CYBER_SECURITY,
-                                        "biotech_cloning" to KEY_TECH_BIOTECH_CLONING,
-                                        "biotech_med" to KEY_TECH_BIOTECH_CLONING,
-                                        "aerospace" to KEY_TECH_AEROSPACE,
-                                        "heavy_industry" to KEY_TECH_HEAVY_INDUSTRY,
-                                        "consumer_goods" to KEY_TECH_CONSUMER_GOODS,
-                                        "petrochem" to KEY_TECH_PETROCHEM
-                                    )
-                                    offlineCompletedTechs.forEach { tech ->
-                                        val cur = currentLevels[tech] ?: 0
-                                        val newLvl = (cur + 1).coerceAtMost(5)
-                                        currentLevels[tech] = newLvl
-                                        currentLevels["tech_$tech"] = newLvl
-                                        techPrefMap[tech]?.let { pKey ->
-                                            prefs[pKey] = newLvl
-                                        }
-                                    }
-                                    prefs[KEY_RESEARCH_LEVELS_JSON] = serializeResearchLevels(currentLevels)
-                                }
-
-                                val firstOngoing = mergedActive.entries.firstOrNull { it.value > now }
+                                val mergedActiveJson = SupabaseManager.mergeActiveResearchesPreservingHighest(
+                                    prefs[KEY_ACTIVE_RESEARCHES_JSON],
+                                    rawStr,
+                                    singleKey,
+                                    singleEnd
+                                )
+                                val parsedActive = try {
+                                    AppJson.decodeFromString<Map<String, Long>>(mergedActiveJson)
+                                } catch (_: Exception) { emptyMap() }
+                                val now = System.currentTimeMillis()
+                                val firstOngoing = parsedActive.entries.firstOrNull { it.value > now }
                                 if (firstOngoing != null) {
                                     prefs[KEY_ACTIVE_RESEARCH_TECH_KEY] = firstOngoing.key
                                     prefs[KEY_RESEARCH_END_TIME_MS] = firstOngoing.value
@@ -1622,7 +1630,7 @@ class EconomicDataStore(val context: Context) {
                                     prefs[KEY_ACTIVE_RESEARCH_TECH_KEY] = ""
                                     prefs[KEY_RESEARCH_END_TIME_MS] = 0L
                                 }
-                                AppJson.encodeToString(mergedActive)
+                                mergedActiveJson
                             }
                             else -> rawStr
                         }
@@ -1635,10 +1643,19 @@ class EconomicDataStore(val context: Context) {
                         prefs[stringPreferencesKey(k)] = strVal
                     }
                 }
+                val importedCap = prefs[KEY_INVENTORY_CAPACITY] ?: 5000
+                val importedWLevel = prefs[KEY_WAREHOUSE_LEVEL] ?: maxOf(1, 1 + ((importedCap - 5000) / 2500))
+                val safeResolvedWLevel = maxOf(localWLevel, importedWLevel, 1)
+                val safeResolvedCap = maxOf(localCap, importedCap, 5000 + (safeResolvedWLevel - 1) * 2500).coerceIn(5000, 1_000_000_000)
+                prefs[KEY_INVENTORY_CAPACITY] = safeResolvedCap
+                prefs[KEY_WAREHOUSE_LEVEL] = safeResolvedWLevel
+
+                val finalImportedVersion = maxOf(localSaveVersion, incomingSaveVersion, 1L)
+                prefs[KEY_SAVE_VERSION] = finalImportedVersion
                 prefs[KEY_SINGLE_CURRENCY_MIGRATED] = true
                 prefs[KEY_IS_DATA_SAVED] = true
                 prefs[KEY_LAST_SAVED_TIME] = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
-            prefs[KEY_LAST_KNOWN_ELAPSED_REALTIME] = android.os.SystemClock.elapsedRealtime()
+                prefs[KEY_LAST_KNOWN_ELAPSED_REALTIME] = android.os.SystemClock.elapsedRealtime()
             }
             val museumElem = jsonElement["museum_heritage_json"]
             if (museumElem != null) {

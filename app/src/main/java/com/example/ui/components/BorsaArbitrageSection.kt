@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -648,245 +650,243 @@ fun CreateLimitOrderDialog(
     }
     var autoRepeat by remember { mutableStateOf(true) }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
+    GameAdaptiveModalSheet(
+        onDismissRequest = onDismiss,
+        title = tr("AI EMİR & ARBİTRAJ", "AI ORDER & ARBITRAGE"),
+        subtitle = tr("Otomatik algoritmik borsa alım-satım emri", "Automated algorithmic limit & arbitrage order"),
+        icon = Icons.Rounded.SmartToy,
+        iconTint = ThemeNeonCyan,
+        badgeText = "ALGO-BOT",
+        badgeColor = ThemeNeonCyan,
+        primaryButtonText = tr("Emri Gönder & Başlat", "Submit & Activate Order"),
+        primaryButtonColor = ThemeNeonCyan,
+        primaryButtonIcon = Icons.Rounded.RocketLaunch,
+        onPrimaryAction = {
+            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            val buyTarget = buyPriceInput.toLongOrNull() ?: (curPrice * 0.85).toLong()
+            val sellTarget = sellPriceInput.toLongOrNull() ?: (curPrice * 1.25).toLong()
+
+            val order = BorsaLimitOrder(
+                itemId = selectedProduct.id,
+                orderType = orderType,
+                targetPrice = if (orderType == LimitOrderType.SELL_ABOVE) sellTarget else buyTarget,
+                targetSellPrice = if (orderType == LimitOrderType.ARBITRAGE_AUTO) sellTarget else 0L,
+                quantity = quantity,
+                autoRepeat = autoRepeat,
+                note = "🤖 AI Arbitraj: ${selectedProduct.getDisplayName()} x$quantity Ton"
+            )
+            viewModel.addBorsaLimitOrder(order)
+            onDismiss()
+        },
+        secondaryButtonText = tr("Vazgeç", "Cancel"),
+        onSecondaryAction = onDismiss
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF0D1526),
-            border = BorderStroke(1.dp, ThemeNeonCyan)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Column(
+            // Product Selector
+            CurrencyText(
+                text = tr("İşlem Görecek Emtia:", "Target Commodity:"),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.LightGray
+            )
+
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(Product.values().toList()) { prod ->
+                    val isSelected = selectedProduct.id == prod.id
+                    Surface(
+                        modifier = Modifier
+                            .width(64.dp)
+                            .clickable {
+                                selectedProduct = prod
+                                val price = marketPrices.find { it.itemId == prod.id }?.price ?: prod.basePrice
+                                buyPriceInput = ((price * 0.85).toLong()).toString()
+                                sellPriceInput = ((price * 1.25).toLong()).toString()
+                            },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF162032),
+                        border = BorderStroke(1.dp, if (isSelected) ThemeNeonCyan else Color(0xFF334155))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = prod.icon,
+                                contentDescription = null,
+                                tint = Color(prod.colorTint),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            CurrencyText(
+                                text = prod.getDisplayName(),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) ThemeNeonCyan else Color.LightGray,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Order Type Selector
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF162032))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.ARBITRAGE_AUTO },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (orderType == LimitOrderType.ARBITRAGE_AUTO) ThemeNeonCyan else Color.Transparent
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(imageVector = Icons.Rounded.SmartToy, contentDescription = null, tint = ThemeNeonCyan)
+                    Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                         CurrencyText(
-                            text = tr("AI EMİR & ARBİTRAJ KURUCU", "AI ORDER & ARBITRAGE BUILDER"),
-                            style = MaterialTheme.typography.titleMedium,
+                            text = tr("🤖 AI ARBİTRAJ", "🤖 ARBITRAGE"),
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontFamily = RobotoMonoFontFamily
+                            color = if (orderType == LimitOrderType.ARBITRAGE_AUTO) Color.Black else Color.LightGray
                         )
-                    }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(imageVector = Icons.Rounded.Close, contentDescription = null, tint = Color.Gray)
                     }
                 }
 
-                Divider(color = Color(0xFF1E293B))
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.BUY_BELOW },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (orderType == LimitOrderType.BUY_BELOW) ThemePositive else Color.Transparent
+                ) {
+                    Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        CurrencyText(
+                            text = tr("🟢 LİMİT ALIM", "🟢 BUY LIMIT"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (orderType == LimitOrderType.BUY_BELOW) Color.Black else Color.LightGray
+                        )
+                    }
+                }
 
-                // Product Selector
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.SELL_ABOVE },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (orderType == LimitOrderType.SELL_ABOVE) ThemeGold else Color.Transparent
+                ) {
+                    Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+                        CurrencyText(
+                            text = tr("🔴 LİMİT SATIM", "🔴 SELL LIMIT"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (orderType == LimitOrderType.SELL_ABOVE) Color.Black else Color.LightGray
+                        )
+                    }
+                }
+            }
+
+            // Price Inputs
+            if (orderType == LimitOrderType.ARBITRAGE_AUTO || orderType == LimitOrderType.BUY_BELOW) {
+                OutlinedTextField(
+                    value = buyPriceInput,
+                    onValueChange = { buyPriceInput = it.filter { ch -> ch.isDigit() } },
+                    label = { Text(tr("Alış Hedef Fiyatı (<= ₳)", "Buy Target Price (<= ₳)")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ThemePositive,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+
+            if (orderType == LimitOrderType.ARBITRAGE_AUTO || orderType == LimitOrderType.SELL_ABOVE) {
+                OutlinedTextField(
+                    value = sellPriceInput,
+                    onValueChange = { sellPriceInput = it.filter { ch -> ch.isDigit() } },
+                    label = { Text(tr("Satış Hedef Fiyatı (>= ₳)", "Sell Target Price (>= ₳)")) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ThemeGold,
+                        unfocusedBorderColor = Color(0xFF334155),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
+                )
+            }
+
+            // Quantity Selector
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 CurrencyText(
-                    text = tr("İşlem Görecek Emtia:", "Target Commodity:"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.LightGray
+                    text = tr("İşlem Miktarı: $quantity Ton", "Trade Quantity: $quantity Tons"),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
 
-                androidx.compose.foundation.lazy.LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(Product.values().toList()) { prod ->
-                        val isSelected = selectedProduct.id == prod.id
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(10, 50, 100, 500).forEach { q ->
                         Surface(
-                            modifier = Modifier
-                                .width(64.dp)
-                                .clickable {
-                                    selectedProduct = prod
-                                    val price = marketPrices.find { it.itemId == prod.id }?.price ?: prod.basePrice
-                                    buyPriceInput = ((price * 0.85).toLong()).toString()
-                                    sellPriceInput = ((price * 1.25).toLong()).toString()
-                                },
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (isSelected) ThemeNeonCyan.copy(alpha = 0.2f) else Color(0xFF162032),
-                            border = BorderStroke(1.dp, if (isSelected) ThemeNeonCyan else Color(0xFF334155))
+                            modifier = Modifier.clickable { quantity = q },
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (quantity == q) ThemeNeonCyan else Color(0xFF1E293B)
                         ) {
-                            Column(
-                                modifier = Modifier.padding(6.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = prod.icon,
-                                    contentDescription = null,
-                                    tint = Color(prod.colorTint),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                CurrencyText(
-                                    text = prod.getDisplayName(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isSelected) ThemeNeonCyan else Color.LightGray,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Order Type Selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF162032))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.ARBITRAGE_AUTO },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (orderType == LimitOrderType.ARBITRAGE_AUTO) ThemeNeonCyan else Color.Transparent
-                    ) {
-                        Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                             CurrencyText(
-                                text = tr("🤖 AI ARBİTRAJ", "🤖 ARBITRAGE"),
+                                text = "$q",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = if (orderType == LimitOrderType.ARBITRAGE_AUTO) Color.Black else Color.LightGray
-                            )
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.BUY_BELOW },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (orderType == LimitOrderType.BUY_BELOW) ThemePositive else Color.Transparent
-                    ) {
-                        Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                            CurrencyText(
-                                text = tr("🟢 LİMİT ALIM", "🟢 BUY LIMIT"),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (orderType == LimitOrderType.BUY_BELOW) Color.Black else Color.LightGray
-                            )
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier.weight(1f).clickable { orderType = LimitOrderType.SELL_ABOVE },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (orderType == LimitOrderType.SELL_ABOVE) ThemeGold else Color.Transparent
-                    ) {
-                        Box(modifier = Modifier.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
-                            CurrencyText(
-                                text = tr("🔴 LİMİT SATIM", "🔴 SELL LIMIT"),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (orderType == LimitOrderType.SELL_ABOVE) Color.Black else Color.LightGray
+                                color = if (quantity == q) Color.Black else Color.LightGray,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                     }
                 }
+            }
 
-                // Price Inputs
-                if (orderType == LimitOrderType.ARBITRAGE_AUTO || orderType == LimitOrderType.BUY_BELOW) {
-                    OutlinedTextField(
-                        value = buyPriceInput,
-                        onValueChange = { buyPriceInput = it.filter { ch -> ch.isDigit() } },
-                        label = { Text(tr("Alış Hedef Fiyatı (<= ₳)", "Buy Target Price (<= ₳)")) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ThemePositive,
-                            unfocusedBorderColor = Color(0xFF334155),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-                }
-
-                if (orderType == LimitOrderType.ARBITRAGE_AUTO || orderType == LimitOrderType.SELL_ABOVE) {
-                    OutlinedTextField(
-                        value = sellPriceInput,
-                        onValueChange = { sellPriceInput = it.filter { ch -> ch.isDigit() } },
-                        label = { Text(tr("Satış Hedef Fiyatı (>= ₳)", "Sell Target Price (>= ₳)")) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ThemeGold,
-                            unfocusedBorderColor = Color(0xFF334155),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-                }
-
-                // Quantity Selector
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // Auto-repeat switch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
                     CurrencyText(
-                        text = tr("İşlem Miktarı: $quantity Ton", "Trade Quantity: $quantity Tons"),
+                        text = tr("Sürekli Döngü (Tekrarla)", "Continuous Cycle (Repeat)"),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = Color.White
                     )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(10, 50, 100, 500).forEach { q ->
-                            Surface(
-                                modifier = Modifier.clickable { quantity = q },
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (quantity == q) ThemeNeonCyan else Color(0xFF1E293B)
-                            ) {
-                                CurrencyText(
-                                    text = "$q",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (quantity == q) Color.Black else Color.LightGray,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Submit Button
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        val buyTarget = buyPriceInput.toLongOrNull() ?: (curPrice * 0.85).toLong()
-                        val sellTarget = sellPriceInput.toLongOrNull() ?: (curPrice * 1.25).toLong()
-
-                        val order = BorsaLimitOrder(
-                            itemId = selectedProduct.id,
-                            orderType = orderType,
-                            targetPrice = if (orderType == LimitOrderType.SELL_ABOVE) sellTarget else buyTarget,
-                            targetSellPrice = if (orderType == LimitOrderType.ARBITRAGE_AUTO) sellTarget else 0L,
-                            quantity = quantity,
-                            autoRepeat = autoRepeat,
-                            note = "🤖 AI Arbitraj: ${selectedProduct.getDisplayName()} x$quantity Ton"
-                        )
-                        viewModel.addBorsaLimitOrder(order)
-                        onDismiss()
-                    },
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan)
-                ) {
                     CurrencyText(
-                        text = tr("🚀 EMİRİ SİSTEME GÖNDER & BAŞLAT", "🚀 SUBMIT & ACTIVATE ORDER"),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        fontFamily = RobotoMonoFontFamily
+                        text = tr("Emir gerçekleştikçe yeniden sıraya al", "Re-queue when executed"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        fontSize = 10.sp
                     )
                 }
+                Switch(
+                    checked = autoRepeat,
+                    onCheckedChange = { autoRepeat = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = ThemeNeonCyan,
+                        checkedTrackColor = ThemeNeonCyan.copy(alpha = 0.3f)
+                    )
+                )
             }
         }
     }

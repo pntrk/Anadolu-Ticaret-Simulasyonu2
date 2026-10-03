@@ -48,23 +48,29 @@ object GoogleAuthHelper {
                 val displayName = account?.displayName ?: "Tüccar"
                 
                 if (!email.isNullOrBlank()) {
-                    if (account.account != null) {
-                        CoroutineScope(Dispatchers.IO).launch {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        if (account.account != null) {
                             try {
-                                val act = MainActivity.currentActivity ?: return@launch
-                                val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
-                                    act,
-                                    account.account!!,
-                                    "oauth2:https://www.googleapis.com/auth/drive.appdata"
-                                )
-                                com.example.data.GoogleDriveSaveManager.setAccessToken(token)
-                            } catch (_: Exception) {}
+                                val act = MainActivity.currentActivity ?: findActivity(account.account.let { MainActivity.currentActivity ?: return@launch })
+                                if (act != null) {
+                                    val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
+                                        act,
+                                        account.account!!,
+                                        "oauth2:https://www.googleapis.com/auth/drive.appdata"
+                                    )
+                                    com.example.data.GoogleDriveSaveManager.setAccessToken(token)
+                                }
+                            } catch (e: Exception) {
+                                Log.w("GoogleAuthHelper", "Google Drive AppData token fetch optional fallback: ${e.message}")
+                            }
                         }
-                    }
-                    pendingViewModel?.signInWithGoogleAccount(email, displayName, idToken) { success, msg ->
-                        pendingCallback?.invoke(success, msg)
-                        pendingViewModel = null
-                        pendingCallback = null
+                        withContext(Dispatchers.Main) {
+                            pendingViewModel?.signInWithGoogleAccount(email, displayName, idToken) { success, msg ->
+                                pendingCallback?.invoke(success, msg)
+                                pendingViewModel = null
+                                pendingCallback = null
+                            }
+                        }
                     }
                 } else {
                     pendingCallback?.invoke(false, "Google hesabından e-posta bilgisi alınamadı.")
@@ -101,8 +107,8 @@ object GoogleAuthHelper {
                 val displayName = account.displayName ?: "Tüccar"
                 val idToken = account.idToken
                 Log.i("GoogleAuthHelper", "Restoring previous Google session for $email")
-                if (account.account != null) {
-                    CoroutineScope(Dispatchers.IO).launch {
+                CoroutineScope(Dispatchers.IO).launch {
+                    if (account.account != null) {
                         try {
                             val token = com.google.android.gms.auth.GoogleAuthUtil.getToken(
                                 context,
@@ -112,8 +118,10 @@ object GoogleAuthHelper {
                             com.example.data.GoogleDriveSaveManager.setAccessToken(token)
                         } catch (_: Exception) {}
                     }
+                    withContext(Dispatchers.Main) {
+                        viewModel.signInWithGoogleAccount(email, displayName, idToken)
+                    }
                 }
-                viewModel.signInWithGoogleAccount(email, displayName, idToken)
             }
         } catch (e: Exception) {
             Log.w("GoogleAuthHelper", "Could not restore last signed-in Google account", e)

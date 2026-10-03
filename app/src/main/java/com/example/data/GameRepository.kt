@@ -75,25 +75,18 @@ class GameRepository(
                 }
             }
 
-            // 2. Periyodik olarak (en az 45 saniyede bir) Supabase küresel pazar paketini sorgula
-            // Ekran açık değilken döngünün gereksiz sorgu atmasını engellemek için lifecycle kontrolü
-            while (isActive) {
-                delay(45_000L)
-                if (!isAppForeground.get()) {
-                    continue
-                }
-                try {
-                    val bundle = SupabaseManager.fetchGlobalMarketBundleFromSupabase()
-                    if (bundle != null && isActive) {
-                        withContext(Dispatchers.Main) {
-                            onUpdate(bundle)
-                        }
+            // 2. Oyuna girişte tek sefer Supabase küresel pazar paketini sorgula ve oturum boyu bellekte tut
+            try {
+                val bundle = SupabaseManager.fetchGlobalMarketBundleFromSupabase()
+                if (bundle != null && isActive) {
+                    withContext(Dispatchers.Main) {
+                        onUpdate(bundle)
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to fetch global market bundle: ${e.message}", e)
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Initial fetch global market bundle error: ${e.message}", e)
             }
         }
         globalMarketJob = job
@@ -166,13 +159,27 @@ class GameRepository(
     }
 
     private val isAppForeground = AtomicBoolean(true)
+    private val isMarketScreenActive = AtomicBoolean(false)
+    private val isConsortiumScreenActive = AtomicBoolean(false)
 
     fun setAppForegroundState(isForeground: Boolean) {
         isAppForeground.set(isForeground)
         Log.d(TAG, "GameRepository app foreground state set to: $isForeground")
     }
 
+    fun setMarketScreenActive(active: Boolean) {
+        isMarketScreenActive.set(active)
+        Log.d(TAG, "MarketScreen active state: $active")
+    }
+
+    fun setConsortiumScreenActive(active: Boolean) {
+        isConsortiumScreenActive.set(active)
+        Log.d(TAG, "ConsortiumScreen active state: $active")
+    }
+
     fun isAppInForeground(): Boolean = isAppForeground.get()
+    fun isMarketActive(): Boolean = isMarketScreenActive.get()
+    fun isConsortiumActive(): Boolean = isConsortiumScreenActive.get()
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -316,30 +323,6 @@ class GameRepository(
                 }
             }
 
-            // 3. Periodic background synchronization via Cloudflare Worker cache or Supabase fallback
-            // Kotayı korumak için 45 saniyeye çekildi ve lifecycle kontrollü yapıldı
-            launch {
-                while (isActive) {
-                    delay(45_000L)
-                    // Ekran açık değilken (uygulama arka plandayken) döngünün gereksiz sorgu atmasını engelle
-                    if (!isAppForeground.get()) {
-                        continue
-                    }
-                    try {
-                        val remotePrices = fetchMarketPricesFromCacheOrSupabase()
-                        if (!remotePrices.isNullOrEmpty()) {
-                            updateMarketPrices(remotePrices, syncToRemote = false)
-                            withContext(Dispatchers.Main) {
-                                onUpdate(remotePrices)
-                            }
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error in periodic global Borsa poll", e)
-                    }
-                }
-            }
         }
         borsaSyncJob = job
         return job
@@ -580,11 +563,18 @@ class GameRepository(
         return withContext(Dispatchers.IO) {
             // 1. Önce cihazdaki DataStore'dan kayıtlı Google giriş durumunu ve son ekonomik durumu oku
             val initialSnapshot = economicDataStore?.getEconomicSnapshot()
-            val onlineEmail = initialSnapshot?.onlineEmail.orEmpty().trim()
-            val isGoogleAuthed = initialSnapshot?.isOnlineRegistered == true && onlineEmail.isNotBlank() && onlineEmail != "misafir_tuccar"
+            val rawOnlineEmail = initialSnapshot?.onlineEmail.orEmpty().trim()
+            val effectiveEmail = rawOnlineEmail.ifBlank {
+                if (!customPlayerId.isNullOrBlank() && customPlayerId != "local_player" && customPlayerId != "p_local" && customPlayerId != "misafir_tuccar") {
+                    if (customPlayerId.contains("@")) customPlayerId else customPlayerId.replace("_", ".")
+                } else ""
+            }
 
-            val resolvedPlayerId = customPlayerId ?: if (isGoogleAuthed) {
-                onlineEmail.replace(".", "_")
+            val isGoogleAuthed = (initialSnapshot?.isOnlineRegistered == true && effectiveEmail.isNotBlank() && effectiveEmail != "misafir_tuccar")
+                || (!customPlayerId.isNullOrBlank() && customPlayerId != "local_player" && customPlayerId != "p_local" && customPlayerId != "misafir_tuccar")
+
+            val resolvedPlayerId = customPlayerId ?: if (effectiveEmail.isNotBlank() && effectiveEmail != "misafir_tuccar") {
+                effectiveEmail.replace(".", "_")
             } else {
                 "local_player"
             }
@@ -612,17 +602,29 @@ class GameRepository(
                                 (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
                             } ?: 0L
 
-                            val localSavedTime = economicDataStore?.getLastSavedTime() ?: 0L
+                            val driveSaveVersion = driveElement?.get("save_version")?.let {
+                                (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                            } ?: driveElement?.get("backup_version")?.let {
+                                (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                            } ?: 1L
 
-                            if (localSavedTime < driveSavedTime) {
-                                android.util.Log.i("GameRepository", "Google Drive save is newer ($driveSavedTime > local $localSavedTime). Restoring from Google Drive.")
+                            val localSavedTime = economicDataStore?.getLastSavedTime() ?: 0L
+                            val localSnapshot = economicDataStore?.getEconomicSnapshot()
+                            val localSaveVersion = localSnapshot?.saveVersion ?: 0L
+                            val isLocalRich = localSnapshot != null && (localSnapshot.level > 1 || localSnapshot.money > 250_000L || localSnapshot.gems > 0 || localSnapshot.totalProfit > 0L)
+
+                            val localIsNewerVersion = (localSaveVersion > driveSaveVersion) && (driveSaveVersion > 0L)
+                            val localIsEqualVersionAndNewerTime = (localSaveVersion == driveSaveVersion) && (localSavedTime >= driveSavedTime)
+
+                            if ((localIsNewerVersion || localIsEqualVersionAndNewerTime) && isLocalRich) {
+                                android.util.Log.i("GameRepository", "Local save is newer or equal (Local v#$localSaveVersion, time $localSavedTime >= Drive v#$driveSaveVersion, time $driveSavedTime). Preserving local save.")
+                                cloudSaveRestored = true
+                            } else {
+                                android.util.Log.i("GameRepository", "Google Drive save is newer/authoritative (Drive v#$driveSaveVersion, time $driveSavedTime > Local v#$localSaveVersion, time $localSavedTime). Restoring from Google Drive.")
                                 val imported = economicDataStore?.importSaveJson(driveSaveJson, force = true) ?: false
                                 if (imported) {
                                     cloudSaveRestored = true
                                 }
-                            } else {
-                                android.util.Log.i("GameRepository", "Local save is newer or equal ($localSavedTime >= drive $driveSavedTime). Preserving local save.")
-                                cloudSaveRestored = true
                             }
                         }
                     }
@@ -632,26 +634,60 @@ class GameRepository(
 
                 // B. Eğer Google Drive'dan geri yüklenmediyse (Drive'da henüz save yoksa), Supabase yedeğini kontrol et
                 if (!cloudSaveRestored) {
-                    val cloudSaveJson = SupabaseManager.fetchPlayerSaveData(onlineEmail)
-                        ?: SupabaseManager.fetchPlayerSaveData(resolvedPlayerId)
+                    val searchCandidates = listOf(
+                        effectiveEmail,
+                        resolvedPlayerId,
+                        effectiveEmail.lowercase(),
+                        effectiveEmail.substringBefore("@"),
+                        effectiveEmail.substringBefore("@").lowercase(),
+                        effectiveEmail.replace("@", "_").replace(".", "_"),
+                        effectiveEmail.lowercase().replace("@", "_").replace(".", "_"),
+                        customPlayerId
+                    ).filterNotNull().filter { it.isNotBlank() }.distinct()
+
+                    var cloudSaveJson: String? = null
+                    for (cand in searchCandidates) {
+                        cloudSaveJson = SupabaseManager.fetchPlayerSaveData(cand)
+                        if (!cloudSaveJson.isNullOrBlank()) {
+                            android.util.Log.i("GameRepository", "Found Supabase cloud save using candidate: $cand")
+                            break
+                        }
+                    }
                     
                     if (!cloudSaveJson.isNullOrBlank()) {
                         val localSnapshot = economicDataStore?.getEconomicSnapshot()
-                        val isLocalRich = localSnapshot != null && (localSnapshot.level > 1 || localSnapshot.money > 250_000L || localSnapshot.gems > 0 || localSnapshot.totalProfit > 0L)
+                        val localMoney = localSnapshot?.money ?: 0L
+                        val localSaveVersion = localSnapshot?.saveVersion ?: 0L
+                        val isLocalRich = localSnapshot != null && (localSnapshot.level > 1 || localMoney > 250_000L || localSnapshot.gems > 0 || localSnapshot.totalProfit > 0L)
                         
-                        val isCloudDegraded = try {
-                            val elem = com.example.data.network.AppJson.parseToJsonElement(cloudSaveJson) as? kotlinx.serialization.json.JsonObject
-                            val cloudLvl = (elem?.get("level") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 1
-                            val cloudMoney = (elem?.get("money") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 100_000L
-                            val cloudGems = (elem?.get("gems") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 0
-                            cloudLvl <= 1 && cloudMoney <= 200_000L && cloudGems == 0
-                        } catch (_: Exception) { false }
+                        val cloudElement = try {
+                            com.example.data.network.AppJson.parseToJsonElement(cloudSaveJson) as? kotlinx.serialization.json.JsonObject
+                        } catch (_: Exception) { null }
 
-                        if (isLocalRich && isCloudDegraded) {
-                            android.util.Log.w("GameRepository", "Cloud save is degraded (100k startup), but local device has high progress! Preserving local device progress and protecting data.")
+                        val cloudMoney = (cloudElement?.get("money") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 100_000L
+                        val cloudSavedTime = cloudElement?.get("last_saved_time")?.let {
+                            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                        } ?: cloudElement?.get("exportedAtMs")?.let {
+                            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                        } ?: 0L
+                        val cloudSaveVersion = cloudElement?.get("save_version")?.let {
+                            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                        } ?: cloudElement?.get("backup_version")?.let {
+                            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull()
+                        } ?: 1L
+
+                        val localSavedTime = economicDataStore?.getLastSavedTime() ?: 0L
+
+                        val localIsNewerVersion = (localSaveVersion > cloudSaveVersion) && (cloudSaveVersion > 0L)
+                        val localIsEqualVersionAndNewerTime = (localSaveVersion == cloudSaveVersion) && (localSavedTime >= cloudSavedTime)
+
+                        if (localSnapshot != null && localSnapshot.isDataSaved && isLocalRich && (localIsNewerVersion || localIsEqualVersionAndNewerTime) && localMoney >= cloudMoney) {
+                            android.util.Log.i("GameRepository", "Local save is newer or equal to Supabase (Local v#$localSaveVersion, time $localSavedTime >= Cloud v#$cloudSaveVersion, time $cloudSavedTime). Preserving local save.")
+                            cloudSaveRestored = true
                         } else {
-                            android.util.Log.i("GameRepository", "Cloud save found for Google account $onlineEmail. Restoring directly.")
+                            android.util.Log.i("GameRepository", "Cloud save found for Google account $effectiveEmail ($resolvedPlayerId) with v#$cloudSaveVersion, ₳$cloudMoney. Restoring directly.")
                             economicDataStore?.importSaveJson(cloudSaveJson, force = true)
+                            cloudSaveRestored = true
                         }
                     }
                 }
@@ -791,6 +827,8 @@ class GameRepository(
         techHeavyIndustry: Int = 0,
         techConsumerGoods: Int = 0,
         techPetrochem: Int = 0,
+        techGlobalFinance: Int = 0,
+        techCulturalHeritage: Int = 0,
         activeResearchTechKey: String = "",
         researchEndTimeMs: Long = 0L,
         activeResearches: Map<String, Long> = emptyMap(),
@@ -806,7 +844,9 @@ class GameRepository(
         deliveries: List<DeliveryItem> = emptyList(),
         activeProductions: List<ActiveProduction> = emptyList(),
         growthHistoryJson: String = "[]",
-        dailyQuestStateJson: String = "{}"
+        bulletinOpportunitiesJson: String = "[]",
+        dailyQuestStateJson: String = "{}",
+        pendingSales: List<PendingMarketSaleEntity> = emptyList()
     ) {
         economicDataStore?.saveEconomicData(
             player = player,
@@ -835,6 +875,8 @@ class GameRepository(
             techHeavyIndustry = techHeavyIndustry,
             techConsumerGoods = techConsumerGoods,
             techPetrochem = techPetrochem,
+            techGlobalFinance = techGlobalFinance,
+            techCulturalHeritage = techCulturalHeritage,
             activeResearchTechKey = activeResearchTechKey,
             researchEndTimeMs = researchEndTimeMs,
             activeResearches = activeResearches,
@@ -850,7 +892,9 @@ class GameRepository(
             deliveries = deliveries,
             activeProductions = activeProductions,
             growthHistoryJson = growthHistoryJson,
-            dailyQuestStateJson = dailyQuestStateJson
+            bulletinOpportunitiesJson = bulletinOpportunitiesJson,
+            dailyQuestStateJson = dailyQuestStateJson,
+            pendingSales = pendingSales
         )
     }
 

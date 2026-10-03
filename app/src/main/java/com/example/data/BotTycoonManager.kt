@@ -315,33 +315,50 @@ object BotTycoonManager {
         val myName = p.name
 
         val now = System.currentTimeMillis()
-        val twentyFourHoursMs = 24 * 60 * 60 * 1000L // 24 saat = 86.400.000 ms
+        val twentyFourHoursMs = 24 * 60 * 60 * 1000L // 24 saat
+        val threeDaysMs = 3 * 24 * 60 * 60 * 1000L // 3 Gün (72 saat) Maksimum Yayın Kuralı
 
-        // A) SÜRESİ DOLMUŞ BOT İLANLARINI TEMİZLE (24 Saat Kuralı - Gerçek Dünya Saatine Göre)
-        // Gerçek kullanıcılar 24 saat boyunca satın almazsa, 24 saat sonunda ilan yayından kaldırılır ve Supabase'den silinir.
-        val expiredBotListings = currentListings.filter { listing ->
-            val isBot = listing.sellerId.startsWith("BOT-") || listing.id.startsWith("BOT_LISTING_")
-            isBot && listing.createdAt > 0L && (now - listing.createdAt) >= twentyFourHoursMs
+        // A) SÜRESİ DOLMUŞ İLANLARI TEMİZLE VE OYUNCU ÜRÜNLERİNİ İADE ET (3 Gün / 72 Saat Kuralı)
+        // Bot dahil tüm ilanlar en fazla 3 gün yayında kalır. Süresi dolan oyuncu ilanları depoya iade edilir.
+        val expiredListings = currentListings.filter { listing ->
+            listing.createdAt > 0L && (now - listing.createdAt) >= threeDaysMs
         }
-        if (expiredBotListings.isNotEmpty()) {
-            viewModel._marketListings.value = viewModel._marketListings.value.filterNot { it in expiredBotListings }
-            expiredBotListings.forEach { expired ->
-                com.example.data.SupabaseManager.deleteMarketListingFromSupabase(expired.id)
+        if (expiredListings.isNotEmpty()) {
+            viewModel._marketListings.value = viewModel._marketListings.value.filterNot { it in expiredListings }
+            expiredListings.forEach { expired ->
+                val isRealPlayerListing = !expired.isBotListing && !expired.sellerId.startsWith("BOT-") && !expired.id.startsWith("BOT_LISTING_")
+                if (isRealPlayerListing) {
+                    com.example.data.SupabaseManager.deleteMarketListingFromSupabase(expired.id)
+                }
+                val isMyListing = expired.sellerId == myUid || expired.sellerName.equals(myName, ignoreCase = true)
+                if (isMyListing && expired.quantity > 0) {
+                    val baseId = ItemQuality.extractBaseProductId(expired.itemId)
+                    val prod = Product.values().find { it.id == baseId }
+                    val prodTitle = prod?.getDisplayName() ?: baseId.uppercase()
+                    viewModel.repository.produceItem(expired.itemId, expired.quantity)
+                    viewModel.repository.deletePendingSale(expired.id)
+                    SmartNotificationManager.show(
+                        "📦 3 Günü Dolan İlanınız İade Edildi: ${expired.quantity} Ton ${expired.quality.label} $prodTitle deponuza geri aktarıldı.",
+                        "📦 3-Day Expired Listing Refunded: ${expired.quantity} Tons returned to your warehouse.",
+                        NotificationType.INFO
+                    )
+                }
             }
         }
 
         // B) BOTLARIN OYUNCU İLANLARINI SATIN ALMASI KURALI:
         // 1) İlk 24 saat boyunca botlar GERÇEK OYUNCU İLANLARINI KESİNLİKLE ALAMAZ. (Sadece gerçek kullanıcılar alabilir).
-        // 2) 24 saatlik süre dolduğunda, gerçek kullanıcılar almamışsa botlar ilanı otomatik satın alabilir.
-        // 3) Haksız zenginleşmeyi önlemek için: İlan fiyatı piyasa ortalamasından %20 ve fazlası pahalıysa (pricePerUnit > spotPrice * 1.20), botlar 24 saat dolduktan sonra bile ALAMAZ.
+        // 2) 24 saat - 72 saat arasında, gerçek kullanıcılar almamışsa botlar ilanı makul fiyattan satın alabilir.
+        // 3) Haksız zenginleşmeyi önlemek için: İlan fiyatı piyasa ortalamasından %20 ve fazlası pahalıysa (pricePerUnit > spotPrice * 1.20), botlar alamaz.
         val candidatePlayerListings = viewModel.marketListings.value.filter { listing ->
             val isMyListing = listing.sellerId == myUid || listing.sellerName.equals(myName, ignoreCase = true)
-            val isRealPlayerListing = !listing.isBotListing
-            val isOlderThan24Hours = (listing.createdAt > 0L) && ((now - listing.createdAt) >= twentyFourHoursMs)
+            val isRealPlayerListing = !listing.isBotListing && !listing.sellerId.startsWith("BOT-") && !listing.id.startsWith("BOT_LISTING_")
+            val ageMs = if (listing.createdAt > 0L) now - listing.createdAt else 0L
+            val isEligibleForBotBuy = ageMs in twentyFourHoursMs until threeDaysMs
 
-            // Yalnızca 24 saati doldurmuş, miktar kalmış olan gerçek oyuncu ilanları
+            // Yalnızca 24-72 saat aralığında olan ve stoğu bulunan gerçek oyuncu ilanları
             if (!isMyListing && !isRealPlayerListing) return@filter false
-            if (!isOlderThan24Hours || listing.quantity <= 0) return@filter false
+            if (!isEligibleForBotBuy || listing.quantity <= 0) return@filter false
 
             // Piyasa ortalaması / spot fiyat kontrolü (%20 ve üstü pahalıysa alım engellenir)
             val baseId = ItemQuality.extractBaseProductId(listing.itemId)
@@ -376,15 +393,20 @@ object BotTycoonManager {
 
                     // Oyuncunun ilanını al ve parayı oyuncuya ver
                     val remainingQty = listing.quantity - purchaseQty
+                    val isRealPlayerListing = !listing.isBotListing && !listing.sellerId.startsWith("BOT-") && !listing.id.startsWith("BOT_LISTING_")
                     if (remainingQty <= 0) {
                         viewModel._marketListings.value = viewModel._marketListings.value.filterNot { it.id == listing.id }
-                        com.example.data.SupabaseManager.deleteMarketListingFromSupabase(listing.id)
+                        if (isRealPlayerListing) {
+                            com.example.data.SupabaseManager.deleteMarketListingFromSupabase(listing.id)
+                        }
                     } else {
                         val updatedListing = listing.copy(quantity = remainingQty)
                         viewModel._marketListings.value = viewModel._marketListings.value.map {
                             if (it.id == listing.id) updatedListing else it
                         }
-                        com.example.data.SupabaseManager.syncMarketListingToSupabase(updatedListing)
+                        if (isRealPlayerListing) {
+                            com.example.data.SupabaseManager.syncMarketListingToSupabase(updatedListing)
+                        }
                     }
 
                     // Oyuncu bakiyesini artır
@@ -413,7 +435,7 @@ object BotTycoonManager {
             }
         }
 
-        // C) BOTLARIN PAZARA YENİ ÜRÜN İLANI EKLEMESİ (24 Saat Yayında Kalacak Şekilde)
+        // C) BOTLARIN PAZARA YENİ ÜRÜN İLANI EKLEMESİ (Tamamen Yerel Simülasyon - 0 DB Logu / 0 Egress)
         val activeBotListings = viewModel.marketListings.value.filter {
             (it.sellerId.startsWith("BOT-") || it.id.startsWith("BOT_LISTING_")) && (now - it.createdAt) < twentyFourHoursMs
         }
@@ -456,8 +478,7 @@ object BotTycoonManager {
                 }
                 viewModel._marketListings.value = (preservedListings + newBotListing).takeLast(80)
 
-                // Supabase ile Senkronize Et
-                com.example.data.SupabaseManager.syncMarketListingToSupabase(newBotListing)
+                // Bot ilanları tamamen yerel bellekte tutulur, sunucuya sıfır (0) istek ve sıfır (0) log üretilir.
             }
         }
 
@@ -495,46 +516,31 @@ object BotTycoonManager {
 
         var hasChanges = false
         val updatedProjects = currentProjects.map { proj ->
-            // Tamamlanmamış slotları bul
-            val unmetSlots = proj.slots.filter { !it.isFullyDelivered }
-            if (unmetSlots.isNotEmpty() && Random.nextFloat() < 0.30f) {
-                val targetSlot = unmetSlots.random()
-                val candidateBots = _botsState.value.filter { bot ->
-                    val isQualityQualified = when (proj.qualityTier) {
-                        ConsortiumQualityTier.GRADE_A -> bot.rdProgressPercent >= 60 || bot.level >= 12
-                        ConsortiumQualityTier.GRADE_B -> bot.rdProgressPercent >= 25 || bot.level >= 6
-                        ConsortiumQualityTier.GRADE_C -> true
-                    }
-                    isQualityQualified && (bot.sellProductIds.contains(targetSlot.productId) || bot.buyProductIds.contains(targetSlot.productId) || Random.nextFloat() < 0.5f)
-                }
-                val matchingBot = candidateBots.randomOrNull()
+            val pId = viewModel.player.value?.id ?: "local_player"
+            val pName = viewModel.player.value?.name ?: ""
+            // KURAL: Botlar sadece kendilerine önceden atanmış lider slotlarına (Slot 1) tedarik yapabilir.
+            // Açık slotlar (assignedPartnerId == null) kesinlikle canlı oyunculara rezerve kalır!
+            val unmetAssignedBotSlots = proj.slots.filter { slot ->
+                slot.assignedPartnerId != null &&
+                slot.assignedPartnerId.startsWith("BOT-") &&
+                !slot.isFullyDelivered
+            }
+            if (unmetAssignedBotSlots.isNotEmpty() && Random.nextFloat() < 0.25f) {
+                val targetSlot = unmetAssignedBotSlots.random()
+                val deliverQty = Random.nextInt(5, 20).coerceAtMost(targetSlot.quantityRequired - targetSlot.quantityDelivered)
+                if (deliverQty > 0) {
+                    val unitCost = Product.values().find { it.id == targetSlot.productId }?.basePrice ?: 500L
+                    val newDelivered = targetSlot.quantityDelivered + deliverQty
 
-                if (matchingBot != null) {
-                    val deliverQty = Random.nextInt(5, 25).coerceAtMost(targetSlot.quantityRequired - targetSlot.quantityDelivered)
-                    if (deliverQty > 0) {
-                        val unitCost = Product.values().find { it.id == targetSlot.productId }?.basePrice ?: 500L
-                        val newDelivered = targetSlot.quantityDelivered + deliverQty
+                    val updatedSlot = targetSlot.copy(
+                        quantityDelivered = newDelivered,
+                        costContributionValue = targetSlot.costContributionValue + (unitCost * deliverQty)
+                    )
 
-                        val botStars = when (proj.qualityTier) {
-                            ConsortiumQualityTier.GRADE_A -> if (matchingBot.level >= 15) 5 else 4
-                            ConsortiumQualityTier.GRADE_B -> if (matchingBot.level >= 10) 4 else if (matchingBot.level >= 6) 3 else 2
-                            ConsortiumQualityTier.GRADE_C -> if (matchingBot.level >= 8) 2 else 1
-                        }
-
-                        val updatedSlot = targetSlot.copy(
-                            quantityDelivered = newDelivered,
-                            assignedPartnerId = targetSlot.assignedPartnerId ?: matchingBot.id,
-                            assignedPartnerName = targetSlot.assignedPartnerName ?: "${matchingBot.name} (${matchingBot.companyName})",
-                            costContributionValue = targetSlot.costContributionValue + (unitCost * deliverQty),
-                            deliveredQualityTier = botStars,
-                            deliveredQualityScore = botStars.toDouble()
-                        )
-
-                        hasChanges = true
-                        proj.copy(
-                            slots = proj.slots.map { if (it.slotId == targetSlot.slotId) updatedSlot else it }
-                        )
-                    } else proj
+                    hasChanges = true
+                    proj.copy(
+                        slots = proj.slots.map { if (it.slotId == targetSlot.slotId) updatedSlot else it }
+                    )
                 } else proj
             } else if (Random.nextFloat() < 0.20f) {
                 // Botların hisse piyasasında işlem yapması ve fiyatı canlı tutması

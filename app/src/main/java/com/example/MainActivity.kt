@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.viewmodel.*
+import kotlinx.coroutines.launch
 
 import android.content.res.Configuration
 import android.os.Bundle
@@ -224,6 +225,10 @@ class MainActivity : ComponentActivity() {
         try {
             if (::gameViewModel.isInitialized) {
                 gameViewModel.setAppForegroundState(false)
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+                    gameViewModel.saveEconomicDataToDataStoreSuspend()
+                    com.example.data.SaveSyncCoordinator.flushImmediately()
+                }
             }
             com.example.data.OfflineProgressManager.recordLogoutTimestamp(this)
         } catch (e: Throwable) {
@@ -237,8 +242,11 @@ class MainActivity : ComponentActivity() {
             com.example.data.OfflineProgressManager.recordLogoutTimestamp(this)
             if (::gameViewModel.isInitialized) {
                 gameViewModel.setAppForegroundState(false)
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.NonCancellable) {
+                    gameViewModel.saveEconomicDataToDataStoreSuspend()
+                    com.example.data.SaveSyncCoordinator.flushImmediately()
+                }
             }
-            com.example.data.SaveSyncCoordinator.flushImmediately()
             // Schedule intelligent retention push reminders (4h, 12h, 24h)
             com.example.notification.LocalGameNotificationManager.scheduleSmartRetentionPack()
         } catch (e: Throwable) {

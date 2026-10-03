@@ -45,6 +45,7 @@ data class GameSaveData(
     val megaProjectsJson: String = "[]",
     val selectedTheme: String = "",
     val schemaVersion: Int = 2,
+    val saveVersion: Long = 1L,
     val saveTimestampMs: Long = System.currentTimeMillis(),
     val isMigratedToNoSql: Boolean = false
 )

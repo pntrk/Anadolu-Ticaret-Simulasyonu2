@@ -814,33 +814,69 @@ fun StatisticsScreen(
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val isEn = com.example.ui.theme.isEnglishLanguage()
                             notificationHistory.take(5).forEach { item ->
+                                val resolvedProdId = item.getResolvedProductId()
+                                val resolvedQuality = item.getResolvedQuality()
+                                val msgText = item.getFormattedMessage(isEn)
+
                                 Surface(
-                                    shape = RoundedCornerShape(4.dp),
+                                    shape = RoundedCornerShape(6.dp),
                                     color = theme.surfaceColor,
                                     border = BorderStroke(1.dp, theme.borderColor),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(12.dp),
+                                        modifier = Modifier.padding(10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                    when (item.type) {
-                                                        com.example.ui.components.NotificationType.SUCCESS -> ThemePositive
-                                                        com.example.ui.components.NotificationType.ALERT -> ThemeNegative
-                                                        else -> ThemeNeonCyan
+                                        if (resolvedProdId != null) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFF0F1829),
+                                                border = BorderStroke(0.8.dp, theme.borderColor),
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    com.example.ui.components.UniversalProductIcon(
+                                                        productId = resolvedProdId,
+                                                        size = 20.dp
+                                                    )
+                                                    if (resolvedQuality != null) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(topStart = 3.dp),
+                                                            color = resolvedQuality.badgeColor.copy(alpha = 0.95f),
+                                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                                        ) {
+                                                            Text(
+                                                                text = "★${resolvedQuality.stars}",
+                                                                color = Color.Black,
+                                                                fontSize = 6.5.sp,
+                                                                fontWeight = FontWeight.Black,
+                                                                modifier = Modifier.padding(horizontal = 1.dp)
+                                                            )
+                                                        }
                                                     }
-                                                )
-                                        )
+                                                }
+                                            }
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        when (item.type) {
+                                                            com.example.ui.components.NotificationType.SUCCESS -> ThemePositive
+                                                            com.example.ui.components.NotificationType.ALERT -> ThemeNegative
+                                                            else -> ThemeNeonCyan
+                                                        }
+                                                    )
+                                            )
+                                        }
 
                                         CurrencyText(
-                                            text = item.message,
+                                            text = msgText,
                                             fontSize = 11.sp,
                                             color = theme.textPrimaryColor,
                                             maxLines = 2,

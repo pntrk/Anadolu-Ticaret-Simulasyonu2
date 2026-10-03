@@ -113,9 +113,24 @@ fun InventoryScreen(
     val fillRatio = (totalTonCount.toFloat() / maxCapacity.toFloat()).coerceIn(0f, 1f)
     val netWorth = (player?.money ?: 0L) + totalValuation + (player?.depositBalance ?: 0L) - (player?.loanAmount ?: 0L)
 
-    // Warehouse upgrade cost calculation matching ViewModel formula
-    val upgradesDone = ((player?.inventoryCapacity ?: 5000) - 5000) / 2500
-    val upgradeCost = 25000L + (upgradesDone * 15000L)
+    val currentWarehouseLevel = player?.warehouseLevel ?: 1
+    val nextWarehouseLevel = currentWarehouseLevel + 1
+    val upgradeCost = 25000L + ((currentWarehouseLevel - 1) * 20000L)
+
+    var showWarehousePerksDialog by remember { mutableStateOf(false) }
+    val bulkUpgradeLevels = 5
+    var bulkUpgradeCost = 0L
+    var tmpLvl = currentWarehouseLevel
+    for (i in 0 until bulkUpgradeLevels) {
+        bulkUpgradeCost += (25000L + ((tmpLvl - 1) * 20000L))
+        tmpLvl++
+    }
+    val playerMoney = player?.money ?: 0L
+    val canAffordSingle = playerMoney >= upgradeCost
+    val canAffordBulk = playerMoney >= bulkUpgradeCost
+    val remainingCapacity = maxOf(0, maxCapacity - totalTonCount)
+    val playerCityId = player?.currentCity ?: "istanbul"
+    val playerCityName = com.example.data.cities.find { it.id == playerCityId }?.name ?: playerCityId.replaceFirstChar { it.uppercase() }
 
     // Offload inventory calculations, valuation and multi-tier filtering to Dispatchers.IO
     LaunchedEffect(inventory, marketPrices, selectedFilterTier, searchQuery, sortBy) {
@@ -308,61 +323,73 @@ fun InventoryScreen(
                     )
                 }
             } else {
-            // 1. SLEEK COMPACT WAREHOUSE CAPACITY HEADER (FULL WIDTH SPAN)
+            // 1. SLEEK MODERN OPTIMIZED CENTRAL WAREHOUSE COMMAND DECK (FULL WIDTH SPAN)
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF101726),
-                    border = BorderStroke(1.dp, if (fillRatio > 0.85f) ThemeNegative.copy(alpha = 0.6f) else ThemeBorder)
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFF0F172A),
+                    border = BorderStroke(1.2.dp, if (fillRatio > 0.85f) ThemeNegative.copy(alpha = 0.8f) else Color(0xFF00E5FF).copy(alpha = 0.4f))
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // Top Info Row: Title & Stock Variety & Upgrade
+                        // Top Header: Title, City Hub, Level & Info Button
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Title & Stock Variety
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f, fill = false).padding(end = 8.dp)
-                            ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false)) {
                                 Surface(
-                                    shape = RoundedCornerShape(2.dp),
+                                    shape = RoundedCornerShape(6.dp),
                                     color = ThemeNeonCyan.copy(alpha = 0.15f),
-                                    border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.4f)),
-                                    modifier = Modifier.size(28.dp)
+                                    border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.6f)),
+                                    modifier = Modifier.size(34.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = Icons.Rounded.Warehouse,
                                             contentDescription = null,
                                             tint = ThemeNeonCyan,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CurrencyText(
+                                            text = tr("MERKEZ DEPO KOMUTASI", "HQ CENTRAL WAREHOUSE", isEnglish),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Black,
+                                            fontFamily = RobotoMonoFontFamily,
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(3.dp),
+                                            color = Color(0xFF1E293B),
+                                            border = BorderStroke(0.8.dp, ThemeBorder)
+                                        ) {
+                                            CurrencyText(
+                                                text = "📍 $playerCityName",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontSize = 9.sp,
+                                                color = Color.LightGray,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
                                     CurrencyText(
-                                        text = stringResource(R.string.inv_stock_title),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    CurrencyText(
-                                        text = "${activeItems.size} " + tr("Çeşit Ürün", "Types of Product", isEnglish),
+                                        text = "${activeItems.size} " + tr("Çeşit Ürün", "Product Types", isEnglish) + " • " + tr("Değer: ₳", "Valuation: ₳", isEnglish) + formatMoney(totalValuation),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = ThemeNeonCyan,
+                                        color = Color(0xFF38BDF8),
                                         fontSize = 10.sp,
                                         fontFamily = RobotoMonoFontFamily,
                                         maxLines = 1,
@@ -371,27 +398,137 @@ fun InventoryScreen(
                                 }
                             }
 
-                            // Compact Upgrade Button
+                            // Level Badge & Perks Info Button
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ThemeGold.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.2.dp, ThemeGold.copy(alpha = 0.8f)),
+                                    modifier = Modifier.clickable { showWarehousePerksDialog = true }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CurrencyText(
+                                            text = tr("SEVİYE $currentWarehouseLevel", "LVL $currentWarehouseLevel", isEnglish),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 10.sp,
+                                            color = ThemeGold,
+                                            fontFamily = RobotoMonoFontFamily
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.Rounded.Info,
+                                            contentDescription = "Perks",
+                                            tint = ThemeGold,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4-Quadrant Metric Chips
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            // Chip 1: Dolu Alan
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = BorderStroke(0.8.dp, if (fillRatio > 0.85f) ThemeNegative.copy(alpha = 0.5f) else ThemeBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
+                                    CurrencyText(tr("Dolu Stok", "Used Stock", isEnglish), fontSize = 8.5.sp, color = Color.Gray)
+                                    CurrencyText("${formatMoney(totalTonCount.toLong())}T", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (fillRatio > 0.85f) ThemeNegative else Color.White, fontFamily = RobotoMonoFontFamily)
+                                }
+                            }
+
+                            // Chip 2: Boş Alan
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = BorderStroke(0.8.dp, ThemeBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
+                                    CurrencyText(tr("Boş Alan", "Free Space", isEnglish), fontSize = 8.5.sp, color = Color.Gray)
+                                    CurrencyText("${formatMoney(remainingCapacity.toLong())}T", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981), fontFamily = RobotoMonoFontFamily)
+                                }
+                            }
+
+                            // Chip 3: Toplam Kapasite
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = BorderStroke(0.8.dp, ThemeBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
+                                    CurrencyText(tr("Kapasite", "Capacity", isEnglish), fontSize = 8.5.sp, color = Color.Gray)
+                                    CurrencyText("${formatMoney(maxCapacity.toLong())}T", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
+                                }
+                            }
+
+                            // Chip 4: Doluluk Oranı
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
+                                border = BorderStroke(0.8.dp, if (fillRatio > 0.85f) ThemeNegative.copy(alpha = 0.6f) else ThemeBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp)) {
+                                    CurrencyText(tr("Doluluk", "Fill Rate", isEnglish), fontSize = 8.5.sp, color = Color.Gray)
+                                    val pct = (fillRatio * 100).toInt()
+                                    val pctColor = if (fillRatio > 0.85f) ThemeNegative else if (fillRatio > 0.6f) ThemeGold else Color(0xFF00E5FF)
+                                    CurrencyText("%$pct", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = pctColor, fontFamily = RobotoMonoFontFamily)
+                                }
+                            }
+                        }
+
+                        // Progress Bar
+                        val progressColor = if (fillRatio > 0.85f) ThemeNegative else if (fillRatio > 0.6f) ThemeGold else Color(0xFF00E5FF)
+                        LinearProgressIndicator(
+                            progress = { fillRatio },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(7.dp)
+                                .clip(RoundedCornerShape(3.5.dp)),
+                            color = progressColor,
+                            trackColor = Color(0xFF1E293B)
+                        )
+
+                        // Upgrade Action Buttons (Single Level & Bulk 5 Levels)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Button 1: Single Upgrade (+1 Level / +2.5kT)
                             AppButton(
                                 onClick = {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeWarehouseCapacity)
                                 },
-                                shape = RoundedCornerShape(4.dp),
+                                shape = RoundedCornerShape(6.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = ThemeNeonCyan,
-                                    contentColor = Color(0xFF002026)
+                                    containerColor = if (canAffordSingle) Color(0xFF00E5FF) else Color(0xFF334155),
+                                    contentColor = if (canAffordSingle) Color(0xFF002026) else Color.LightGray
                                 ),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp)
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
                                     imageVector = Icons.Rounded.Upgrade,
                                     contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
-                                Spacer(modifier = Modifier.width(3.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 CurrencyText(
-                                    text = "+2.5kT (${formatMoney(upgradeCost)})",
+                                    text = tr("Sev. $nextWarehouseLevel (+2.5kT) ₳${formatMoney(upgradeCost)}", "Lvl $nextWarehouseLevel (+2.5kT) ₳${formatMoney(upgradeCost)}", isEnglish),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = RobotoMonoFontFamily,
@@ -399,46 +536,196 @@ fun InventoryScreen(
                                     maxLines = 1
                                 )
                             }
+
+                            // Button 2: Bulk Upgrade (+5 Levels / +12.5kT)
+                            AppButton(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.UpgradeWarehouseCapacityBy(bulkUpgradeLevels))
+                                },
+                                shape = RoundedCornerShape(6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (canAffordBulk) Color(0xFFF59E0B) else Color(0xFF1E293B),
+                                    contentColor = if (canAffordBulk) Color(0xFF3D1F00) else Color.Gray
+                                ),
+                                border = if (!canAffordBulk) BorderStroke(1.dp, Color(0xFF475569)) else null,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardDoubleArrowUp,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                CurrencyText(
+                                    text = tr("+5 Sev. (+12.5kT) ₳${formatMoney(bulkUpgradeCost)}", "+5 Lvls (+12.5kT) ₳${formatMoney(bulkUpgradeCost)}", isEnglish),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = RobotoMonoFontFamily,
+                                    fontSize = 9.5.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
 
-                        // Capacity Progress Bar
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CurrencyText(
-                                text = "$totalTonCount / $maxCapacity ${stringResource(R.string.inv_ton)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                fontFamily = RobotoMonoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                color = if (fillRatio > 0.85f) ThemeNegative else Color.LightGray,
-                                maxLines = 1
-                            )
-
-                            val progressColor = if (fillRatio > 0.85f) ThemeNegative else if (fillRatio > 0.6f) ThemeGold else ThemeNeonCyan
-                            LinearProgressIndicator(
-                                progress = { fillRatio },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp)),
-                                color = progressColor,
-                                trackColor = Color(0xFF1E283A)
-                            )
-
-                            CurrencyText(
-                                text = "%${(fillRatio * 100).toInt()}",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
-                                fontFamily = RobotoMonoFontFamily,
-                                fontWeight = FontWeight.Bold,
-                                color = progressColor,
-                                maxLines = 1
-                            )
+                        // Critical Storage Alert Banner when fillRatio > 0.85
+                        if (fillRatio > 0.85f) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = ThemeNegative.copy(alpha = 0.15f),
+                                border = BorderStroke(1.dp, ThemeNegative.copy(alpha = 0.6f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Warning,
+                                        contentDescription = null,
+                                        tint = ThemeNegative,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    CurrencyText(
+                                        text = tr("⚠️ Depo dolmak üzere (%${(fillRatio * 100).toInt()})! Üretimler durabilir, kapasiteyi yükseltin.", "⚠️ Warehouse almost full (%${(fillRatio * 100).toInt()})! Upgrading storage is recommended.", isEnglish),
+                                        fontSize = 9.5.sp,
+                                        color = ThemeNegative,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2
+                                    )
+                                }
+                            }
                         }
                     }
+                }
+            }
+
+            // Warehouse Perks & Progression Dialog
+            if (showWarehousePerksDialog) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    AlertDialog(
+                        onDismissRequest = { showWarehousePerksDialog = false },
+                        containerColor = Color(0xFF0F172A),
+                        title = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ThemeGold.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.dp, ThemeGold),
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        CurrencyText("🏛️", fontSize = 16.sp)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    CurrencyText(
+                                        text = tr("Merkez Depo Gelişim Rehberi", "Central Warehouse Tier Guide", isEnglish),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = Color.White
+                                    )
+                                    CurrencyText(
+                                        text = tr("Bulut Yedekleme & Lojistik Koruması", "Cloud Sync & Anti-Downgrade System", isEnglish),
+                                        fontSize = 10.sp,
+                                        color = ThemeNeonCyan
+                                    )
+                                }
+                            }
+                        },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = Color(0xFF1E293B),
+                                    border = BorderStroke(1.dp, ThemeBorder),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        CurrencyText(
+                                            text = "💎 " + tr("Mevcut Durum: Seviye $currentWarehouseLevel (${formatMoney(maxCapacity.toLong())} Ton)", "Current Status: Level $currentWarehouseLevel (${formatMoney(maxCapacity.toLong())} Tons)", isEnglish),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.5.sp,
+                                            color = ThemeGold
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        CurrencyText(
+                                            text = tr("Şehir: $playerCityName • Doluluk: %${(fillRatio * 100).toInt()}", "City: $playerCityName • Filled: %${(fillRatio * 100).toInt()}", isEnglish),
+                                            fontSize = 10.sp,
+                                            color = Color.LightGray
+                                        )
+                                    }
+                                }
+
+                                val perksList = listOf(
+                                    Triple("Sev. 1 - 5", tr("Temel Yerel Depolama (5.000 - 15.000 Ton)", "Basic Local Storage (5,000 - 15,000 Tons)", isEnglish), currentWarehouseLevel in 1..5),
+                                    Triple("Sev. 6 - 10", tr("Bölgesel Dağıtım Merkezi (+%10 Hızlı Sevkiyat, 17.500 - 27.500 Ton)", "Regional Distribution Hub (+10% Fast Delivery, 17,500 - 27,500 Tons)", isEnglish), currentWarehouseLevel in 6..10),
+                                    Triple("Sev. 11 - 15", tr("Otomatik Sıralama ve Akıllı Raf Sistemi (Sıfır zayiat, 30.000 - 40.000 Ton)", "Automated Sorting & Smart Racks (Zero loss, 30,000 - 40,000 Tons)", isEnglish), currentWarehouseLevel in 11..15),
+                                    Triple("Sev. 16 - 20", tr("Ağır Sanayi Mega-Hangarı & Soğuk Hava Deposu (42.500 - 52.500 Ton)", "Heavy Industry Mega-Hangar & Cold Chain (42,500 - 52,500 Tons)", isEnglish), currentWarehouseLevel in 16..20),
+                                    Triple("Sev. 20+", tr("Uluslararası Ticaret ve Konsorsiyum Aktarma Üssü (Mega Kapasite)", "International Trade Logistics Hub (Mega Capacity)", isEnglish), currentWarehouseLevel > 20)
+                                )
+
+                                perksList.forEach { (tier, desc, isActive) ->
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isActive) Color(0xFF00E5FF).copy(alpha = 0.12f) else Color(0xFF131F33),
+                                        border = BorderStroke(1.dp, if (isActive) Color(0xFF00E5FF).copy(alpha = 0.6f) else ThemeBorder),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            CurrencyText(
+                                                text = tier,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 10.sp,
+                                                color = if (isActive) Color(0xFF00E5FF) else Color.Gray,
+                                                fontFamily = RobotoMonoFontFamily,
+                                                modifier = Modifier.width(68.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            CurrencyText(
+                                                text = desc,
+                                                fontSize = 9.5.sp,
+                                                color = if (isActive) Color.White else Color.LightGray,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF10B981).copy(alpha = 0.12f),
+                                    border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        CurrencyText("🛡️", fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        CurrencyText(
+                                            text = tr("Depo seviyeniz ve kapasiteniz Google & Supabase bulut yedeğinde kalıcı olarak korunur.", "Your warehouse level & capacity are permanently guarded in Google & Supabase cloud saves.", isEnglish),
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF6EE7B7)
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            AppButton(
+                                onClick = { showWarehousePerksDialog = false },
+                                shape = RoundedCornerShape(4.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan, contentColor = Color(0xFF002026))
+                            ) {
+                                CurrencyText(tr("Tamam", "Got It", isEnglish), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    )
                 }
             }
 

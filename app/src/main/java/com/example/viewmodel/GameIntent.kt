@@ -22,6 +22,7 @@ sealed interface GameIntent {
 
     // Phase 2 - Inventory & Map Intents
     object UpgradeWarehouseCapacity : GameIntent
+    data class UpgradeWarehouseCapacityBy(val levels: Int) : GameIntent
     data class BuildBusiness(val facilityId: String, val cityId: String, val cost: Long) : GameIntent
     data class RelocateWarehouse(val targetCityId: String) : GameIntent
     
@@ -53,6 +54,8 @@ sealed interface GameIntent {
     data class SkipDeliveryWithGems(val deliveryId: String) : GameIntent
     data class ApplyTimeWarpWithGems(val hours: Int, val gemCost: Int) : GameIntent
     data class SkipResearchWithGems(val techId: String) : GameIntent
+    data class ClaimBulletinOpportunityReward(val opportunityId: String) : GameIntent
+    data class QuickProduceForBulletinOpportunity(val opportunityId: String) : GameIntent
 
     
     // Facility Warehouse Intents
@@ -68,7 +71,8 @@ sealed interface GameIntent {
     data class LeaveEntireConsortium(val projectId: String) : GameIntent
     data class TakeoverBottleneckSlot(val projectId: String, val slotId: String, val playerId: String, val playerName: String) : GameIntent
     data class KickPartnerFromConsortiumSlot(val projectId: String, val slotId: String) : GameIntent
-    data class SellConsortiumWarehouseStock(val projectId: String) : GameIntent
+    data class SellConsortiumWarehouseStock(val projectId: String, val quantity: Int = 0) : GameIntent
+    data class ListConsortiumStockOnMarket(val projectId: String, val quantity: Int, val price: Long) : GameIntent
     data class AdvanceMegaProjectStage(val projectId: String) : GameIntent
     data class ClaimMegaProjectDividend(val projectId: String) : GameIntent
     data class ProduceConsortiumBrandItem(val projectId: String) : GameIntent

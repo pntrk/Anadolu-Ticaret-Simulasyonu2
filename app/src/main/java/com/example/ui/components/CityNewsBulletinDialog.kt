@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,6 +39,8 @@ import com.example.R
 import com.example.data.CityMarketEvent
 import com.example.data.MacroEconomyState
 import com.example.data.EconomicCycle
+import com.example.data.BulletinOpportunity
+import com.example.data.BusinessEntity
 import com.example.ui.theme.*
 
 /**
@@ -344,23 +348,32 @@ fun CityNewsBulletinDialog(
     events: List<CityMarketEvent> = emptyList(),
     newsTickerMessage: String = "",
     macroState: MacroEconomyState? = null,
+    bulletinOpportunities: List<BulletinOpportunity> = emptyList(),
+    ownedFacilities: List<BusinessEntity> = emptyList(),
+    onClaimReward: ((String) -> Unit)? = null,
+    onQuickProduce: ((String) -> Unit)? = null,
+    onNavigateToFacility: ((productId: String, cityId: String) -> Unit)? = null,
+    onNavigateToBorsa: (() -> Unit)? = null,
+    onNavigateToMarket: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onNavigateToCity: (String) -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
     var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedFilter by remember { mutableStateOf("all") }
     val isEnglish = isEnglishLanguage()
+    val activeOppCount = bulletinOpportunities.size
     val tabs = listOf(
-        tr("ŞEHİR FIRSATLARI", "CITY OPPORTUNITIES"),
-        tr("MAKRO & FAİZ", "MACRO & INTEREST"),
-        tr("PİYASA BÜLTENİ", "MARKET BULLETIN")
+        tr("🎯 CANLI FIRSATLAR ($activeOppCount)", "🎯 LIVE OPPORTUNITIES ($activeOppCount)"),
+        tr("🏛️ MAKRO & FAİZ", "🏛️ MACRO & INTEREST"),
+        tr("📰 ŞEHİR & PİYASA", "📰 CITY & MARKET")
     )
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp),
+                .padding(vertical = 12.dp),
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF0B132B)),
             border = BorderStroke(1.5.dp, Brush.linearGradient(listOf(ThemeGold, ThemeNeonCyan)))
@@ -398,7 +411,7 @@ fun CityNewsBulletinDialog(
                                 color = ThemeGold
                             )
                             Text(
-                                text = tr("Canlı Piyasa Olayları, Makro & Fırsat Radarı", "Live Market Events, Macro & Opportunity Radar"),
+                                text = tr("Bölgesel Kâr Fırsatları, Makro Trendler & Görevler", "Regional Profit Opportunities, Macro Trends & Quests"),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.7f)
                             )
@@ -438,7 +451,9 @@ fun CityNewsBulletinDialog(
                                 text = title,
                                 fontSize = 10.sp,
                                 fontWeight = if (isSelected) FontWeight.Black else FontWeight.Medium,
-                                color = if (isSelected) Color(0xFF050B14) else Color.White.copy(alpha = 0.7f)
+                                color = if (isSelected) Color(0xFF050B14) else Color.White.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -449,44 +464,213 @@ fun CityNewsBulletinDialog(
                 // Tab Content
                 when (selectedTab) {
                     0 -> {
-                        // City Events Tab
-                        if (events.isEmpty()) {
-                            Box(
+                        // Regional Opportunities Tab (Active Events with City/Region Filters)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Top Info Banner with Quick Produce info
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.6f),
+                                border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.35f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(200.dp),
-                                contentAlignment = Alignment.Center
+                                    .padding(bottom = 6.dp)
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("🌾", fontSize = 28.sp)
-                                    Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text("⚡", fontSize = 13.sp)
                                     Text(
                                         text = tr(
-                                            "Şu anda bölgesel olağanüstü olay bulunmuyor.\nŞehirlerde fiyatlar dengeli seyrediyor.",
-                                            "There are currently no regional extraordinary events.\nPrices in cities are stable."
+                                            "Bültenden tek tıkla doğrudan tesis üretim emri verin! Tamamlanan görevlerde 1-10 Elmas kazanın.",
+                                            "Dispatch 1-tap facility production directly from the bulletin! Earn 1-10 Diamonds on completion."
                                         ),
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        textAlign = TextAlign.Center
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = ThemeGold
                                     )
                                 }
                             }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 380.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                items(events, key = { it.id }) { event ->
-                                    CityEventCard(
-                                        event = event,
-                                        onGoToCity = {
+
+                            // Region & City Filter Chips Bar
+                            if (bulletinOpportunities.isNotEmpty()) {
+                                val turkeyCount = remember(bulletinOpportunities) { bulletinOpportunities.count { !it.isGlobal } }
+                                val globalCount = remember(bulletinOpportunities) { bulletinOpportunities.count { it.isGlobal } }
+                                val distinctCities = remember(bulletinOpportunities, isEnglish) {
+                                    bulletinOpportunities.map { opp ->
+                                        Triple(opp.cityId, opp.getCityName(isEnglish), opp.countryFlag)
+                                    }.distinctBy { it.first }
+                                }
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // "All" filter
+                                    val isAll = selectedFilter == "all"
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isAll) ThemeNeonCyan else Color(0xFF101935),
+                                        border = BorderStroke(1.dp, if (isAll) ThemeNeonCyan else Color.White.copy(alpha = 0.15f)),
+                                        modifier = Modifier.clickable {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            onDismiss()
-                                            onNavigateToCity(event.cityId)
+                                            selectedFilter = "all"
                                         }
-                                    )
+                                    ) {
+                                        Text(
+                                            text = tr("🌐 Tümü (${bulletinOpportunities.size})", "🌐 All (${bulletinOpportunities.size})"),
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isAll) FontWeight.Black else FontWeight.Medium,
+                                            color = if (isAll) Color(0xFF050B14) else Color.White.copy(alpha = 0.8f),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+
+                                    // "Türkiye" filter
+                                    if (turkeyCount > 0) {
+                                        val isTurkey = selectedFilter == "turkey"
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isTurkey) ThemeGold else Color(0xFF101935),
+                                            border = BorderStroke(1.dp, if (isTurkey) ThemeGold else Color.White.copy(alpha = 0.15f)),
+                                            modifier = Modifier.clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                selectedFilter = "turkey"
+                                            }
+                                        ) {
+                                            Text(
+                                                text = "🇹🇷 Türkiye ($turkeyCount)",
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isTurkey) FontWeight.Black else FontWeight.Medium,
+                                                color = if (isTurkey) Color(0xFF050B14) else Color.White.copy(alpha = 0.8f),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // "Global" filter
+                                    if (globalCount > 0) {
+                                        val isGlobal = selectedFilter == "global"
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isGlobal) Color(0xFF0284C7) else Color(0xFF101935),
+                                            border = BorderStroke(1.dp, if (isGlobal) Color(0xFF38BDF8) else Color.White.copy(alpha = 0.15f)),
+                                            modifier = Modifier.clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                selectedFilter = "global"
+                                            }
+                                        ) {
+                                            Text(
+                                                text = tr("🌍 Küresel ($globalCount)", "🌍 Global ($globalCount)"),
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isGlobal) FontWeight.Black else FontWeight.Medium,
+                                                color = if (isGlobal) Color.White else Color.White.copy(alpha = 0.8f),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // Individual City filters
+                                    distinctCities.forEach { (cityId, cityName, flag) ->
+                                        val isCity = selectedFilter == cityId
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = if (isCity) ThemeNeonCyan.copy(alpha = 0.85f) else Color(0xFF101935),
+                                            border = BorderStroke(1.dp, if (isCity) ThemeNeonCyan else Color.White.copy(alpha = 0.15f)),
+                                            modifier = Modifier.clickable {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                selectedFilter = cityId
+                                            }
+                                        ) {
+                                            Text(
+                                                text = "$flag $cityName",
+                                                fontSize = 10.sp,
+                                                fontWeight = if (isCity) FontWeight.Black else FontWeight.Normal,
+                                                color = if (isCity) Color(0xFF050B14) else Color.White.copy(alpha = 0.75f),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+
+                            val filteredOpportunities = remember(bulletinOpportunities, selectedFilter) {
+                                when (selectedFilter) {
+                                    "all" -> bulletinOpportunities
+                                    "turkey" -> bulletinOpportunities.filter { !it.isGlobal }
+                                    "global" -> bulletinOpportunities.filter { it.isGlobal }
+                                    else -> bulletinOpportunities.filter { it.cityId.equals(selectedFilter, ignoreCase = true) }
+                                }
+                            }
+
+                            if (filteredOpportunities.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("🔍", fontSize = 28.sp)
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = tr(
+                                                "Seçili bölge/şehir filtresine uygun aktif fırsat bulunamadı.",
+                                                "No active opportunities found for the selected region/city filter."
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 420.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(filteredOpportunities, key = { it.id }) { opp ->
+                                        BulletinOpportunityCard(
+                                            opportunity = opp,
+                                            ownedFacilities = ownedFacilities,
+                                            onClaimReward = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onClaimReward?.invoke(opp.id)
+                                            },
+                                            onQuickProduce = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onQuickProduce?.invoke(opp.id)
+                                            },
+                                            onNavigateToFacility = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                                onNavigateToFacility?.invoke(opp.targetProductId, opp.cityId)
+                                            },
+                                            onNavigateToBorsa = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                                onNavigateToBorsa?.invoke()
+                                            },
+                                            onNavigateToMarket = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                                onNavigateToMarket?.invoke()
+                                            },
+                                            onGoToCity = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                onDismiss()
+                                                onNavigateToCity(opp.cityId)
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -497,7 +681,7 @@ fun CityNewsBulletinDialog(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 380.dp),
+                                .heightIn(max = 420.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Cycle Card
@@ -610,7 +794,7 @@ fun CityNewsBulletinDialog(
                         }
                     }
                     2 -> {
-                        // General News Bulletin Tab
+                        // Combined City Events & Market News
                         val stories = remember(newsTickerMessage, isEnglish) {
                             if (newsTickerMessage.isNotBlank()) {
                                 newsTickerMessage.split(" | ").filter { it.isNotBlank() }.map { it.trAuto(isEnglish) }
@@ -638,9 +822,44 @@ fun CityNewsBulletinDialog(
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 380.dp),
+                                .heightIn(max = 420.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if (events.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = tr("⚡ BÖLGESEL PİYASA OLAYLARI", "⚡ REGIONAL MARKET EVENTS"),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ThemeGold,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
+                                items(events, key = { it.id }) { event ->
+                                    CityEventCard(
+                                        event = event,
+                                        onGoToCity = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onDismiss()
+                                            onNavigateToCity(event.cityId)
+                                        }
+                                    )
+                                }
+                                item {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+
+                            item {
+                                Text(
+                                    text = tr("📢 PİYASA GELİŞMELERİ & MANŞETLER", "📢 MARKET NEWS & HEADLINES"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ThemeNeonCyan,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+
                             items(stories, key = { it }) { story ->
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
@@ -671,6 +890,449 @@ fun CityNewsBulletinDialog(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(tr("Kapat", "Close"), color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BulletinOpportunityCard(
+    opportunity: BulletinOpportunity,
+    ownedFacilities: List<BusinessEntity>,
+    onClaimReward: () -> Unit,
+    onQuickProduce: () -> Unit,
+    onNavigateToFacility: () -> Unit,
+    onNavigateToBorsa: () -> Unit,
+    onNavigateToMarket: () -> Unit,
+    onGoToCity: () -> Unit
+) {
+    val isEnglish = isEnglishLanguage()
+    val isCompleted = opportunity.isCompleted
+    val isClaimed = opportunity.isClaimed
+
+    // Check facility ownership
+    val ownsFacilityInCity = ownedFacilities.any {
+        it.cityId.equals(opportunity.cityId, ignoreCase = true) &&
+        (it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || it.type.contains(opportunity.targetProductId, ignoreCase = true))
+    }
+    val ownsFacilityAnywhere = ownedFacilities.any {
+        it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || it.type.contains(opportunity.targetProductId, ignoreCase = true)
+    }
+    val hasFacility = ownsFacilityInCity || ownsFacilityAnywhere
+
+    val borderColor = when {
+        isCompleted && !isClaimed -> ThemeGold
+        isClaimed -> Color(0xFF10B981).copy(alpha = 0.6f)
+        else -> ThemeNeonCyan.copy(alpha = 0.4f)
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF101935).copy(alpha = 0.95f),
+        border = BorderStroke(1.2.dp, borderColor)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            // Top badges row: City, Category, Verified Badge, Premium, Diamonds
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF0F223D),
+                        border = BorderStroke(0.8.dp, ThemeNeonCyan.copy(alpha = 0.6f))
+                    ) {
+                        Text(
+                            text = "${opportunity.countryFlag} ${opportunity.iconEmoji} 📍 ${opportunity.getCityName(isEnglish).uppercase()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Black,
+                            color = ThemeGold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(opportunity.category.badgeColorHex).copy(alpha = 0.25f),
+                        border = BorderStroke(0.5.dp, Color(opportunity.category.badgeColorHex))
+                    ) {
+                        Text(
+                            text = opportunity.category.getTitle(isEnglish),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF90CAF9),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Verified Database Match Badge
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF042F2E).copy(alpha = 0.7f),
+                        border = BorderStroke(0.5.dp, Color(0xFF14B8A6))
+                    ) {
+                        Text(
+                            text = tr("🛡️ Onaylı Tesis", "🛡️ Verified"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF5EEAD4),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    // Price Premium
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ThemePositive.copy(alpha = 0.18f),
+                        border = BorderStroke(1.dp, ThemePositive)
+                    ) {
+                        Text(
+                            text = "${opportunity.pricePremiumText} ${tr("Prim", "Premium")}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = ThemePositive,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Diamond Reward
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ThemeGold.copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, ThemeGold)
+                    ) {
+                        Text(
+                            text = "💎 ${opportunity.diamondReward} ${tr("Elmas", "Dia")}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = ThemeGold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(7.dp))
+
+            // Headline & Description
+            Text(
+                text = opportunity.getHeadline(isEnglish),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            Text(
+                text = opportunity.getDescription(isEnglish),
+                style = MaterialTheme.typography.bodySmall,
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.8f)
+            )
+
+            Spacer(modifier = Modifier.height(5.dp))
+
+            // Strategy Tip
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF0F2E22).copy(alpha = 0.7f),
+                border = BorderStroke(0.5.dp, ThemePositive.copy(alpha = 0.4f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("💡", fontSize = 12.sp)
+                    Text(
+                        text = opportunity.getStrategyTip(isEnglish),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 10.sp,
+                        color = Color(0xFFA7F3D0),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(7.dp))
+
+            // Progress Section
+            Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = Color(0xFF0B132B).copy(alpha = 0.8f),
+                border = BorderStroke(0.5.dp, ThemeBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = tr(
+                                "🎯 Hedef: ${opportunity.targetQuantity} Ton ${opportunity.getProductName(isEnglish)} Üret & Sat",
+                                "🎯 Goal: Produce & Sell ${opportunity.targetQuantity} Tons of ${opportunity.getProductName(isEnglish)}"
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            color = ThemeNeonCyan,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "%${opportunity.overallProgressPercent}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 11.sp,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = if (isCompleted) ThemePositive else ThemeGold,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    LinearProgressIndicator(
+                        progress = { (opportunity.overallProgressPercent / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = if (isCompleted) Color(0xFF10B981) else ThemeNeonCyan,
+                        trackColor = Color.White.copy(alpha = 0.1f)
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = tr(
+                                "🏭 Üretim: ${opportunity.producedQuantity}/${opportunity.targetQuantity} Ton",
+                                "🏭 Prod: ${opportunity.producedQuantity}/${opportunity.targetQuantity} Tons"
+                            ) + if (opportunity.isProductionTargetMet) " ✓" else "",
+                            fontSize = 9.sp,
+                            fontWeight = if (opportunity.isProductionTargetMet) FontWeight.Bold else FontWeight.Normal,
+                            color = if (opportunity.isProductionTargetMet) ThemePositive else Color.White.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            text = tr(
+                                "📦 Satış: ${opportunity.soldQuantity}/${opportunity.targetQuantity} Ton",
+                                "📦 Sales: ${opportunity.soldQuantity}/${opportunity.targetQuantity} Tons"
+                            ) + if (isCompleted) " ✓" else "",
+                            fontSize = 9.sp,
+                            fontWeight = if (isCompleted) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCompleted) ThemePositive else Color.White.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(7.dp))
+
+            // Smart Navigation & Action Buttons
+            when {
+                isCompleted && !isClaimed -> {
+                    Button(
+                        onClick = onClaimReward,
+                        colors = ButtonDefaults.buttonColors(containerColor = ThemeGold),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("💎", fontSize = 14.sp)
+                            Text(
+                                text = tr(
+                                    "${opportunity.diamondReward} ELMAS ÖDÜLÜNÜ TOPLA",
+                                    "CLAIM ${opportunity.diamondReward} DIAMONDS"
+                                ),
+                                color = Color(0xFF050B14),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
+                }
+
+                isCompleted && isClaimed -> {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF10B981).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = tr(
+                                "✅ Görev Tamamlandı & ${opportunity.diamondReward} Elmas Alındı",
+                                "✅ Task Completed & ${opportunity.diamondReward} Diamonds Claimed"
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF10B981),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        )
+                    }
+                }
+
+                else -> {
+                    // In Progress Actions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        if (hasFacility) {
+                            if (opportunity.isProductionTargetMet) {
+                                Button(
+                                    onClick = onNavigateToMarket,
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                ) {
+                                    Text(
+                                        text = tr("🛒 Pazarda Sat", "🛒 Market"),
+                                        color = Color(0xFF050B14),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                                Button(
+                                    onClick = onNavigateToBorsa,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                ) {
+                                    Text(
+                                        text = tr("📈 Borsada Sat", "📈 Borsa"),
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            } else {
+                                // Direct 1-tap quick produce button!
+                                Button(
+                                    onClick = onQuickProduce,
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1.3f)
+                                        .height(34.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text("⚡", fontSize = 12.sp)
+                                        Text(
+                                            text = tr("Hızlı Üret (1 Tık)", "Quick Produce"),
+                                            color = Color(0xFF050B14),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+
+                                Button(
+                                    onClick = onNavigateToFacility,
+                                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                ) {
+                                    Text(
+                                        text = tr("🏭 Tesis Paneli", "🏭 Facility"),
+                                        color = Color(0xFF050B14),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        } else {
+                            // Does NOT have facility: Guide to build facility with recommended city
+                            Button(
+                                onClick = onNavigateToFacility,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5A93C)),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .weight(1.4f)
+                                    .height(34.dp)
+                            ) {
+                                Text(
+                                    text = tr(
+                                        "🏗️ ${opportunity.getCityName(isEnglish)}'de ${opportunity.getFacilityName(isEnglish)} Kur",
+                                        "🏗️ Build ${opportunity.getFacilityName(isEnglish)} in ${opportunity.getCityName(isEnglish)}"
+                                    ),
+                                    color = Color(0xFF050B14),
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onGoToCity,
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, ThemeBorder),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Text(
+                                text = tr("📍 Şehir", "📍 City"),
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }

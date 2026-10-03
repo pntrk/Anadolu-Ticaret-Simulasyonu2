@@ -2370,8 +2370,6 @@ fun OsbFacilityDetailDialog(
     val player = uiState.playerState.player
     val playerMoney = player?.money ?: 0L
     val city = cities.find { it.id == business.cityId }
-    val isProducing = (uiState.productionProgress[product.id] ?: 0f) > 0f
-    val currentProgress = uiState.productionProgress[product.id] ?: 0f
     val haptic = LocalHapticFeedback.current
 
     val upgradeCost = product.facilityCost * (business.level + 1) / 2
@@ -2386,11 +2384,17 @@ fun OsbFacilityDetailDialog(
     val capacity = business.getEffectiveStorageCapacity()
     val isStorageFull = storedTotal >= capacity && capacity > 0
 
-    var currentTimeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(business.isConstructing, business.isUpgrading, business.constructionEndTime, business.upgradeEndTime) {
-        if (business.isConstructing || business.isUpgrading) {
+    var currentTimeMs by remember { mutableLongStateOf(com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()) }
+    val activeProd = uiState.inventoryState.activeProductions.find {
+        it.facilityId == product.facilityId || it.productId == product.id || it.businessId == business.id
+    }
+    val isProducing = activeProd != null || (uiState.productionProgress[product.id] ?: 0f) > 0f
+    val currentProgress = activeProd?.getProgress(currentTimeMs) ?: (uiState.productionProgress[product.id] ?: 0f)
+
+    LaunchedEffect(business.isConstructing, business.isUpgrading, business.constructionEndTime, business.upgradeEndTime, isProducing, activeProd?.id) {
+        if (business.isConstructing || business.isUpgrading || isProducing || activeProd != null) {
             while (isActive) {
-                currentTimeMs = System.currentTimeMillis()
+                currentTimeMs = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
                 delay(500L)
             }
         }
@@ -2402,6 +2406,9 @@ fun OsbFacilityDetailDialog(
         }
         if (business.isUpgrading && business.upgradeEndTime != null && currentTimeMs >= business.upgradeEndTime) {
             viewModel.checkAndProcessFacilityUpgrades()
+        }
+        if (activeProd != null && currentTimeMs >= activeProd.effectiveEndTimeMs) {
+            viewModel.checkAndProcessActiveProductions()
         }
     }
 
@@ -3274,12 +3281,12 @@ fun OsbFacilityDetailDialog(
 
                             Button(
                                 onClick = onProduceClick,
-                                enabled = !isStorageFull,
+                                enabled = !isStorageFull && !isProducing,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isStorageFull) Color(0xFF334155) else ThemeNeonCyan,
+                                    containerColor = if (isStorageFull || isProducing) Color(0xFF334155) else ThemeNeonCyan,
                                     contentColor = Color(0xFF00222B),
                                     disabledContainerColor = Color(0xFF1E293B),
-                                    disabledContentColor = Color(0xFFEF5350)
+                                    disabledContentColor = if (isProducing) ThemeNeonCyan else Color(0xFFEF5350)
                                 ),
                                 shape = RoundedCornerShape(6.dp),
                                 modifier = Modifier.fillMaxWidth(),
@@ -3289,11 +3296,13 @@ fun OsbFacilityDetailDialog(
                                     Icon(
                                         if (isStorageFull) Icons.Rounded.Inventory2 else Icons.Rounded.FlashOn,
                                         contentDescription = null,
-                                        tint = if (isStorageFull) Color(0xFFEF5350) else Color(0xFF00222B),
+                                        tint = if (isProducing) ThemeNeonCyan else if (isStorageFull) Color(0xFFEF5350) else Color(0xFF00222B),
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = if (isStorageFull) tr("⚠️ DEPO DOLU (Boşalması Bekleniyor)", "⚠️ STORAGE FULL (Waiting for Clearance)", isEnglish) else tr("⚡ Üretim Ayarla & Başlat", "⚡ Configure & Start Production", isEnglish),
+                                        text = if (isProducing) tr("⚡ Üretim Sürüyor (Yukarıdan Takip Edin)", "⚡ Producing (See Above)", isEnglish)
+                                               else if (isStorageFull) tr("⚠️ DEPO DOLU (Boşalması Bekleniyor)", "⚠️ STORAGE FULL (Waiting for Clearance)", isEnglish)
+                                               else tr("⚡ Üretim Ayarla & Başlat", "⚡ Configure & Start Production", isEnglish),
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = RobotoMonoFontFamily

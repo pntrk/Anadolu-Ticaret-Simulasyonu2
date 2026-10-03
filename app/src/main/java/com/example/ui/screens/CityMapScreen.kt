@@ -2810,8 +2810,11 @@ fun CityBusinessRow(
 ) {
     val productionProgress = uiState.productionProgress
     val product = Product.values().find { it.facilityId == business.type }
-    val progress = if (product != null) productionProgress[product.id] ?: 0f else 0f
-    val isProducing = progress > 0f
+    val activeProd = uiState.inventoryState.activeProductions.find {
+        it.facilityId == business.type || it.businessId == business.id || (product != null && it.productId == product.id)
+    }
+    val progress = activeProd?.getProgress() ?: (if (product != null) productionProgress[product.id] ?: 0f else 0f)
+    val isProducing = activeProd != null || progress > 0f
 
     Row(
         modifier = Modifier
@@ -2865,8 +2868,11 @@ fun FacilityBottomSheet(
     
     val city = cities.find { it.id == selectedFacility.cityId }
     val product = Product.values().find { it.facilityId == selectedFacility.type }
-    val progress = if (product != null) productionProgress[product.id] ?: 0f else 0f
-    val isProducing = progress > 0f
+    val activeProd = uiState.inventoryState.activeProductions.find {
+        it.facilityId == selectedFacility.type || it.businessId == selectedFacility.id || (product != null && it.productId == product.id)
+    }
+    val progress = activeProd?.getProgress() ?: (if (product != null) productionProgress[product.id] ?: 0f else 0f)
+    val isProducing = activeProd != null || progress > 0f
 
     Box(
         modifier = modifier

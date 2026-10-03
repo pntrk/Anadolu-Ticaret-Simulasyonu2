@@ -4,7 +4,10 @@ import com.example.ui.components.CurrencyText
 import com.example.ui.components.UniversalProductIcon
 import com.example.ui.components.formatCredit
 import com.example.ui.components.AnadoluLiraIcon
-
+import com.example.ui.components.Interactive3DCard
+import com.example.ui.components.DynamicParticleField
+import com.example.ui.components.ExitSaveLoadingDialog
+import androidx.activity.compose.BackHandler
 
 import com.example.ui.theme.trAuto
 
@@ -117,6 +120,7 @@ fun DashboardScreen(
     onNavigateToMarket: () -> Unit,
     onNavigateToBorsa: () -> Unit,
     onNavigateToProduction: (String?) -> Unit,
+    onNavigateToFacilityWithCity: ((String?, String?) -> Unit)? = null,
     onNavigateToHr: () -> Unit,
     onNavigateToRd: () -> Unit = {},
     onNavigateToBank: () -> Unit,
@@ -143,7 +147,13 @@ fun DashboardScreen(
     var showNewsBulletinDialog by remember { mutableStateOf(false) }
     var showAntiqueMuseumDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
+    var showExitSaveDialog by remember { mutableStateOf(false) }
     var lockedFeatureDialogInfo by remember { mutableStateOf<FeatureLockInfo?>(null) }
+    var googleAuthRequiredFeature by remember { mutableStateOf<String?>(null) }
+
+    BackHandler {
+        showExitSaveDialog = true
+    }
     val isOnlineRegistered by viewModel.isOnlineRegistered.collectAsStateWithLifecycle()
     val onlineEmail by viewModel.onlineEmail.collectAsStateWithLifecycle()
     val selectedTheme by viewModel.selectedTheme.collectAsStateWithLifecycle()
@@ -195,7 +205,13 @@ fun DashboardScreen(
                         )
                     )
                 )
-        )
+        ) {
+            com.example.ui.components.DynamicParticleField(
+                particleCount = 30,
+                primaryColor = if (themeOption.isDark) ThemeNeonCyan else ThemeNeonCyan.copy(alpha = 0.6f),
+                secondaryColor = ThemeGold
+            )
+        }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(360.dp),
             modifier = Modifier
@@ -567,8 +583,11 @@ fun DashboardScreen(
             val researchLevels = uiState.hrState.researchLevels
 
             // Dynamic badge calculations
-            val activeProductionCount = remember(uiState.productionProgress) {
-                uiState.productionProgress.count { it.value > 0f && it.value < 1f }
+            val activeProductionCount = remember(uiState.inventoryState.activeProductions, uiState.productionProgress) {
+                val ids = mutableSetOf<String>()
+                uiState.inventoryState.activeProductions.forEach { ids.add(it.productId) }
+                uiState.productionProgress.forEach { if (it.value > 0f && it.value < 1f) ids.add(it.key) }
+                ids.size
             }
             val productionBadge = if (activeProductionCount > 0) "$activeProductionCount" else null
 
@@ -646,7 +665,13 @@ fun DashboardScreen(
                         tr("Müze", "Museum", isEng),
                         R.drawable.bg_museum_header,
                         GameFeature.MUSEUM,
-                        { showAntiqueMuseumDialog = true },
+                        {
+                            if (!viewModel.isUserGoogleSignedIn()) {
+                                googleAuthRequiredFeature = tr("Müze", "Museum", isEng)
+                            } else {
+                                showAntiqueMuseumDialog = true
+                            }
+                        },
                         badgeText = museumBadge,
                         badgeColor = ThemeGold
                     ),
@@ -654,7 +679,13 @@ fun DashboardScreen(
                         tr("Sıralama", "Leaderboard", isEng),
                         R.drawable.ic_tab_leaderboard,
                         null,
-                        onNavigateToSocial
+                        {
+                            if (!viewModel.isUserGoogleSignedIn()) {
+                                googleAuthRequiredFeature = tr("Sıralama", "Leaderboard", isEng)
+                            } else {
+                                onNavigateToSocial()
+                            }
+                        }
                     )
                 )
             }
@@ -668,6 +699,8 @@ fun DashboardScreen(
                 Column(modifier = Modifier.padding(14.dp)) {
                     // 4x3 Grid (Her Satırda 4 Kolon, Büyük ve Dikkat Çekici İkonlar)
                     val rows = remember(menuItems) { menuItems.chunked(4) }
+                    val isGoogleUser = viewModel.isUserGoogleSignedIn()
+
                     Column(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -680,12 +713,27 @@ fun DashboardScreen(
                                 if (rowItems.size == 4) {
                                     rowItems.forEach { item ->
                                         val lockInfo = item.feature?.let { FeatureLockManager.getLockInfo(it, level, researchLevels) }
-                                        val isLocked = (lockInfo != null && !lockInfo.isUnlocked)
+                                        val isLevelLocked = (lockInfo != null && !lockInfo.isUnlocked)
+                                        val isGuestLocked = !isGoogleUser && (
+                                            item.feature == GameFeature.MARKET_P2P ||
+                                            item.feature == GameFeature.CONSORTIUM ||
+                                            item.feature == GameFeature.MUSEUM ||
+                                            item.label.contains("Pazar", ignoreCase = true) ||
+                                            item.label.contains("Market", ignoreCase = true) ||
+                                            item.label.contains("Konsorsiyum", ignoreCase = true) ||
+                                            item.label.contains("Consortium", ignoreCase = true) ||
+                                            item.label.contains("Müze", ignoreCase = true) ||
+                                            item.label.contains("Museum", ignoreCase = true) ||
+                                            item.label.contains("Sıralama", ignoreCase = true) ||
+                                            item.label.contains("Leaderboard", ignoreCase = true)
+                                        )
 
                                         DashboardMenuItemCard(
                                             item = item,
-                                            isLocked = isLocked,
+                                            isLocked = isLevelLocked,
                                             lockInfo = lockInfo,
+                                            isGuestLocked = isGuestLocked,
+                                            onGuestLockClick = { googleAuthRequiredFeature = item.label },
                                             themeOption = themeOption,
                                             modifier = Modifier.weight(1f),
                                             onLockClick = { lockedFeatureDialogInfo = it }
@@ -700,12 +748,27 @@ fun DashboardScreen(
                                     }
                                     rowItems.forEach { item ->
                                         val lockInfo = item.feature?.let { FeatureLockManager.getLockInfo(it, level, researchLevels) }
-                                        val isLocked = (lockInfo != null && !lockInfo.isUnlocked)
+                                        val isLevelLocked = (lockInfo != null && !lockInfo.isUnlocked)
+                                        val isGuestLocked = !isGoogleUser && (
+                                            item.feature == GameFeature.MARKET_P2P ||
+                                            item.feature == GameFeature.CONSORTIUM ||
+                                            item.feature == GameFeature.MUSEUM ||
+                                            item.label.contains("Pazar", ignoreCase = true) ||
+                                            item.label.contains("Market", ignoreCase = true) ||
+                                            item.label.contains("Konsorsiyum", ignoreCase = true) ||
+                                            item.label.contains("Consortium", ignoreCase = true) ||
+                                            item.label.contains("Müze", ignoreCase = true) ||
+                                            item.label.contains("Museum", ignoreCase = true) ||
+                                            item.label.contains("Sıralama", ignoreCase = true) ||
+                                            item.label.contains("Leaderboard", ignoreCase = true)
+                                        )
 
                                         DashboardMenuItemCard(
                                             item = item,
-                                            isLocked = isLocked,
+                                            isLocked = isLevelLocked,
                                             lockInfo = lockInfo,
+                                            isGuestLocked = isGuestLocked,
+                                            onGuestLockClick = { googleAuthRequiredFeature = item.label },
                                             themeOption = themeOption,
                                             modifier = Modifier.weight(1f),
                                             onLockClick = { lockedFeatureDialogInfo = it }
@@ -733,6 +796,30 @@ fun DashboardScreen(
             events = activeCityEvents,
             newsTickerMessage = newsTickerMessage,
             macroState = macroState,
+            bulletinOpportunities = uiState.bulletinOpportunities,
+            ownedFacilities = uiState.businesses,
+            onClaimReward = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.ClaimBulletinOpportunityReward(oppId))
+            },
+            onQuickProduce = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.QuickProduceForBulletinOpportunity(oppId))
+            },
+            onNavigateToFacility = { productId, cityId ->
+                showNewsBulletinDialog = false
+                if (onNavigateToFacilityWithCity != null) {
+                    onNavigateToFacilityWithCity(productId, cityId)
+                } else {
+                    onNavigateToProduction(productId)
+                }
+            },
+            onNavigateToBorsa = {
+                showNewsBulletinDialog = false
+                onNavigateToBorsa()
+            },
+            onNavigateToMarket = {
+                showNewsBulletinDialog = false
+                onNavigateToMarket()
+            },
             onDismiss = { showNewsBulletinDialog = false },
             onNavigateToCity = { targetCityId ->
                 showNewsBulletinDialog = false
@@ -784,6 +871,31 @@ fun DashboardScreen(
         onNavigateToRd = onNavigateToRd,
         onNavigateToProduction = { onNavigateToProduction(null) }
     )
+
+    googleAuthRequiredFeature?.let { feat ->
+        com.example.ui.components.GoogleAuthRequiredModal(
+            featureName = feat,
+            viewModel = viewModel,
+            onDismiss = { googleAuthRequiredFeature = null },
+            onSuccess = {
+                val target = googleAuthRequiredFeature ?: ""
+                googleAuthRequiredFeature = null
+                when {
+                    target.contains("Pazar", ignoreCase = true) || target.contains("Market", ignoreCase = true) -> onNavigateToMarket()
+                    target.contains("Konsorsiyum", ignoreCase = true) || target.contains("Consortium", ignoreCase = true) -> onNavigateToMegaProject()
+                    target.contains("Müze", ignoreCase = true) || target.contains("Museum", ignoreCase = true) -> showAntiqueMuseumDialog = true
+                    target.contains("Sıralama", ignoreCase = true) || target.contains("Leaderboard", ignoreCase = true) -> onNavigateToSocial()
+                }
+            }
+        )
+    }
+
+    if (showExitSaveDialog) {
+        ExitSaveLoadingDialog(
+            viewModel = viewModel,
+            onDismiss = { showExitSaveDialog = false }
+        )
+    }
 }
 
 @Composable
@@ -794,6 +906,13 @@ fun ActiveFacilitiesSection(
     onIntent: (GameIntent) -> Unit
 ) {
     val productionProgress = uiState.productionProgress
+    val activeProductions = uiState.inventoryState.activeProductions
+    val activeProductIds = remember(activeProductions, productionProgress) {
+        val list = mutableListOf<String>()
+        activeProductions.forEach { if (!list.contains(it.productId)) list.add(it.productId) }
+        productionProgress.keys.forEach { if (!list.contains(it)) list.add(it) }
+        list
+    }
     val businesses = remember(uiState.businesses) { uiState.businesses.toPersistentList() }
     val businessMap = remember(businesses) { businesses.associateBy { it.type } }
     var isFacilitiesExpanded by remember { mutableStateOf(false) }
@@ -812,7 +931,7 @@ fun ActiveFacilitiesSection(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             CurrencyText(
-                text = "Aktif Tesisler (${productionProgress.size})".trAuto(), 
+                text = "Aktif Tesisler (${activeProductIds.size})".trAuto(), 
                 color = themeOption.textPrimaryColor, 
                 fontWeight = FontWeight.Bold
             )
@@ -826,15 +945,17 @@ fun ActiveFacilitiesSection(
     
     AnimatedVisibility(visible = isFacilitiesExpanded) {
         Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-            if (productionProgress.isEmpty()) {
+            if (activeProductIds.isEmpty()) {
                 CurrencyText("Şu an üretim yapan tesisiniz yok.".trAuto(), color = themeOption.textSecondaryColor, fontSize = 14.sp)
             } else {
-                productionProgress.entries.forEach { (bId, prog) ->
+                activeProductIds.forEach { bId ->
+                    val activeProd = activeProductions.find { it.productId == bId || it.facilityId == bId }
+                    val prog = activeProd?.getProgress() ?: (productionProgress[bId] ?: 0.05f)
                     val prod = remember(bId) { Product.values().find { it.id == bId || it.facilityId == bId } }
-                    val b = prod?.facilityId?.let { businessMap[it] }
+                    val b = prod?.facilityId?.let { businessMap[it] } ?: businesses.find { it.id == activeProd?.businessId }
                     val cityName = b?.cityId?.uppercase() ?: "TESİS"
-                    val totalDur = uiState.productionDurations[bId] ?: 0L
-                    val remainingTimeMs = ((1f - prog) * totalDur).toLong()
+                    val totalDur = activeProd?.totalDurationMs ?: (uiState.productionDurations[bId] ?: 0L)
+                    val remainingTimeMs = activeProd?.getRemainingTimeMs() ?: ((1f - prog) * totalDur).toLong()
                     val skipCost = kotlin.math.max(1, (remainingTimeMs / 3_600_000L).toInt())
 
                     Surface(
@@ -1065,19 +1186,55 @@ private fun LiveNotificationCardContent(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = typeColor.copy(alpha = 0.25f),
-                    border = remember(typeColor) { BorderStroke(1.dp, typeColor.copy(alpha = 0.5f)) },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (latestData != null) typeIcon else Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = if (latestData != null) typeColor else ThemeNeonCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
+                val isEn = com.example.ui.theme.isEnglishLanguage()
+                val resolvedProdId = latestData?.getResolvedProductId()
+                val resolvedQuality = latestData?.getResolvedQuality()
+                val notifMessage = latestData?.getFormattedMessage(isEn) ?: tr("Tüm sistemler normal ve operasyonlar aktif.", "All systems normal and operations active.")
+
+                if (resolvedProdId != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF0F1829),
+                        border = BorderStroke(1.dp, typeColor.copy(alpha = 0.6f)),
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            com.example.ui.components.UniversalProductIcon(
+                                productId = resolvedProdId,
+                                size = 24.dp
+                            )
+                            if (resolvedQuality != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(topStart = 3.dp),
+                                    color = resolvedQuality.badgeColor.copy(alpha = 0.95f),
+                                    modifier = Modifier.align(Alignment.BottomEnd)
+                                ) {
+                                    Text(
+                                        text = "★${resolvedQuality.stars}",
+                                        color = Color.Black,
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = CircleShape,
+                        color = typeColor.copy(alpha = 0.25f),
+                        border = remember(typeColor) { BorderStroke(1.dp, typeColor.copy(alpha = 0.5f)) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (latestData != null) typeIcon else Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = if (latestData != null) typeColor else ThemeNeonCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
 
@@ -1114,7 +1271,7 @@ private fun LiveNotificationCardContent(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     CurrencyText(
-                        text = latestData?.message?.trAuto() ?: "Tüm sistemler normal ve operasyonlar aktif.".trAuto(),
+                        text = notifMessage,
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
@@ -1390,23 +1547,29 @@ fun HeroPlayerCompanyCard(
         label = "glowAlpha"
     )
 
-    Card(
+    Interactive3DCard(
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (themeOption.isDark) Color(0xFF070E20).copy(alpha = 0.78f) else themeOption.surfaceColor.copy(alpha = 0.90f)
-        ),
-        border = BorderStroke(
-            1.2.dp,
-            Brush.horizontalGradient(
-                listOf(
-                    ThemeGold.copy(alpha = 0.85f),
-                    ThemeNeonCyan.copy(alpha = 0.50f),
-                    ThemeGold.copy(alpha = 0.35f)
-                )
-            )
-        ),
+        maxTiltAngle = 8f,
+        specularShine = true,
         modifier = Modifier.fillMaxWidth()
     ) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (themeOption.isDark) Color(0xFF070E20).copy(alpha = 0.78f) else themeOption.surfaceColor.copy(alpha = 0.90f)
+            ),
+            border = BorderStroke(
+                1.2.dp,
+                Brush.horizontalGradient(
+                    listOf(
+                        ThemeGold.copy(alpha = 0.85f),
+                        ThemeNeonCyan.copy(alpha = 0.50f),
+                        ThemeGold.copy(alpha = 0.35f)
+                    )
+                )
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             // Ambient subtle glow overlay
             Box(
@@ -2101,6 +2264,7 @@ fun HeroPlayerCompanyCard(
         }
     }
 }
+}
 
 @Composable
 private fun AssetLegendItem(
@@ -2516,99 +2680,113 @@ private fun DashboardMenuItemCard(
     item: DashboardMenuButton,
     isLocked: Boolean,
     lockInfo: FeatureLockInfo?,
+    isGuestLocked: Boolean = false,
+    onGuestLockClick: (() -> Unit)? = null,
     themeOption: AppThemeOption,
     modifier: Modifier = Modifier,
     onLockClick: (FeatureLockInfo) -> Unit
 ) {
-    Surface(
+    val showAsLocked = isLocked || isGuestLocked
+
+    Interactive3DCard(
         shape = RoundedCornerShape(14.dp),
-        color = if (isLocked) Color(0xFF070D18).copy(alpha = 0.85f)
-                else if (themeOption.isDark) Color(0xFF0F182E).copy(alpha = 0.90f)
-                else themeOption.surfaceVariantColor.copy(alpha = 0.90f),
-        border = BorderStroke(
-            1.2.dp,
-            if (isLocked) Color(0xFFEF4444).copy(alpha = 0.45f)
-            else ThemeGold.copy(alpha = 0.35f)
-        ),
-        shadowElevation = if (isLocked) 0.dp else 4.dp,
+        maxTiltAngle = 14f,
+        specularShine = true,
         modifier = modifier
-            .clickable {
-                if (isLocked && lockInfo != null) {
-                    onLockClick(lockInfo)
-                } else {
-                    item.action()
-                }
-            }
     ) {
-        Column(
-            modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = if (showAsLocked) Color(0xFF070D18).copy(alpha = 0.85f)
+                    else if (themeOption.isDark) Color(0xFF0F182E).copy(alpha = 0.90f)
+                    else themeOption.surfaceVariantColor.copy(alpha = 0.90f),
+            border = BorderStroke(
+                1.2.dp,
+                if (showAsLocked) Color(0xFFEF4444).copy(alpha = 0.45f)
+                else ThemeGold.copy(alpha = 0.35f)
+            ),
+            shadowElevation = if (showAsLocked) 0.dp else 4.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    if (isGuestLocked && onGuestLockClick != null) {
+                        onGuestLockClick()
+                    } else if (isLocked && lockInfo != null) {
+                        onLockClick(lockInfo)
+                    } else {
+                        item.action()
+                    }
+                }
         ) {
-            Surface(
-                shape = RoundedCornerShape(13.dp),
-                color = if (isLocked) Color(0xFF1E293B).copy(alpha = 0.7f) else Color(0xFF16213B),
-                border = BorderStroke(1.2.dp, if (isLocked) Color(0xFF475569) else ThemeGold.copy(alpha = 0.60f)),
-                shadowElevation = if (isLocked) 0.dp else 6.dp,
-                modifier = Modifier.size(62.dp)
+            Column(
+                modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Image(
-                        painter = painterResource(id = item.iconRes),
-                        contentDescription = item.label,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                        alpha = if (isLocked) 0.30f else 1f
-                    )
-                    if (isLocked) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF0F172A).copy(alpha = 0.92f),
-                            border = BorderStroke(1.dp, Color(0xFFEF4444)),
-                            modifier = Modifier.size(26.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Lock,
-                                    contentDescription = "Locked",
-                                    tint = Color(0xFFFCA5A5),
-                                    modifier = Modifier.size(15.dp)
+                Surface(
+                    shape = RoundedCornerShape(13.dp),
+                    color = if (showAsLocked) Color(0xFF1E293B).copy(alpha = 0.7f) else Color(0xFF16213B),
+                    border = BorderStroke(1.2.dp, if (showAsLocked) Color(0xFF475569) else ThemeGold.copy(alpha = 0.60f)),
+                    shadowElevation = if (showAsLocked) 0.dp else 6.dp,
+                    modifier = Modifier.size(62.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Image(
+                            painter = painterResource(id = item.iconRes),
+                            contentDescription = item.label,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                            alpha = if (showAsLocked) 0.30f else 1f
+                        )
+                        if (showAsLocked) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF0F172A).copy(alpha = 0.92f),
+                                border = BorderStroke(1.dp, Color(0xFFEF4444)),
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Lock,
+                                        contentDescription = "Locked",
+                                        tint = Color(0xFFFCA5A5),
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                }
+                            }
+                        } else if (item.badgeText != null) {
+                            // Live status indicator badge
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = item.badgeColor,
+                                shadowElevation = 3.dp,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(3.dp)
+                            ) {
+                                CurrencyText(
+                                    text = item.badgeText,
+                                    color = Color.Black,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = RobotoMonoFontFamily,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                 )
                             }
                         }
-                    } else if (item.badgeText != null) {
-                        // Live status indicator badge
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = item.badgeColor,
-                            shadowElevation = 3.dp,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(3.dp)
-                        ) {
-                            CurrencyText(
-                                text = item.badgeText,
-                                color = Color.Black,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = RobotoMonoFontFamily,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                            )
-                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(7.dp))
+                CurrencyText(
+                    text = if (isLocked) "🔒 ${item.label}" else item.label,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (isLocked) Color(0xFF94A3B8) else if (themeOption.isDark) Color.White else themeOption.textPrimaryColor,
+                    letterSpacing = 0.2.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
             }
-            Spacer(modifier = Modifier.height(7.dp))
-            CurrencyText(
-                text = if (isLocked) "🔒 ${item.label}" else item.label,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (isLocked) Color(0xFF94A3B8) else if (themeOption.isDark) Color.White else themeOption.textPrimaryColor,
-                letterSpacing = 0.2.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
         }
     }
 }

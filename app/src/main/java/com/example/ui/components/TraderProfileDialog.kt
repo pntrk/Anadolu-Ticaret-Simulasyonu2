@@ -1364,9 +1364,9 @@ private fun ProfileSettingsTab(
 
                     Text(
                         text = if (isOnlineRegistered) {
-                            tr("Şirket verileriniz her dakika başında Supabase bulutuna otomatik olarak yedeklenir ($onlineEmail).", "Your company data is automatically backed up to Supabase cloud at the start of every minute ($onlineEmail).")
+                            tr("Şirket verileriniz oyuna girişte çekilir ve oyundan çıkarken güvenle Supabase bulutuna aktarılır ($onlineEmail).", "Your company data is fetched on login and safely uploaded to Supabase cloud upon exiting the game ($onlineEmail).")
                         } else {
-                            tr("Her dakika başı otomatik bulut yedeklemesini etkinleştirmek için yukarıdaki Google Girişi veya E-posta ile oturum açın.", "Sign in with Google or Email above to activate automatic cloud backup at the start of every minute.")
+                            tr("Bulut yedeklemesini etkinleştirmek için yukarıdaki Google Girişi veya E-posta ile oturum açın.", "Sign in with Google or Email above to activate cloud backup.")
                         },
                         fontSize = 10.5.sp,
                         color = Color.LightGray
@@ -1396,7 +1396,7 @@ private fun ProfileSettingsTab(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = tr("Otomatik Yedekleme: Her Dakika Başı (:00)", "Auto Backup: Every Minute (:00)"),
+                                    text = tr("Yedekleme: Girişte Al / Çıkışta Kaydet", "Backup: Pull on Start / Push on Exit"),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = ThemeNeonCyan

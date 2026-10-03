@@ -99,11 +99,12 @@ fun AssetsScreen(
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
     initialProductId: String? = null,
+    initialCityId: String? = null,
     onNavigateToRd: (String?) -> Unit = {},
     onNavigateToConsortium: () -> Unit = {}
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        AssetsContent(uiState, onIntent, viewModel, initialProductId, onNavigateToRd, onNavigateToConsortium)
+        AssetsContent(uiState, onIntent, viewModel, initialProductId, initialCityId, onNavigateToRd, onNavigateToConsortium)
     }
 }
 
@@ -113,6 +114,7 @@ fun AssetsContent(
     onIntent: (com.example.viewmodel.GameIntent) -> Unit,
     viewModel: GameViewModel,
     initialProductId: String? = null,
+    initialCityId: String? = null,
     onNavigateToRd: (String?) -> Unit = {},
     onNavigateToConsortium: () -> Unit = {}
 ) {
@@ -125,6 +127,7 @@ fun AssetsContent(
 
     var selectedViewMode by remember { mutableStateOf(FacilityViewMode.LIST) }
     var showCityDialogFor by remember { mutableStateOf<Product?>(null) }
+    var targetRecommendedCityId by remember { mutableStateOf<String?>(null) }
     var showProduceDialogFor by remember { mutableStateOf<Product?>(null) }
     var showSellDialogForBusiness by remember { mutableStateOf<BusinessEntity?>(null) }
     var showNewFacilityDialog by remember { mutableStateOf(false) }
@@ -133,11 +136,41 @@ fun AssetsContent(
     var selectedCityFilter by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
 
-    LaunchedEffect(initialProductId) {
-        if (initialProductId != null) {
-            val p = Product.values().find { it.id == initialProductId }
+    LaunchedEffect(initialProductId, initialCityId) {
+        if (!initialProductId.isNullOrBlank()) {
+            val p = Product.values().find {
+                it.id.equals(initialProductId, ignoreCase = true) ||
+                it.facilityId.equals(initialProductId, ignoreCase = true)
+            }
             if (p != null) {
-                showProduceDialogFor = p
+                val hasFacility = businesses.any { it.type == p.facilityId }
+                if (hasFacility) {
+                    showProduceDialogFor = p
+                    selectedViewMode = FacilityViewMode.LIST
+                    selectedTierFilter = p.tier
+                    searchQuery = ""
+                    val cityName = com.example.data.cities.find { it.id.equals(initialCityId, ignoreCase = true) }?.getDisplayName(isEnglish) ?: ""
+                    val cityPrefix = if (cityName.isNotBlank()) " ($cityName)" else ""
+                    SmartNotificationManager.show(
+                        "🏭 ${p.getDisplayName(isEnglish)} tesisi$cityPrefix açıldı. Üretime başlayabilirsiniz.",
+                        "🏭 ${p.getDisplayName(isEnglish)} facility$cityPrefix opened. Ready to produce.",
+                        NotificationType.INFO
+                    )
+                } else {
+                    targetRecommendedCityId = initialCityId
+                    showCityDialogFor = p
+                    selectedViewMode = FacilityViewMode.LIST
+                    selectedTierFilter = p.tier
+                    searchQuery = ""
+                    val targetCityName = com.example.data.cities.find { it.id.equals(initialCityId, ignoreCase = true) }?.getDisplayName(isEnglish) ?: initialCityId.orEmpty()
+                    val cityMsgTr = if (targetCityName.isNotBlank()) "$targetCityName için " else ""
+                    val cityMsgEn = if (targetCityName.isNotBlank()) "for $targetCityName " else ""
+                    SmartNotificationManager.show(
+                        "🎯 Bülten Kâr Fırsatı: ${cityMsgTr}${p.getDisplayName(isEnglish)} üretecek tesis kurun!",
+                        "🎯 Bulletin Profit Opportunity: Build ${p.getDisplayName(isEnglish)} facility ${cityMsgEn}to start producing!",
+                        NotificationType.ALERT
+                    )
+                }
             }
         }
     }
@@ -298,9 +331,14 @@ fun AssetsContent(
                 product = prod,
                 playerMoney = player.money,
                 playerDollarBalance = player.dollarBalance,
-                onDismiss = { showCityDialogFor = null },
+                recommendedCityId = targetRecommendedCityId,
+                onDismiss = {
+                    showCityDialogFor = null
+                    targetRecommendedCityId = null
+                },
                 onNavigateToConsortium = {
                     showCityDialogFor = null
+                    targetRecommendedCityId = null
                     onNavigateToConsortium()
                 },
                 onSelectCity = { cityId, cost ->
@@ -309,6 +347,7 @@ fun AssetsContent(
                     SmartNotificationManager.show("${prod.getFacilityName(isEnglish)} " + tr("tesisiniz inşa edildi!", "facility constructed!", isEnglish), NotificationType.SUCCESS)
                     ParticleManager.spawnCelebration()
                     showCityDialogFor = null
+                    targetRecommendedCityId = null
                 }
             )
         }
@@ -317,7 +356,9 @@ fun AssetsContent(
         if (showProduceDialogFor != null) {
             val prod = showProduceDialogFor!!
             val productBusinesses = businesses.filter { it.type == prod.facilityId }
-            val producingCityId = productBusinesses.firstOrNull()?.cityId ?: player.currentCity
+            val matchingCityBiz = productBusinesses.find { it.cityId.equals(initialCityId, ignoreCase = true) }
+            val targetBiz = matchingCityBiz ?: productBusinesses.firstOrNull()
+            val producingCityId = targetBiz?.cityId ?: player.currentCity
             ProduceControlDialog(
                 product = prod,
                 viewModel = viewModel,
@@ -423,13 +464,20 @@ fun CitySelectionBuildDialog(
     playerDollarBalance: Long,
     onDismiss: () -> Unit,
     onNavigateToConsortium: () -> Unit = {},
+    recommendedCityId: String? = null,
     onSelectCity: (cityId: String, cost: Long) -> Unit
 ) {
     val isEnglish = isEnglishLanguage()
     val brandColor = Color(product.colorTint)
-    val eligibleCities = remember(product) {
+    val eligibleCities = remember(product, recommendedCityId) {
         val list = cities.filter { it.canBuildProduct(product) }
-        if (list.isNotEmpty()) list else cities
+        val baseList = if (list.isNotEmpty()) list else cities
+        if (!recommendedCityId.isNullOrBlank()) {
+            val rec = baseList.find { it.id.equals(recommendedCityId, ignoreCase = true) }
+            if (rec != null) {
+                listOf(rec) + baseList.filter { it.id != rec.id }
+            } else baseList
+        } else baseList
     }
 
     AlertDialog(
@@ -480,6 +528,7 @@ fun CitySelectionBuildDialog(
                         val rawCost = (product.facilityCost * city.economicMultiplier).toLong()
                         val finalCost = rawCost
                         val canAfford = playerMoney >= finalCost
+                        val isRecommendedCity = !recommendedCityId.isNullOrBlank() && city.id.equals(recommendedCityId, ignoreCase = true)
 
                         Surface(
                             onClick = {
@@ -490,18 +539,42 @@ fun CitySelectionBuildDialog(
                                     SmartNotificationManager.show("Yetersiz Bakiye! Şehir için $formattedCost gerekli.", NotificationType.ALERT)
                                 }
                             },
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF182030),
-                            border = BorderStroke(1.dp, if (canAfford) ThemeNeonCyan.copy(alpha = 0.3f) else ThemeNegative.copy(alpha = 0.3f)),
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isRecommendedCity) Color(0xFF132238) else Color(0xFF182030),
+                            border = BorderStroke(
+                                if (isRecommendedCity) 1.5.dp else 1.dp,
+                                if (isRecommendedCity) ThemeGold else (if (canAfford) ThemeNeonCyan.copy(alpha = 0.3f) else ThemeNegative.copy(alpha = 0.3f))
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                if (isRecommendedCity) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color(0xFFD97706).copy(alpha = 0.25f),
+                                        border = BorderStroke(1.dp, ThemeGold),
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text("🎯", fontSize = 11.sp)
+                                            Text(
+                                                text = tr("BÜLTEN KÂR FIRSATI HEDEF ŞEHRİ", "BULLETIN PROFIT TARGET CITY", isEnglish),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Black,
+                                                color = ThemeGold
+                                            )
+                                        }
+                                    }
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         CurrencyText(
@@ -563,6 +636,7 @@ fun CitySelectionBuildDialog(
                                     )
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -1701,7 +1775,7 @@ fun NewFacilitySelectionDialog(
 @Composable
 fun AssetsKpiRow(uiState: com.example.viewmodel.GameUiState, viewModel: com.example.viewmodel.GameViewModel, totalOwnedFacilities: Int, activeCitiesCount: Int) {
     
-    val activeJobsCount = uiState.productionProgress.count { it.value > 0f }
+    val activeJobsCount = maxOf(uiState.inventoryState.activeProductions.size, uiState.productionProgress.count { it.value > 0f })
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1735,7 +1809,7 @@ fun AssetsKpiRow(uiState: com.example.viewmodel.GameUiState, viewModel: com.exam
 
 @Composable
 fun MarqueeTicker(businesses: List<BusinessEntity>, uiState: com.example.viewmodel.GameUiState, modifier: Modifier = Modifier) {
-    val alertTexts = remember(businesses, uiState.productionProgress) {
+    val alertTexts = remember(businesses, uiState.productionProgress, uiState.inventoryState.activeProductions) {
         val texts = mutableListOf<String>()
         val constructing = businesses.filter { it.isConstructing }
         if (constructing.isNotEmpty()) {
@@ -1749,7 +1823,7 @@ fun MarqueeTicker(businesses: List<BusinessEntity>, uiState: com.example.viewmod
         if (maxLevel.isNotEmpty()) {
             texts.add("✅ BİLGİ: ${maxLevel.size} tesisiniz tam kapasiteyle (Lv.5) çalışıyor.")
         }
-        val activeJobs = uiState.productionProgress.count { it.value > 0f }
+        val activeJobs = maxOf(uiState.inventoryState.activeProductions.size, uiState.productionProgress.count { it.value > 0f })
         if (activeJobs > 0) {
             texts.add("⚙️ AKTİF: $activeJobs tesiste şu anda harıl harıl üretim yapılıyor.")
         }

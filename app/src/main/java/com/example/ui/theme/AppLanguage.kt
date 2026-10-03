@@ -22,3 +22,8 @@ val LocalAppLanguage = staticCompositionLocalOf { AppLanguage.TURKISH }
 var globalCurrentLanguage: AppLanguage = AppLanguage.TURKISH
 
 fun isGlobalEnglishLanguage(): Boolean = globalCurrentLanguage == AppLanguage.ENGLISH
+
+fun getDefaultDeviceLanguage(): String {
+    val lang = java.util.Locale.getDefault().language.lowercase()
+    return if (lang.startsWith("tr")) "tr" else "en"
+}

@@ -112,7 +112,7 @@ fun MainScreen(gameViewModel: GameViewModel) {
     val economicSnapshot = uiState.economicSnapshot
     
     val haptic = LocalHapticFeedback.current
-    val hasSetWarehouse = economicSnapshot?.hasSetWarehouse == true || (economicSnapshot?.isDataSaved == true)
+    val hasSetWarehouse = economicSnapshot?.hasSetWarehouse == true
     var showOnboarding by remember { mutableStateOf(false) }
     var showAppIntroLoading by rememberSaveable { mutableStateOf(true) }
 
@@ -129,9 +129,11 @@ fun MainScreen(gameViewModel: GameViewModel) {
         }
     }
 
-    LaunchedEffect(economicSnapshot) {
+    LaunchedEffect(economicSnapshot, hasSetWarehouse) {
         if (economicSnapshot != null && !hasSetWarehouse) {
             showOnboarding = true
+        } else if (hasSetWarehouse) {
+            showOnboarding = false
         }
     }
 
@@ -185,6 +187,7 @@ fun MainScreen(gameViewModel: GameViewModel) {
     }
 
     var showAuthGate by remember { mutableStateOf(false) }
+    var authRequiredFeature by remember { mutableStateOf<String?>(null) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -193,6 +196,23 @@ fun MainScreen(gameViewModel: GameViewModel) {
             viewModel = gameViewModel,
             onSuccess = {
                 showAuthGate = false
+            }
+        )
+    }
+
+    authRequiredFeature?.let { feat ->
+        com.example.ui.components.GoogleAuthRequiredModal(
+            featureName = feat,
+            viewModel = gameViewModel,
+            onDismiss = { authRequiredFeature = null },
+            onSuccess = {
+                val target = authRequiredFeature ?: ""
+                authRequiredFeature = null
+                when (target) {
+                    "Pazar" -> navController.navigate("market") { launchSingleTop = true }
+                    "Konsorsiyum" -> navController.navigate("megaproject") { launchSingleTop = true }
+                    "Sıralama" -> navController.navigate("social") { launchSingleTop = true }
+                }
             }
         )
     }
@@ -235,6 +255,21 @@ fun MainScreen(gameViewModel: GameViewModel) {
                             launchSingleTop = true
                         }
                     }
+                },
+                onNavigateRoute = { targetRoute ->
+                    if (!gameViewModel.isUserGoogleSignedIn() && (targetRoute == "market" || targetRoute == "megaproject" || targetRoute == "consortium" || targetRoute == "social" || targetRoute == "leaderboard")) {
+                        authRequiredFeature = when (targetRoute) {
+                            "market" -> "Pazar"
+                            "megaproject", "consortium" -> "Konsorsiyum"
+                            "social", "leaderboard" -> "Sıralama"
+                            else -> "Özellik"
+                        }
+                    } else if (currentRoute != targetRoute) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        navController.navigate(targetRoute) {
+                            launchSingleTop = true
+                        }
+                    }
                 }
             )
         },
@@ -242,7 +277,14 @@ fun MainScreen(gameViewModel: GameViewModel) {
             TycoonBottomNavBar(
                 currentRoute = currentRoute,
                 onNavigate = { route ->
-                    if (currentRoute != route) {
+                    if (!gameViewModel.isUserGoogleSignedIn() && (route == "market" || route == "megaproject" || route == "consortium" || route == "social" || route == "leaderboard")) {
+                        authRequiredFeature = when (route) {
+                            "market" -> "Pazar"
+                            "megaproject", "consortium" -> "Konsorsiyum"
+                            "social", "leaderboard" -> "Sıralama"
+                            else -> "Özellik"
+                        }
+                    } else if (currentRoute != route) {
                         navController.navigate(route) {
                             launchSingleTop = true
                             restoreState = true
@@ -306,17 +348,39 @@ fun MainScreen(gameViewModel: GameViewModel) {
                             uiState = uiState,
                             onIntent = gameViewModel::handleIntent,
                             viewModel = gameViewModel,
-                            onNavigateToMarket = { navController.navigate("market") { launchSingleTop = true } },
+                            onNavigateToMarket = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Pazar"
+                                } else {
+                                    navController.navigate("market") { launchSingleTop = true }
+                                }
+                            },
                             onNavigateToBorsa = { navController.navigate("borsa") { launchSingleTop = true } },
                             onNavigateToProduction = { productId -> navController.navigate("production" + (if (productId != null) "?productId=$productId" else "")) { launchSingleTop = true } },
+                            onNavigateToFacilityWithCity = { productId, cityId ->
+                                val route = "production" + (if (productId != null) "?productId=$productId" + (if (cityId != null) "&cityId=$cityId" else "") else "")
+                                navController.navigate(route) { launchSingleTop = true }
+                            },
                             onNavigateToHr = { navController.navigate("hr") { launchSingleTop = true } },
                             onNavigateToRd = { navController.navigate("rd") { launchSingleTop = true } },
                             onNavigateToBank = { navController.navigate("bank") { launchSingleTop = true } },
                             onNavigateToMap = { navController.navigate("map") { launchSingleTop = true } },
                             onNavigateToStatistics = { navController.navigate("statistics") { launchSingleTop = true } },
-                            onNavigateToSocial = { navController.navigate("social") { launchSingleTop = true } },
+                            onNavigateToSocial = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Sıralama"
+                                } else {
+                                    navController.navigate("social") { launchSingleTop = true }
+                                }
+                            },
                             onNavigateToInventory = { navController.navigate("inventory") { launchSingleTop = true } },
-                            onNavigateToMegaProject = { navController.navigate("megaproject") { launchSingleTop = true } },
+                            onNavigateToMegaProject = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Konsorsiyum"
+                                } else {
+                                    navController.navigate("megaproject") { launchSingleTop = true }
+                                }
+                            },
                             onNavigateToWeeklyGrowth = { navController.navigate("weekly_growth") { launchSingleTop = true } }
                         )
                     }
@@ -326,8 +390,8 @@ fun MainScreen(gameViewModel: GameViewModel) {
                             onIntent = gameViewModel::handleIntent,
                             viewModel = gameViewModel,
                             onNavigateToMarket = {
-                                if (!isOnlineRegistered) {
-                                    SmartNotificationManager.show("Yalnızca kayıtlı kullanıcılar için", NotificationType.ALERT)
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Pazar"
                                 } else {
                                     navController.navigate("market") { launchSingleTop = true }
                                 }
@@ -339,32 +403,59 @@ fun MainScreen(gameViewModel: GameViewModel) {
                         )
                     }
                     composable(
-                        route = "production?productId={productId}",
-                        arguments = listOf(androidx.navigation.navArgument("productId") { nullable = true })
+                        route = "production?productId={productId}&cityId={cityId}",
+                        arguments = listOf(
+                            androidx.navigation.navArgument("productId") { nullable = true },
+                            androidx.navigation.navArgument("cityId") { nullable = true }
+                        )
                     ) { backStackEntry -> 
                         val productId = backStackEntry.arguments?.getString("productId")
+                        val cityId = backStackEntry.arguments?.getString("cityId")
                         AssetsScreen(
                             uiState = uiState,
                             onIntent = gameViewModel::handleIntent,
                             viewModel = gameViewModel, 
                             initialProductId = productId,
+                            initialCityId = cityId,
                             onNavigateToRd = { techId -> 
                                 val route = if (techId != null) "rd?techId=$techId" else "rd"
                                 navController.navigate(route) { launchSingleTop = true } 
                             },
                             onNavigateToConsortium = {
-                                navController.navigate("megaproject") { launchSingleTop = true }
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Konsorsiyum"
+                                } else {
+                                    navController.navigate("megaproject") { launchSingleTop = true }
+                                }
                             }
                         ) 
                     }
-                    composable("inventory") { InventoryScreen(uiState, gameViewModel::handleIntent, gameViewModel, onNavigateToMarket = { navController.navigate("market") }) }
+                    composable("inventory") {
+                        InventoryScreen(
+                            uiState = uiState,
+                            onIntent = gameViewModel::handleIntent,
+                            viewModel = gameViewModel,
+                            onNavigateToMarket = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Pazar"
+                                } else {
+                                    navController.navigate("market") { launchSingleTop = true }
+                                }
+                            }
+                        )
+                    }
                     composable("borsa") { BorsaScreen(uiState, gameViewModel::handleIntent, gameViewModel) }
                     composable("market") { 
                         MarketScreen(
                             uiState = uiState, 
                             onIntent = gameViewModel::handleIntent, 
                             viewModel = gameViewModel,
-                            onNavigateHome = { navController.navigate("home") { popUpTo("home") { inclusive = false } } }
+                            onNavigateHome = { navController.navigate("home") { popUpTo("home") { inclusive = false } } },
+                            onNavigateToProduction = { productId, cityId ->
+                                val route = "production" + (if (productId != null) "?productId=$productId" + (if (cityId != null) "&cityId=$cityId" else "") else "")
+                                navController.navigate(route) { launchSingleTop = true }
+                            },
+                            onNavigateToBorsa = { navController.navigate("borsa") { launchSingleTop = true } }
                         ) 
                     }
                     composable("hr") {
@@ -390,7 +481,13 @@ fun MainScreen(gameViewModel: GameViewModel) {
                                 val route = if (productId != null) "production?productId=$productId" else "production"
                                 navController.navigate(route) { launchSingleTop = true } 
                             },
-                            onNavigateToMarket = { navController.navigate("market") { launchSingleTop = true } },
+                            onNavigateToMarket = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Pazar"
+                                } else {
+                                    navController.navigate("market") { launchSingleTop = true }
+                                }
+                            },
                             onNavigateToBorsa = { navController.navigate("borsa") { launchSingleTop = true } },
                             onNavigateToBank = { navController.navigate("bank") { launchSingleTop = true } },
                             onNavigateToHr = { navController.navigate("hr") { launchSingleTop = true } },
@@ -419,9 +516,18 @@ fun MainScreen(gameViewModel: GameViewModel) {
                                 val route = if (techId != null) "rd?techId=$techId" else "rd"
                                 navController.navigate(route) { launchSingleTop = true }
                             },
-                            onNavigateToFacilities = { navController.navigate("map") { launchSingleTop = true } },
+                            onNavigateToFacilities = { productId ->
+                                val route = if (!productId.isNullOrBlank()) "production?productId=$productId" else "production"
+                                navController.navigate(route) { launchSingleTop = true }
+                            },
                             onNavigateToBorsa = { navController.navigate("borsa") { launchSingleTop = true } },
-                            onNavigateToMarket = { navController.navigate("market") { launchSingleTop = true } }
+                            onNavigateToMarket = {
+                                if (!gameViewModel.isUserGoogleSignedIn()) {
+                                    authRequiredFeature = "Pazar"
+                                } else {
+                                    navController.navigate("market") { launchSingleTop = true }
+                                }
+                            }
                         )
                     }
                 }

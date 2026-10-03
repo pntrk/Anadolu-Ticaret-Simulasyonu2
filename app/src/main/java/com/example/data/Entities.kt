@@ -40,7 +40,10 @@ data class PlayerEntity(
     val dollarBalance: Long = 0L,
     val dollarDepositBalance: Long = 0L,
     val dollarLoanAmount: Long = 0L
-)
+) {
+    val warehouseLevel: Int
+        get() = maxOf(1, 1 + ((inventoryCapacity - 5000) / 2500))
+}
 
 @Entity(tableName = "inventory")
 data class InventoryEntity(
@@ -346,13 +349,13 @@ data class MarketListing(
 
     val remainingMs: Long
         get() {
-            val totalDurationMs = 24 * 60 * 60 * 1000L // 24 Saat
+            val totalDurationMs = 3 * 24 * 60 * 60 * 1000L // 3 Gün (72 Saat) Maksimum Yayın Kuralı
             val elapsed = System.currentTimeMillis() - createdAt
             return (totalDurationMs - elapsed).coerceAtLeast(0L)
         }
 
     val isExpired: Boolean
-        get() = isBotListing && remainingMs <= 0L
+        get() = (System.currentTimeMillis() - createdAt) >= (3 * 24 * 60 * 60 * 1000L)
 }
 
 data class FuturesContract(

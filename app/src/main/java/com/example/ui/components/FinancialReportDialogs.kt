@@ -96,85 +96,22 @@ fun DailyIncomeBreakdownDialog(
         } else 0L
     )
 
-    Dialog(
+    GameAdaptiveModalSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = tr("GÜNLÜK GELİR RAPORU", "DAILY INCOME REPORT"),
+        subtitle = tr("Nakit Girişleri ve Kaynak Dağılımı", "Cash Inflows and Source Distribution"),
+        icon = Icons.Rounded.TrendingUp,
+        iconTint = ThemePositive,
+        badgeText = "+₺${formatMoney(totalGrossIncome)}",
+        badgeColor = ThemePositive,
+        secondaryButtonText = tr("Raporu Kapat", "Close Report"),
+        onSecondaryAction = onDismiss
     ) {
-        Surface(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.88f)
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.5.dp, Brush.verticalGradient(listOf(ThemePositive, ThemePositive.copy(alpha = 0.2f))), RoundedCornerShape(16.dp)),
-            color = Color(0xFF08121E).copy(alpha = 0.98f)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(18.dp)
-            ) {
-                // 1. Header Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ThemePositive.copy(alpha = 0.18f),
-                            border = BorderStroke(1.dp, ThemePositive.copy(alpha = 0.6f)),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.TrendingUp,
-                                    contentDescription = null,
-                                    tint = ThemePositive,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        Column {
-                            CurrencyText(
-                                text = tr("GÜNLÜK GELİR RAPORU", "DAILY INCOME REPORT"),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White,
-                                letterSpacing = 1.sp
-                            )
-                            CurrencyText(
-                                text = tr("Nakit Girişleri ve Kaynak Dağılımı", "Cash Inflows and Source Distribution"),
-                                fontSize = 10.sp,
-                                color = ThemePositive.copy(alpha = 0.85f),
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDismiss()
-                        },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(Color.White.copy(alpha = 0.08f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = tr("Kapat", "Close"),
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 // 2. Gross Daily Income Hero Card
                 Surface(
@@ -484,31 +421,9 @@ fun DailyIncomeBreakdownDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Close Button
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemePositive)
-                ) {
-                    CurrencyText(
-                        text = tr("RAPORU KAPAT", "CLOSE REPORT"),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF05110B),
-                        fontFamily = RobotoMonoFontFamily
-                    )
-                }
             }
         }
     }
-}
 
 /**
  * Günlük Gider Detay Raporu Dialogu
@@ -559,83 +474,22 @@ fun DailyExpenseBreakdownDialog(
     val calculatedFixedExpenses = facilityUpkeepTotal + totalManagerSalaries + loanDailyInterest
     val totalGrossExpense = player.dailyExpense.coerceAtLeast(calculatedFixedExpenses)
 
-    Dialog(
+    GameAdaptiveModalSheet(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        title = tr("GÜNLÜK GİDER RAPORU", "DAILY EXPENSE REPORT"),
+        subtitle = tr("Maliyet Merkezleri ve Bilanço Kesintileri", "Cost Centers and Balance Sheet Deductions"),
+        icon = Icons.Rounded.TrendingDown,
+        iconTint = ThemeNegative,
+        badgeText = "-₺${formatMoney(totalGrossExpense)}",
+        badgeColor = ThemeNegative,
+        secondaryButtonText = tr("Raporu Kapat", "Close Report"),
+        onSecondaryAction = onDismiss
     ) {
-        Surface(
+        Column(
             modifier = Modifier
-                .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.88f)
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.5.dp, Brush.verticalGradient(listOf(ThemeNegative, ThemeNegative.copy(alpha = 0.2f))), RoundedCornerShape(16.dp)),
-            color = Color(0xFF14080B).copy(alpha = 0.98f)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(18.dp)
-            ) {
-                // 1. Header Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ThemeNegative.copy(alpha = 0.18f),
-                            border = BorderStroke(1.dp, ThemeNegative.copy(alpha = 0.6f)),
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.TrendingDown,
-                                    contentDescription = null,
-                                    tint = ThemeNegative,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-
-                        Column {
-                            CurrencyText(
-                                text = tr("GÜNLÜK GİDER RAPORU", "DAILY EXPENSE REPORT"),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White,
-                                letterSpacing = 1.sp
-                            )
-                            CurrencyText(
-                                text = tr("Maliyet Merkezleri ve Bilanço Kesintileri", "Cost Centers and Balance Sheet Deductions"),
-                                fontSize = 10.sp,
-                                color = ThemeNegative.copy(alpha = 0.85f),
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDismiss()
-                        },
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(Color.White.copy(alpha = 0.08f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = tr("Kapat", "Close"),
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -947,31 +801,9 @@ fun DailyExpenseBreakdownDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
-
-                // Close Button
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemeNegative)
-                ) {
-                    CurrencyText(
-                        text = tr("RAPORU KAPAT", "CLOSE REPORT"),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontFamily = RobotoMonoFontFamily
-                    )
-                }
             }
         }
     }
-}
 
 @Composable
 private fun IncomeSourceCard(

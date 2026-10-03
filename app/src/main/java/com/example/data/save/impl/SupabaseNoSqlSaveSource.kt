@@ -44,7 +44,8 @@ class SupabaseNoSqlSaveSource : ICloudNoSqlSaveSource {
                 megaProjectsJson = data.megaProjectsJson,
                 lockedDepositBalance = data.currencies.lockedDepositBalance,
                 lockedDepositStartTimeMs = data.currencies.lockedDepositStartTimeMs,
-                lockedDepositDurationMs = data.currencies.lockedDepositDurationMs
+                lockedDepositDurationMs = data.currencies.lockedDepositDurationMs,
+                saveVersion = data.saveVersion
             )
 
             val payload = SupabasePlayerPayload(
@@ -75,7 +76,8 @@ class SupabaseNoSqlSaveSource : ICloudNoSqlSaveSource {
                 researchLevelsJson = data.researchLevelsJson,
                 guildSharesJson = data.guildSharesJson,
                 guildBuyPricesJson = data.guildBuyPricesJson,
-                rawSaveJson = AppJson.encodeToString(rawSaveDto)
+                rawSaveJson = AppJson.encodeToString(rawSaveDto),
+                saveVersion = data.saveVersion
             )
 
             val success = SupabaseManager.syncPlayerToSupabase(payload)
@@ -148,6 +150,7 @@ class SupabaseNoSqlSaveSource : ICloudNoSqlSaveSource {
                 megaProjectsJson = megaProjects,
                 selectedTheme = theme,
                 schemaVersion = schemaVer,
+                saveVersion = maxOf(payload.saveVersion, 1L),
                 saveTimestampMs = timestamp,
                 isMigratedToNoSql = true
             )

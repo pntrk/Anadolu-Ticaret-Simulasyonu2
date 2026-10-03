@@ -201,6 +201,19 @@ data class MuseumAuctionItem(
     val lastBidTimeMs: Long = System.currentTimeMillis()
 )
 
+data class MuseumWing(
+    val id: String,
+    val nameTr: String,
+    val nameEn: String,
+    val iconEmoji: String,
+    val descriptionTr: String,
+    val descriptionEn: String,
+    val bonusSummaryTr: String,
+    val bonusSummaryEn: String,
+    val maxLevel: Int = 3,
+    val baseUpgradeCost: Long
+)
+
 object MuseumHeritageManager {
     private const val PREFS_NAME = "heritage_museum_prefs"
     private const val KEY_OWNED_ARTIFACTS = "owned_artifact_ids"
@@ -215,8 +228,78 @@ object MuseumHeritageManager {
     private const val KEY_TOTAL_PROFILE_INSPECTIONS = "total_profile_inspections"
     private const val KEY_GLOBAL_REGISTRY_JSON = "museum_global_registry_v2"
     private const val KEY_UNIQUE_PLAYER_UID = "museum_unique_player_uid"
+    private const val KEY_WING_LEVEL_PREFIX = "museum_wing_lvl_"
+
+    val allWings = listOf(
+        MuseumWing(
+            id = "wing_seljuk",
+            nameTr = "Selçuklu Kervansaray Salonu",
+            nameEn = "Seljuk Caravanserai Hall",
+            iconEmoji = "🏰",
+            descriptionTr = "Anadolu İpek Yolu tüccar ve kervanlarının ağırlandığı kemerli revaklı salon.",
+            descriptionEn = "An arched colonnaded hall welcoming Silk Road merchants and trading caravans.",
+            bonusSummaryTr = "Ziyaretçi Çekiciliği +%15 & Lojistik Hız +%10 (seviye başına)",
+            bonusSummaryEn = "Visitor Appeal +15% & Logistics Speed +10% (per level)",
+            maxLevel = 3,
+            baseUpgradeCost = 50_000_000L
+        ),
+        MuseumWing(
+            id = "wing_ottoman",
+            nameTr = "Osmanlı Lonca ve Ahilik Divanı",
+            nameEn = "Ottoman Guild & Ahilik Council",
+            iconEmoji = "🕌",
+            descriptionTr = "Usta-çırak ahilik geleneği, nizamnameler ve şed beratlarının sergilendiği divan salonu.",
+            descriptionEn = "Council hall exhibiting master-apprentice traditions, charters, and guild deeds.",
+            bonusSummaryTr = "Müze Bilet Hasılatı +%20 & Tesis Bakım Tasarrufu +%8 (seviye başına)",
+            bonusSummaryEn = "Ticket Inflow +20% & Facility Maintenance Discount +8% (per level)",
+            maxLevel = 3,
+            baseUpgradeCost = 80_000_000L
+        ),
+        MuseumWing(
+            id = "wing_republic",
+            nameTr = "Cumhuriyet Sanayi Galerisi",
+            nameEn = "Republic Industry & Craft Gallery",
+            iconEmoji = "⚙️",
+            descriptionTr = "Erken Cumhuriyet dönemi fabrikasyon atılımları ve milli sanayi mirası sergisi.",
+            descriptionEn = "Exhibition of early Republic industrial breakthroughs and national heritage.",
+            bonusSummaryTr = "Kalıcı Müze Prestiji +%25 & Fabrika Üretim Verimi +%10 (seviye başına)",
+            bonusSummaryEn = "Permanent Prestige +25% & Factory Production +10% (per level)",
+            maxLevel = 3,
+            baseUpgradeCost = 120_000_000L
+        ),
+        MuseumWing(
+            id = "wing_vault",
+            nameTr = "Emanet-i Mukaddes Hazine Tonozu",
+            nameEn = "Sacred Heritage & Imperial Vault",
+            iconEmoji = "💎",
+            descriptionTr = "En değerli 1/1 antika şaheserlerin muhafaza edildiği çelik kilitli müze tonozu.",
+            descriptionEn = "High-security steel-reinforced museum vault safeguarding unique 1/1 masterworks.",
+            bonusSummaryTr = "Günlük Ekstra +💎1 Elmas & İtibar +15 (seviye başına)",
+            bonusSummaryEn = "Extra +💎1 Daily Gem & Reputation +15 (per level)",
+            maxLevel = 3,
+            baseUpgradeCost = 200_000_000L
+        )
+    )
+
+    fun getWingLevel(context: Context, wingId: String): Int {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return getSafeInt(prefs, KEY_WING_LEVEL_PREFIX + wingId, 0)
+    }
+
+    fun upgradeWing(context: Context, wingId: String): Int {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val currentLvl = getSafeInt(prefs, KEY_WING_LEVEL_PREFIX + wingId, 0)
+        val newLvl = (currentLvl + 1).coerceAtMost(3)
+        prefs.edit().putInt(KEY_WING_LEVEL_PREFIX + wingId, newLvl).apply()
+        return newLvl
+    }
+
+    fun getWingUpgradeCost(wing: MuseumWing, currentLevel: Int): Long {
+        return wing.baseUpgradeCost * (currentLevel + 1)
+    }
 
     private var storedContext: Context? = null
+    @Volatile private var memoryRegistryCache: Map<String, MuseumArtifactRegistryItem>? = null
 
     fun registerContext(context: Context) {
         storedContext = context.applicationContext
@@ -493,25 +576,7 @@ object MuseumHeritageManager {
     )
 
     suspend fun seedMissingArtifactsToSupabase() {
-        val allBuffs = ArtifactBuffRegistry.buffs.map { it.artifactId }
-        val currentArtifacts = SupabaseManager.fetchMuseumArtifactsFromSupabase() // Mevcut eserleri çeken Supabase çağrısı
-        val currentIds = currentArtifacts.map { it.artifactId }
-        
-        val missingIds = allBuffs.filterNot { currentIds.contains(it) }
-        
-        missingIds.forEach { missingId ->
-            val newArtifactName = missingId.replace("art_", "").replace("_", " ").uppercase()
-            val newArtifact = MuseumArtifactOwnershipEntity(
-                artifactId = missingId,
-                ownerId = null,
-                ownerName = "Hazine-i Amire",
-                status = "UNCLAIMED_TREASURY",
-                activeAuctionId = null,
-                lastPrice = 250000L,
-                updatedAtMs = System.currentTimeMillis()
-            )
-            SupabaseManager.syncMuseumArtifactToSupabase(newArtifact)
-        }
+        // Eser kataloğu yerel bellek ve Room veritabanında güvenceye alınır (Sıfır ağ isteği / Sıfır sunucu kotası)
     }
 
     fun getUniquePlayerId(context: Context): String {
@@ -670,10 +735,12 @@ object MuseumHeritageManager {
             }
         }
 
+        memoryRegistryCache = registry
         return@withContext registry
     }
 
     private suspend fun saveGlobalRegistry(context: Context, registry: Map<String, MuseumArtifactRegistryItem>) = withContext(Dispatchers.IO) {
+        memoryRegistryCache = registry
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val dtos = registry.values.map { item ->
             MuseumRegistryItemDto(
@@ -779,11 +846,18 @@ object MuseumHeritageManager {
     }
 
     fun getTotalMuseumPrestige(context: Context): Int {
-        return getOwnedArtifacts(context).sumOf { it.prestigeScore }
+        val base = getOwnedArtifacts(context).sumOf { it.prestigeScore }
+        val republicLevel = getWingLevel(context, "wing_republic")
+        val multiplier = 1.0 + (republicLevel * 0.25)
+        return (base * multiplier).toInt()
     }
 
     fun getTotalHourlyVisitorIncome(context: Context): Long {
-        return getOwnedArtifacts(context).sumOf { it.hourlyVisitorIncome }
+        val base = getOwnedArtifacts(context).sumOf { it.hourlyVisitorIncome }
+        val ottomanLevel = getWingLevel(context, "wing_ottoman")
+        val seljukLevel = getWingLevel(context, "wing_seljuk")
+        val multiplier = 1.0 + (ottomanLevel * 0.20) + (seljukLevel * 0.15)
+        return (base * multiplier).toLong()
     }
 
     fun getUnclaimedProfileVisitRevenue(context: Context): Long {
@@ -838,10 +912,86 @@ object MuseumHeritageManager {
         return amount
     }
 
-    suspend fun getArtifactsForOnlinePlayer(context: Context, playerId: String): List<AntiqueArtifact> = withContext(Dispatchers.IO) {
-        val registry = getGlobalRegistry(context)
+    fun getArtifactsForOnlinePlayerSync(
+        context: Context,
+        playerId: String,
+        playerName: String = "",
+        companyName: String = ""
+    ): List<AntiqueArtifact> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val registry = memoryRegistryCache ?: run {
+            val jsonStr = prefs.getString(KEY_GLOBAL_REGISTRY_JSON, "") ?: ""
+            if (jsonStr.isNotBlank()) {
+                try {
+                    val dtos = AppJson.decodeFromString<List<MuseumRegistryItemDto>>(jsonStr)
+                    dtos.associate { dto ->
+                        dto.artifactId to MuseumArtifactRegistryItem(
+                            artifactId = dto.artifactId,
+                            ownerId = dto.ownerId?.ifBlank { null },
+                            ownerName = dto.ownerName,
+                            status = dto.status,
+                            activeAuctionId = dto.activeAuctionId?.ifBlank { null },
+                            lastPrice = dto.lastPrice,
+                            certificateCode = dto.certificateCode.ifBlank { getArtifactCertificateCode(dto.artifactId) },
+                            mintTotal = 1,
+                            updatedAtMs = dto.updatedAtMs
+                        )
+                    }.also { memoryRegistryCache = it }
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+            } else emptyMap()
+        }
+
+        val myUid = getUniquePlayerId(context)
+        val ownedLocal = getOwnedArtifactIds(context)
+        val cleanPid = playerId.trim().lowercase()
+
         val ownedIds = registry.values
-            .filter { it.ownerId == playerId && it.status == "OWNED_BY_PLAYER" }
+            .filter { item ->
+                item.status == "OWNED_BY_PLAYER" &&
+                item.artifactId !in ownedLocal &&
+                item.ownerId != myUid &&
+                item.ownerId != "local_player" &&
+                !item.ownerName.contains("Siz", ignoreCase = true) &&
+                !item.ownerName.contains("Bakanlığı", ignoreCase = true) &&
+                (
+                    (item.ownerId != null && item.ownerId.trim().lowercase() == cleanPid) ||
+                    (playerName.isNotBlank() && item.ownerName.equals(playerName, ignoreCase = true)) ||
+                    (companyName.isNotBlank() && item.ownerName.equals(companyName, ignoreCase = true))
+                )
+            }
+            .map { it.artifactId }
+            .toSet()
+
+        return allArtifacts.filter { it.id in ownedIds }
+    }
+
+    suspend fun getArtifactsForOnlinePlayer(
+        context: Context,
+        playerId: String,
+        playerName: String = "",
+        companyName: String = ""
+    ): List<AntiqueArtifact> = withContext(Dispatchers.IO) {
+        val registry = getGlobalRegistry(context)
+        val myUid = getUniquePlayerId(context)
+        val ownedLocal = getOwnedArtifactIds(context)
+        val cleanPid = playerId.trim().lowercase()
+
+        val ownedIds = registry.values
+            .filter { item ->
+                item.status == "OWNED_BY_PLAYER" &&
+                item.artifactId !in ownedLocal &&
+                item.ownerId != myUid &&
+                item.ownerId != "local_player" &&
+                !item.ownerName.contains("Siz", ignoreCase = true) &&
+                !item.ownerName.contains("Bakanlığı", ignoreCase = true) &&
+                (
+                    (item.ownerId != null && item.ownerId.trim().lowercase() == cleanPid) ||
+                    (playerName.isNotBlank() && item.ownerName.equals(playerName, ignoreCase = true)) ||
+                    (companyName.isNotBlank() && item.ownerName.equals(companyName, ignoreCase = true))
+                )
+            }
             .map { it.artifactId }
             .toSet()
 
@@ -849,9 +999,12 @@ object MuseumHeritageManager {
     }
 
     fun getArtifactsForOnlinePlayer(playerId: String, level: Int = 1): List<AntiqueArtifact> {
-        val hash = (playerId.hashCode() and 0x7FFFFFFF) + level
-        val count = (hash % 3) + 1
-        return allArtifacts.shuffled(Random(hash.toLong())).take(count)
+        val ctx = storedContext
+        return if (ctx != null) {
+            getArtifactsForOnlinePlayerSync(ctx, playerId)
+        } else {
+            emptyList()
+        }
     }
 
     private fun serializeAuctionList(list: List<MuseumAuctionItem>): String {

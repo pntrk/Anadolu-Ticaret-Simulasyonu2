@@ -100,6 +100,8 @@ data class SupabasePlayerDto(
     @SerialName("guild_shares") val guildShares: JsonElement? = null,
     @SerialName("guild_buy_prices") val guildBuyPrices: JsonElement? = null,
     @SerialName("raw_save_json") val rawSaveJson: String? = null,
+    @SerialName("save_version") val saveVersion: Long = 1L,
+    @SerialName("backup_version") val backupVersion: Long? = null,
     @SerialName("monthly_growth") val monthlyGrowth: Long? = null
 )
 
@@ -362,6 +364,9 @@ data class RawSavePayloadDto(
     @SerialName("lockedDepositBalance") val lockedDepositBalance: Long = 0L,
     @SerialName("lockedDepositStartTimeMs") val lockedDepositStartTimeMs: Long = 0L,
     @SerialName("lockedDepositDurationMs") val lockedDepositDurationMs: Long = 0L,
+    @SerialName("saveVersion") val saveVersion: Long = 1L,
+    @SerialName("save_version") val saveVersionSnake: Long? = null,
+    @SerialName("backup_version") val backupVersion: Long? = null
 )
 
 @Serializable

@@ -97,7 +97,7 @@ object ForeclosureManager {
             // buyoutPrice = Product.facilityCost * level * 0.45
             val calculatedBuyout = (product.facilityCost * facilityLvl * 0.45).toLong().coerceAtLeast(20_000L)
             val startingBid = (calculatedBuyout * 0.40).toLong().coerceAtLeast(10_000L)
-            val durationMinutes = Random.nextLong(15, 61) // 15 - 60 dakika
+            val durationSeconds = Random.nextLong(180, 360) // 3 - 6 dakika taze müzayede
 
             val auction = ForeclosureAuction(
                 id = "AUC-${UUID.randomUUID().toString().take(8).uppercase()}",
@@ -112,7 +112,7 @@ object ForeclosureManager {
                 highestBidderId = null,
                 highestBidderName = null,
                 reason = foreclosureReasons.random(),
-                endsAtMs = now + (durationMinutes * 60 * 1000L),
+                endsAtMs = now + (durationSeconds * 1000L),
                 isSettled = false
             )
             newAuctions.add(auction)
@@ -123,17 +123,25 @@ object ForeclosureManager {
 
     /**
      * Belirtilen ihaleye oyuncu tarafından pey / teklif verilmesini sağlar.
+     * Oyuncu pey sürdüğünde ihale 15 saniyelik dinamik çekiç / son teklif sayacına girer.
      */
     fun placeBid(auctionId: String, player: PlayerEntity, bidAmount: Long): Boolean {
         val now = System.currentTimeMillis()
         val currentList = _auctions.value
         val target = currentList.find { it.id == auctionId } ?: return false
 
-        // İhale kapandıysa veya süresi dolduysa teklif verilemez
-        if (target.isSettled || target.endsAtMs <= now) return false
+        // İhale kapandıysa teklif verilemez
+        if (target.isSettled) return false
 
-        // Teklif mevcut en yüksek tekliften ve başlangıç teklifinden büyük olmalı
-        if (bidAmount <= target.currentHighestBid || bidAmount < target.startingBid) return false
+        // Minimum geçerli teklif kontrolü:
+        // Eğer henüz kimse teklif vermediyse başlangıç teklifi geçerlidir.
+        // Eğer teklif verildiyse, mevcut en yüksek tekliften büyük olmalıdır.
+        val minRequired = if (target.highestBidderId == null) {
+            target.startingBid
+        } else {
+            target.currentHighestBid + 1
+        }
+        if (bidAmount < minRequired) return false
 
         // Oyuncunun yeterli nakdi olmalı
         if (player.money < bidAmount) return false
@@ -142,12 +150,16 @@ object ForeclosureManager {
         val finalBid = bidAmount.coerceAtMost(target.buyoutPrice)
         val isFullBuyout = finalBid >= target.buyoutPrice
 
+        // Oyuncu pey sürdüğünde son 15 saniye çekiç sayacı başlar
+        val newEndsAt = if (isFullBuyout) now else now + 15_000L
+
         _auctions.value = currentList.map { auction ->
             if (auction.id == auctionId) {
                 auction.copy(
                     currentHighestBid = finalBid,
                     highestBidderId = player.id,
                     highestBidderName = player.name,
+                    endsAtMs = newEndsAt,
                     isSettled = isFullBuyout
                 )
             } else {
@@ -176,7 +188,12 @@ object ForeclosureManager {
 
         for (auction in currentList) {
             if (!auction.isSettled && auction.endsAtMs <= now) {
-                if (auction.highestBidderId == player.id) {
+                val isPlayerWinner = (auction.highestBidderId == player.id) ||
+                    (auction.highestBidderId == "local_player") ||
+                    (player.id == "local_player" && auction.highestBidderId != null) ||
+                    (player.name.isNotBlank() && auction.highestBidderName == player.name)
+
+                if (isPlayerWinner) {
                     val business = BusinessEntity(
                         id = 0,
                         type = auction.facilityType,
@@ -206,8 +223,53 @@ object ForeclosureManager {
         }
 
         _auctions.value = updatedList
-        generateBotAuctions()
+        if (updatedList.count { !it.isSettled } < 3) {
+            generateBotAuctions()
+        }
         return wins
+    }
+
+    /**
+     * Lider olunan bir ihaleyi oyuncunun isteğiyle anında çekici vurup sonuçlandırmasını sağlar.
+     */
+    fun settleAuctionImmediately(auctionId: String, player: PlayerEntity): AuctionWinResult? {
+        val currentList = _auctions.value
+        val target = currentList.find { it.id == auctionId } ?: return null
+        if (target.isSettled) return null
+
+        val isPlayerWinner = (target.highestBidderId == player.id) ||
+            (target.highestBidderId == "local_player") ||
+            (player.id == "local_player" && target.highestBidderId != null) ||
+            (player.name.isNotBlank() && target.highestBidderName == player.name)
+        if (!isPlayerWinner) return null
+
+        val business = BusinessEntity(
+            id = 0,
+            type = target.facilityType,
+            level = target.level,
+            cityId = target.cityId,
+            wearLevel = 0.0f,
+            storageCapacity = target.level.coerceIn(1, 10) * 500,
+            storedItemsJson = "{}",
+            isUpgrading = false,
+            upgradeEndTime = null,
+            isConstructing = false,
+            constructionEndTime = null
+        )
+        val win = AuctionWinResult(
+            wonBusiness = business,
+            winningBidAmount = target.currentHighestBid,
+            auctionId = target.id,
+            facilityName = target.facilityType
+        )
+
+        _auctions.value = currentList.map {
+            if (it.id == auctionId) it.copy(isSettled = true, endsAtMs = System.currentTimeMillis()) else it
+        }
+        if (_auctions.value.count { !it.isSettled } < 3) {
+            generateBotAuctions()
+        }
+        return win
     }
 
     /**
@@ -276,10 +338,13 @@ object ForeclosureManager {
                         // Hemen Al fiyatını aşmayacak şekilde sınırla
                         if (newBid < auction.buyoutPrice) {
                             changed = true
+                            // Rakip bot pey sürdüğünde oyuncuya 15 saniye karşı teklif süresi ver
+                            val newEnds = if (auction.highestBidderId != null) now + 15_000L else auction.endsAtMs
                             auction.copy(
                                 currentHighestBid = newBid,
                                 highestBidderId = competingBot.id,
-                                highestBidderName = competingBot.companyName
+                                highestBidderName = competingBot.companyName,
+                                endsAtMs = newEnds
                             )
                         } else {
                             auction

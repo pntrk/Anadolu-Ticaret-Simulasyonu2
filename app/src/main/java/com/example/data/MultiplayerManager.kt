@@ -118,7 +118,25 @@ object MultiplayerManager {
     private val _hasPendingSync = MutableStateFlow(false)
     val hasPendingSync: StateFlow<Boolean> = _hasPendingSync.asStateFlow()
 
-    private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(emptyList())
+    private val defaultSeedPlayers = listOf(
+        OnlinePlayer("erhanyasak90@gmail_com", "BUHAR", "BUHAR", 371331860974614L, "İstanbul", 15, true, "CEO", monthlyScore = 74266372194922L, xp = 686823, centralWarehouseLocation = "İstanbul (Ambarlı Mega Lojistik Hub)", facilities = listOf(
+            PlayerFacilityInfo("Buhar Ağır Makine Fabrikası", "İstanbul", 5, "Ağır Sanayi"),
+            PlayerFacilityInfo("Buhar Teknoloji Döküm", "Essen", 5, "Metal"),
+            PlayerFacilityInfo("Buhar Petrol Rafinerisi", "Batman", 5, "Kimya")
+        )),
+        OnlinePlayer("kirklareliataturkortaokulu@gmail_com", "NPC Holding", "NPC Holding", 50000000L, "Kırklareli", 15, true, "CEO", monthlyScore = 10000000L, xp = 35500, centralWarehouseLocation = "Kırklareli Merkez Deposu"),
+        OnlinePlayer("swallowthesun93@gmail_com", "KNT Holding", "KNT Holding", 1617500L, "İstanbul", 1, true, "TÜCCAR", monthlyScore = 323500L, xp = 8500),
+        OnlinePlayer("bahadirkumcu@gmail_com", "Kumcu", "Kumcu", 1128750L, "İzmir", 16, true, "CEO", monthlyScore = 225750L, xp = 720000, centralWarehouseLocation = "İzmir (Alsancak Liman Ana Deposu)", facilities = listOf(
+            PlayerFacilityInfo("Kumcu Zeytin ve Yağ Entegre", "İzmir", 5, "Gıda"),
+            PlayerFacilityInfo("Kumcu Lojistik Filo", "Manisa", 4, "Lojistik")
+        )),
+        OnlinePlayer("letishanorfleet_39784@gmail_com", "Letisha Norfleet", "Letisha Norfleet", 850000L, "Ankara", 1, true, "TÜCCAR", monthlyScore = 170000L, xp = 4300, centralWarehouseLocation = "Ankara (Kazan Lojistik Kompleksi)"),
+        OnlinePlayer("furkansemizoglu4@gmail_com", "Furkan Semizoğlu", "Furkan Semizoğlu", 700000L, "Bursa", 1, true, "TÜCCAR", monthlyScore = 140000L, xp = 3800),
+        OnlinePlayer("baranmlty6565@gmail_com", "baran boztepe", "baran boztepe", 409225L, "Malatya", 2, true, "TÜCCAR", monthlyScore = 81845L, xp = 5200),
+        OnlinePlayer("namikesrou@gmail_com", "Kuman", "Kuman", 55L, "Antalya", 1, true, "TÜCCAR", monthlyScore = 11L, xp = 1200)
+    )
+
+    private val _onlinePlayers = MutableStateFlow<List<OnlinePlayer>>(defaultSeedPlayers)
     val onlinePlayers: StateFlow<List<OnlinePlayer>> = _onlinePlayers.asStateFlow()
 
     fun setOnlinePlayers(players: List<OnlinePlayer>) {
@@ -146,34 +164,7 @@ object MultiplayerManager {
         _onlinePlayers.value = deduplicated
     }
 
-    private val _pastMonthLeaderboard = MutableStateFlow<List<OnlinePlayer>>(
-        listOf(
-            OnlinePlayer("TR-982", "Ahmet Yılmaz", "Marmara Lojistik A.Ş.", 18500000L, "İstanbul", 19, false, "CEO", monthlyScore = 4850000L, xp = 54200, centralWarehouseLocation = "İstanbul (Ambarlı Mega Lojistik Hub)", facilities = listOf(
-                PlayerFacilityInfo("Marmara Ağır Sanayi Fabrikası", "İstanbul", 4, "Ağır Sanayi"),
-                PlayerFacilityInfo("Kuzey Ege Otomotiv Montaj", "Bursa", 3, "Otomotiv"),
-                PlayerFacilityInfo("Trakya Çelik Döküm Tesisi", "Tekirdağ", 3, "Metal"),
-                PlayerFacilityInfo("Boğaziçi Ambalaj Entegre", "Kocaeli", 2, "Paketleme")
-            )),
-            OnlinePlayer("TR-431", "Mehmet Demir", "Ege Zeytincilik", 14200000L, "İzmir", 15, false, "LİDER", monthlyScore = 3600000L, xp = 39800, centralWarehouseLocation = "İzmir (Alsancak Liman Ana Deposu)", facilities = listOf(
-                PlayerFacilityInfo("Ege Sızma Zeytinyağı Fabrikası", "İzmir", 4, "Gıda"),
-                PlayerFacilityInfo("Gediz Ambalaj & Şişeleme", "Manisa", 3, "Paketleme"),
-                PlayerFacilityInfo("Körfez Lojistik Transfer Hanı", "Balıkesir", 2, "Lojistik")
-            )),
-            OnlinePlayer("TR-712", "Fatma Kaya", "Çukurova Pamuk Sanayi", 11200000L, "Adana", 13, false, "LİDER", monthlyScore = 2900000L, xp = 31200, centralWarehouseLocation = "Adana (Çukurova Sanayi Deposu)", facilities = listOf(
-                PlayerFacilityInfo("Çukurova İplik & Dokuma Fabrikası", "Adana", 3, "Tekstil"),
-                PlayerFacilityInfo("Toros Kimya & Boya Tesisi", "Mersin", 2, "Kimya"),
-                PlayerFacilityInfo("Seyhan Ambalaj Atölyesi", "Hatay", 2, "Paketleme")
-            )),
-            OnlinePlayer("TR-303", "Canan Öztürk", "Başkent Enerji A.Ş.", 9800000L, "Ankara", 11, false, "TÜCCAR", monthlyScore = 2300000L, xp = 25100, centralWarehouseLocation = "Ankara (Kazan Lojistik Kompleksi)", facilities = listOf(
-                PlayerFacilityInfo("Anadolu Batarya & Enerji Santrali", "Ankara", 3, "Enerji"),
-                PlayerFacilityInfo("Eskişehir Cam Sanayi", "Eskişehir", 2, "Cam")
-            )),
-            OnlinePlayer("TR-105", "Zeynep Şahin", "Konya Genetik Tarım", 8400000L, "Konya", 10, false, "TÜCCAR", monthlyScore = 1900000L, xp = 21400, centralWarehouseLocation = "Konya (Anadolu Lojistik Hub)", facilities = listOf(
-                PlayerFacilityInfo("Anadolu Un & Yem Fabrikası", "Konya", 3, "Gıda"),
-                PlayerFacilityInfo("Göksu Ambalaj Sanayi", "Karaman", 2, "Paketleme")
-            ))
-        )
-    )
+    private val _pastMonthLeaderboard = MutableStateFlow<List<OnlinePlayer>>(defaultSeedPlayers)
     val pastMonthLeaderboard: StateFlow<List<OnlinePlayer>> = _pastMonthLeaderboard.asStateFlow()
 
     private val _liveTradeOffers = MutableStateFlow<List<OnlineTradeOffer>>(
@@ -188,90 +179,9 @@ object MultiplayerManager {
     private val _activeLobbies = MutableStateFlow<List<MultiplayerLobby>>(emptyList())
     val activeLobbies: StateFlow<List<MultiplayerLobby>> = _activeLobbies.asStateFlow()
 
-    val defaultBotGuilds = listOf(
-        GuildGroup(
-            id = "bot-guild-v4-1",
-            name = "Türkiye Otomobil Girişim Grubu",
-            leaderName = "Bursa Otomotiv Sanayi A.Ş. (Bursa)",
-            memberCount = 42,
-            megaProjectTitle = "Milli Elektrikli Otomobil Projesi",
-            targetProductId = "ev",
-            targetProductName = "TOGG T10X",
-            cityId = "bursa"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-2",
-            name = "Milli Savunma Sistemleri A.Ş.",
-            leaderName = "Savunma Sanayii Başkanlığı (Ankara)",
-            memberCount = 28,
-            megaProjectTitle = "Taktik İnsansız Hava Aracı Serisi",
-            targetProductId = "uav",
-            targetProductName = "Bayraktar TB3",
-            cityId = "ankara"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-3",
-            name = "Milli Uzay Programı",
-            leaderName = "Uzay ve Havacılık Ajansı (Ankara)",
-            memberCount = 19,
-            megaProjectTitle = "Milli Yörünge Fırlatma Üssü",
-            targetProductId = "space_rocket",
-            targetProductName = "TUA Şimşek-1 Roketi",
-            cityId = "ankara"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-4",
-            name = "Mavi Vatan Tersanecilik",
-            leaderName = "Gemi İnşa Genel Müdürlüğü (İstanbul - Tuzla)",
-            memberCount = 35,
-            megaProjectTitle = "Kıtalararası Mega Kargo Gemisi",
-            targetProductId = "cargo_ship",
-            targetProductName = "Piri Reis Kargo Gemisi",
-            cityId = "istanbul"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-5",
-            name = "TCDD Yüksek Hızlı Tren Ağı",
-            leaderName = "Ulaştırma Bakanlığı (Eskişehir)",
-            memberCount = 55,
-            megaProjectTitle = "Anadolu Hızlı Yük Treni Hattı",
-            targetProductId = "bullet_train",
-            targetProductName = "Anadolu Ekspresi Hızlı Treni",
-            cityId = "eskisehir"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-6",
-            name = "Marmara Teknoloji Holding",
-            leaderName = "Bilişim Vadisi Yönetimi (Kocaeli - Gebze)",
-            memberCount = 22,
-            megaProjectTitle = "Yapay Zeka Süper Veri Merkezi",
-            targetProductId = "ai_datacenter",
-            targetProductName = "KIZILELMA Yapay Zeka Çekirdeği",
-            cityId = "kocaeli"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-7",
-            name = "Ege Nükleer Güç Santrali",
-            leaderName = "Türkiye Atom Enerjisi Kurumu (Mersin)",
-            memberCount = 31,
-            megaProjectTitle = "Akkuyu Alternatif Nükleer Kompleksi",
-            targetProductId = "fusion_reactor_core",
-            targetProductName = "Akkuyu Füzyon Çekirdeği",
-            cityId = "mersin"
-        ),
-        GuildGroup(
-            id = "bot-guild-v4-8",
-            name = "Kuzey Rüzgar Çiftliği A.Ş.",
-            leaderName = "Enerji Piyasası Düzenleme Kurumu (Trabzon)",
-            memberCount = 47,
-            megaProjectTitle = "Karadeniz Denizüstü Rüzgar Çiftliği",
-            targetProductId = "smart_grid",
-            targetProductName = "BORA Akıllı Enerji Türbini",
-            cityId = "trabzon"
-        )
-    )
+    val defaultBotGuilds: List<GuildGroup> = ConsortiumBotRegistry.getDefaultBotGuilds()
 
-    private val _globalGuilds = MutableStateFlow<List<GuildGroup>>(emptyList())
+    private val _globalGuilds = MutableStateFlow<List<GuildGroup>>(defaultBotGuilds)
     val globalGuilds: StateFlow<List<GuildGroup>> = _globalGuilds.asStateFlow()
 
     // Supabase Realtime Broadcast Streams (Low Latency In-Memory Bus)
@@ -905,36 +815,14 @@ object MultiplayerManager {
             val supabaseGuilds = SupabaseManager.fetchGuildsFromSupabase()
             
             // Legacy cleanup (remove old bots so the new bots are uniquely loaded)
-            supabaseGuilds?.filter { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v4-")) }?.forEach { oldBot ->
+            supabaseGuilds?.filter { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v5-")) }?.forEach { oldBot ->
                 SupabaseManager.deleteMegaProjectFromSupabase(oldBot.id)
             }
 
-            val currentGuilds = supabaseGuilds?.filterNot { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v4-")) } ?: emptyList()
+            val currentGuilds = supabaseGuilds?.filterNot { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v5-")) } ?: emptyList()
             
             val missingBots = defaultBotGuilds.filter { bot -> currentGuilds.none { it.id == bot.id } }
-            if (missingBots.isNotEmpty()) {
-                missingBots.forEach { bot ->
-                    val botProj = com.example.data.MegaProjectFactory.createMegaProject(
-                        consortiumName = bot.name,
-                        brandName = bot.name,
-                        targetProductId = bot.targetProductId,
-                        leaderPlayerId = bot.id + "_leader",
-                        leaderPlayerName = bot.leaderName,
-                        allProducts = com.example.data.Product.values().toList(),
-                        qualityTier = com.example.data.ConsortiumQualityTier.GRADE_C,
-                        cityId = bot.cityId
-                    )
-                    val botProjWithId = botProj.copy(
-                        id = bot.id,
-                        targetProductName = bot.targetProductName.ifBlank { botProj.targetProductName }
-                    )
-                    SupabaseManager.syncMegaProjectToSupabase(botProjWithId)
-                }
-                val updatedGuilds = SupabaseManager.fetchGuildsFromSupabase()?.filterNot { it.id.startsWith("guild-") }
-                _globalGuilds.value = updatedGuilds ?: (currentGuilds + missingBots)
-            } else {
-                _globalGuilds.value = currentGuilds
-            }
+            _globalGuilds.value = currentGuilds + missingBots
         } catch (e: Exception) {
             Log.w(TAG, "Supabase refreshGuilds failed", e)
         }
@@ -956,14 +844,11 @@ object MultiplayerManager {
     }
 
     /**
-     * Arka plan konsorsiyum ve mega proje senkronizasyon dinleyicisi (15 saniyede bir Supabase ile günceller)
+     * Konsorsiyum ve mega proje verilerini oyuna girişte tek sefer Supabase'den çeker ve oturum boyu bellekte tutar.
      */
     fun listenToGuilds() {
         scope.launch {
-            while (isActive) {
-                delay(15_000L)
-                refreshGuildsFromSupabase()
-            }
+            refreshGuildsFromSupabase()
         }
     }
 
@@ -1183,10 +1068,7 @@ object MultiplayerManager {
 
     fun listenToLeaderboard() {
         scope.launch {
-            while (isActive) {
-                delay(180_000L)
-                refreshLeaderboardFromSupabase()
-            }
+            refreshLeaderboardFromSupabase()
         }
     }
 

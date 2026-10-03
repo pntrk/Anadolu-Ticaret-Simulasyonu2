@@ -67,7 +67,8 @@ enum class MuseumTabType {
     VITRINE,
     LIVE_AUCTION,
     MUSEUM_EXHIBITS,
-    TICKET_REVENUE
+    TICKET_REVENUE,
+    MUSEUM_WINGS
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,6 +108,9 @@ fun AntiqueMuseumDialog(
     var selectedArtifactToAuction by remember { mutableStateOf<AntiqueArtifact?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
 
+    var vitrineSearchQuery by remember { mutableStateOf("") }
+    var vitrineFilterId by remember { mutableIntStateOf(0) }
+
     var isLoadingData by remember { mutableStateOf(true) }
     var ownedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var ownedArtifacts by remember { mutableStateOf<List<AntiqueArtifact>>(emptyList()) }
@@ -118,23 +122,28 @@ fun AntiqueMuseumDialog(
     var globalRegistry by remember { mutableStateOf<Map<String, com.example.data.MuseumArtifactRegistryItem>>(emptyMap()) }
 
     val hasOwnedArtifacts = ownedIds.isNotEmpty()
-    val availableTabs = remember(hasOwnedArtifacts, ownedIds.size) {
-        if (hasOwnedArtifacts) {
-            listOf(
-                MuseumTabType.VITRINE,
-                MuseumTabType.LIVE_AUCTION,
-                MuseumTabType.MUSEUM_EXHIBITS,
-                MuseumTabType.TICKET_REVENUE
-            )
-        } else {
-            listOf(
-                MuseumTabType.LIVE_AUCTION,
-                MuseumTabType.MUSEUM_EXHIBITS
-            )
-        }
+    val availableTabs = remember {
+        listOf(
+            MuseumTabType.VITRINE,
+            MuseumTabType.LIVE_AUCTION,
+            MuseumTabType.MUSEUM_EXHIBITS,
+            MuseumTabType.TICKET_REVENUE,
+            MuseumTabType.MUSEUM_WINGS
+        )
     }
 
-    var currentTab by remember { mutableStateOf(if (hasOwnedArtifacts) MuseumTabType.VITRINE else MuseumTabType.LIVE_AUCTION) }
+    var currentTab by remember { mutableStateOf(MuseumTabType.VITRINE) }
+
+    val isEnglish = isEnglishLanguage()
+    val collectorTitle = remember(ownedIds.size, isEnglish) {
+        when (ownedIds.size) {
+            0 -> if (isEnglish) "🏛️ Aspiring Ahilik Enthusiast" else "🏛️ Hevesli Ahilik Meraklısı"
+            1, 2 -> if (isEnglish) "🏛️ Antique & Heritage Collector" else "🏛️ Antika ve Miras Koleksiyoneri"
+            3, 4, 5 -> if (isEnglish) "🏛️ Senior Museum Founder" else "🏛️ Kıdemli Müze Banisi"
+            6, 7, 8, 9 -> if (isEnglish) "👑 Ahilik Cultural Patron" else "👑 Ahilik Kültür Hamisi"
+            else -> if (isEnglish) "👑 CHIEF AHILIK CURATOR (Legendary)" else "👑 AHİLİK BAŞ KÜRATÖRÜ (Efsanevi)"
+        }
+    }
 
     // Synchronize tab state with artifact ownership
     var hasInitializedTab by remember { mutableStateOf(false) }
@@ -272,298 +281,65 @@ fun AntiqueMuseumDialog(
                     .padding(14.dp)
             ) {
                 // ==========================================
-                // 1. TOP HEADER
+                // 1. UNIFIED COMPACT MUSEUM HERO BANNER
                 // ==========================================
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                            border = BorderStroke(1.2.dp, Color(0xFFF59E0B)),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.bg_museum_header),
-                                contentDescription = tr("Müze", "Museum"),
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                        Column {
-                            CurrencyText(
-                                text = tr("AHİLİK MİRASI & ANTİKA MÜZESİ", "AHILIK HERITAGE & ANTIQUE MUSEUM"),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White,
-                                fontFamily = RobotoMonoFontFamily,
-                                letterSpacing = 0.5.sp
-                            )
-                            CurrencyText(
-                                text = tr("Anadolu Tarihi Eserleri & Canlı Müzayede", "Anatolian Historical Artifacts & Live Auction"),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFFBBF24),
-                                fontSize = 11.sp
-                            )
-                        }
+                GrandMuseumHeroBanner(
+                    ownedCount = ownedIds.size,
+                    totalArtifacts = MuseumHeritageManager.allArtifacts.size,
+                    totalPrestige = totalPrestige,
+                    hourlyIncome = hourlyIncome,
+                    collectorTitle = collectorTitle,
+                    onClose = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onDismiss()
                     }
-
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onDismiss()
-                        },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .background(Color(0xFF1E293B), RoundedCornerShape(8.dp))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = tr("Kapat", "Close"),
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
+                )
 
                 // ==========================================
-                // AKTİF ŞİRKET GÜÇLERİ (ARTIFACT BUFFS)
+                // AKTİF ŞİRKET GÜÇLERİ (ARTIFACT BUFFS) - COMPACT
                 // ==========================================
                 if (activeBuffs.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Column(
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 1.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        ) {
-                            Text(
-                                text = "🏛️",
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                text = tr("Aktif Şirket Güçleriniz", "Your Active Company Buffs"),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFFFBBF24),
-                                fontFamily = RobotoMonoFontFamily,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(vertical = 2.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(activeBuffs.entries.toList(), key = { it.key.name }) { (buffType, value) ->
-                                val label = when (buffType) {
-                                    ArtifactBuffType.LOAN_INTEREST_DISCOUNT -> "Kredi Faizi: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.DEPOSIT_INTEREST_BONUS -> "Mevduat: +%${String.format(java.util.Locale.US, "%.1f", value * 100)}"
-                                    ArtifactBuffType.LOGISTICS_COST_DISCOUNT -> "Lojistik: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.LOGISTICS_SPEED_BONUS -> "Lojistik Hız: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.CONSTRUCTION_SPEED_BONUS -> "İnşaat Hızı: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.UPGRADE_COST_DISCOUNT -> "Yükseltme: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.WEAR_LEVEL_REDUCTION -> "Aşınma: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.MAINTENANCE_COST_DISCOUNT -> "Bakım: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.TIER1_PRODUCTION_BONUS -> "Tier 1 Üretim: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.TIER4_PRODUCTION_BONUS -> "Tier 4 Üretim: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.BORSA_SELL_BONUS -> "Borsa Satış: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.BORSA_BUY_DISCOUNT -> "Borsa Alım: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.MANAGER_SALARY_DISCOUNT -> "Yönetici Maaşı: -%${(value * 100).toInt()}"
-                                    ArtifactBuffType.RD_RESEARCH_SPEED -> "Ar-Ge Hızı: +%${(value * 100).toInt()}"
-                                    ArtifactBuffType.CONSORTIUM_PRESTIGE_BONUS -> "Prestij: +%${(value * 100).toInt()}"
-                                }
-                                AssistChip(
-                                    onClick = {},
-                                    label = {
-                                        Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    },
-                                    colors = AssistChipDefaults.assistChipColors(
-                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer
-                                    ),
-                                    border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
-                                )
+                        items(activeBuffs.entries.toList(), key = { it.key.name }) { (buffType, value) ->
+                            val label = when (buffType) {
+                                ArtifactBuffType.LOAN_INTEREST_DISCOUNT -> "Kredi: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.DEPOSIT_INTEREST_BONUS -> "Mevduat: +%${String.format(java.util.Locale.US, "%.1f", value * 100)}"
+                                ArtifactBuffType.LOGISTICS_COST_DISCOUNT -> "Lojistik: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.LOGISTICS_SPEED_BONUS -> "Hız: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.CONSTRUCTION_SPEED_BONUS -> "İnşaat: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.UPGRADE_COST_DISCOUNT -> "Yükseltme: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.WEAR_LEVEL_REDUCTION -> "Aşınma: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.MAINTENANCE_COST_DISCOUNT -> "Bakım: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.TIER1_PRODUCTION_BONUS -> "Hammadde: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.TIER4_PRODUCTION_BONUS -> "Ağır Sanayi: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.BORSA_SELL_BONUS -> "Borsa Satış: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.BORSA_BUY_DISCOUNT -> "Borsa Alım: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.MANAGER_SALARY_DISCOUNT -> "Yönetici: -%${(value * 100).toInt()}"
+                                ArtifactBuffType.RD_RESEARCH_SPEED -> "Ar-Ge: +%${(value * 100).toInt()}"
+                                ArtifactBuffType.CONSORTIUM_PRESTIGE_BONUS -> "Prestij: +%${(value * 100).toInt()}"
                             }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // ==========================================
-                // 2. SUMMARY PRESTIGE & VISITOR STATS
-                // ==========================================
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF0F1B2E),
-                    border = BorderStroke(1.dp, Color(0xFF1E3A5F))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (hasOwnedArtifacts) {
-                            // 1. Müze Statüsü / Eser Sayısı
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF14223A),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CurrencyText(
-                                        text = tr("MÜZE STATÜSÜ", "MUSEUM STATUS"),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    CurrencyText(
-                                        text = "${ownedIds.size}/${MuseumHeritageManager.allArtifacts.size} " + tr("Eser", "Artifacts"),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // 2. Müze Prestiji
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF14223A),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CurrencyText(
-                                        text = tr("PRESTİJ", "PRESTIGE"),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    CurrencyText(
-                                        text = "+$totalPrestige ⭐",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color(0xFFFBBF24),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // 3. Bilet Hasılatı
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = ThemePositive.copy(alpha = 0.12f),
-                                border = BorderStroke(0.8.dp, ThemePositive.copy(alpha = 0.35f)),
-                                modifier = Modifier.weight(1.15f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CurrencyText(
-                                        text = tr("BİLET HASILATI", "TICKET REVENUE"),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = ThemePositive.copy(alpha = 0.9f),
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    CurrencyText(
-                                        text = "+₳${formatMoney(hourlyIncome)}" + tr("/saat", "/hr"),
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = ThemePositive,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        } else {
-                            // Player without artifacts: Explanatory summary bar
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF14223A),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    CurrencyText(
-                                        text = tr("MÜZE STATÜSÜ", "MUSEUM STATUS"),
-                                        fontSize = 8.5.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.Gray,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    CurrencyText(
-                                        text = tr("0/13 (Vitrin Kilitli)", "0/13 (Vitrine Locked)"),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = Color(0xFF94A3B8),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFF1E293B).copy(alpha = 0.7f),
-                                border = BorderStroke(0.8.dp, Color(0xFFF59E0B).copy(alpha = 0.4f)),
-                                modifier = Modifier.weight(1.8f)
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.85f),
+                                border = BorderStroke(0.6.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                                 ) {
-                                    CurrencyText("💡", fontSize = 15.sp)
-                                    CurrencyText(
-                                        text = tr("Müzayededen eser kazanarak kendi müze vitrininizi ve bilet gelirinizi açın!", "Win an artifact at auction to unlock your museum showcase & ticket revenue!"),
-                                        fontSize = 9.sp,
-                                        color = Color(0xFFFBBF24),
-                                        lineHeight = 12.sp,
-                                        fontWeight = FontWeight.Medium
+                                    Text("⚡", fontSize = 8.5.sp)
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 8.5.sp,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
                                     )
                                 }
                             }
@@ -571,10 +347,10 @@ fun AntiqueMuseumDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 // ==========================================
-                // 3. DYNAMIC NAVIGATION TABS (Strict Ownership Scope)
+                // 2. DYNAMIC NAVIGATION TABS
                 // ==========================================
                 Row(
                     modifier = Modifier
@@ -587,10 +363,11 @@ fun AntiqueMuseumDialog(
                     availableTabs.forEach { tabType ->
                         val isSelected = currentTab == tabType
                         val title = when (tabType) {
-                            MuseumTabType.VITRINE -> tr("🏛️ Cam Vitrin (${ownedIds.size})", "🏛️ Showcase (${ownedIds.size})")
-                            MuseumTabType.LIVE_AUCTION -> tr("🔨 Canlı Müzayede", "🔨 Live Auction")
-                            MuseumTabType.MUSEUM_EXHIBITS -> tr("🏛️ Müzedeki Eserler", "🏛️ Museum Exhibits")
-                            MuseumTabType.TICKET_REVENUE -> tr("🎟️ Bilet Geliri", "🎟️ Ticket Income")
+                            MuseumTabType.VITRINE -> tr("🏛️ Vitrin (${ownedIds.size})", "🏛️ Vitrine (${ownedIds.size})")
+                            MuseumTabType.LIVE_AUCTION -> tr("🔨 Müzayede", "🔨 Auction")
+                            MuseumTabType.MUSEUM_EXHIBITS -> tr("🌍 Eserler (Kimde?)", "🌍 All Artifacts")
+                            MuseumTabType.TICKET_REVENUE -> tr("🎟️ Hasılat", "🎟️ Inflow")
+                            MuseumTabType.MUSEUM_WINGS -> tr("🏛️ Kanatlar", "🏛️ Wings")
                         }
 
                         Surface(
@@ -604,11 +381,11 @@ fun AntiqueMuseumDialog(
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(vertical = 7.dp, horizontal = 2.dp)
+                                modifier = Modifier.padding(vertical = 6.dp, horizontal = 2.dp)
                             ) {
                                 CurrencyText(
                                     text = title,
-                                    fontSize = if (availableTabs.size > 2) 9.5.sp else 11.5.sp,
+                                    fontSize = if (availableTabs.size > 2) 9.sp else 11.sp,
                                     fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
                                     color = if (isSelected) Color(0xFF0F172A) else Color.LightGray,
                                     fontFamily = RobotoMonoFontFamily,
@@ -638,23 +415,96 @@ fun AntiqueMuseumDialog(
                         } else {
                             when (currentTab) {
                                 MuseumTabType.VITRINE -> {
-                                    // TAB 0: GLASS VITRINE SHOWCASE
-                                    LazyVerticalGrid(
-                                        columns = GridCells.Fixed(2),
+                                    // TAB 0: GLASS VITRINE SHOWCASE WITH INTERACTIVE FILTER & SEARCH
+                                    Column(
                                         modifier = Modifier.fillMaxSize(),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        items(MuseumHeritageManager.allArtifacts, key = { it.id }) { artifact ->
-                                            val isOwned = artifact.id in ownedIds
-                                            ArtifactGlassCard(
-                                                artifact = artifact,
-                                                isOwned = isOwned,
-                                                onClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    selectedArtifactForDetail = artifact
+                                        MuseumVitrineFilterBar(
+                                            searchQuery = vitrineSearchQuery,
+                                            onSearchChange = { vitrineSearchQuery = it },
+                                            selectedFilter = vitrineFilterId,
+                                            onFilterSelect = { vitrineFilterId = it },
+                                            ownedCount = ownedIds.size,
+                                            totalCount = MuseumHeritageManager.allArtifacts.size
+                                        )
+
+                                        val filteredArtifacts = remember(vitrineSearchQuery, vitrineFilterId, ownedIds) {
+                                            MuseumHeritageManager.allArtifacts.filter { art ->
+                                                val matchesSearch = vitrineSearchQuery.isBlank() ||
+                                                    art.name.contains(vitrineSearchQuery, ignoreCase = true) ||
+                                                    art.originCity.contains(vitrineSearchQuery, ignoreCase = true) ||
+                                                    art.era.contains(vitrineSearchQuery, ignoreCase = true)
+
+                                                val isOwned = art.id in ownedIds
+                                                val matchesFilter = when (vitrineFilterId) {
+                                                    0 -> true
+                                                    1 -> isOwned
+                                                    2 -> !isOwned
+                                                    3 -> art.era.contains("Selçuklu", ignoreCase = true)
+                                                    4 -> art.era.contains("Osmanlı", ignoreCase = true)
+                                                    5 -> !art.era.contains("Selçuklu", ignoreCase = true) && !art.era.contains("Osmanlı", ignoreCase = true)
+                                                    else -> true
                                                 }
-                                            )
+                                                matchesSearch && matchesFilter
+                                            }
+                                        }
+
+                                        if (filteredArtifacts.isEmpty()) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 24.dp),
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = Color(0xFF0C1626),
+                                                border = BorderStroke(1.dp, Color(0xFF1E3A5F))
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .padding(24.dp)
+                                                        .fillMaxWidth(),
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    CurrencyText("🔍", fontSize = 28.sp)
+                                                    CurrencyText(
+                                                        text = tr("Aramanıza Uygun Antika Eser Bulunamadı", "No Matching Antique Artifact Found"),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White
+                                                    )
+                                                    TextButton(onClick = {
+                                                        vitrineSearchQuery = ""
+                                                        vitrineFilterId = 0
+                                                    }) {
+                                                        CurrencyText(
+                                                            text = tr("Filtreleri Sıfırla", "Reset Filters"),
+                                                            color = Color(0xFFF59E0B),
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            LazyVerticalGrid(
+                                                columns = GridCells.Fixed(2),
+                                                modifier = Modifier.fillMaxSize(),
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                items(filteredArtifacts, key = { it.id }) { artifact ->
+                                                    val isOwned = artifact.id in ownedIds
+                                                    LuxuryGlassVitrineCard(
+                                                        artifact = artifact,
+                                                        isOwned = isOwned,
+                                                        onClick = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            selectedArtifactForDetail = artifact
+                                                        }
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -705,6 +555,17 @@ fun AntiqueMuseumDialog(
                                         ownedCount = ownedIds.size,
                                         totalPrestige = totalPrestige,
                                         onClaimed = {
+                                            refreshTrigger++
+                                        }
+                                    )
+                                }
+
+                                MuseumTabType.MUSEUM_WINGS -> {
+                                    // TAB 4: MUSEUM WINGS & RESTORATION PAVILIONS
+                                    MuseumWingPavilionsSection(
+                                        viewModel = viewModel,
+                                        playerCash = p.money,
+                                        onWingUpgraded = {
                                             refreshTrigger++
                                         }
                                     )
@@ -1725,65 +1586,23 @@ private fun MuseumVisitorRevenueSection(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Vault Cashout Box
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF102035),
-            border = BorderStroke(1.5.dp, Brush.horizontalGradient(listOf(ThemePositive, ThemeNeonCyan)))
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                CurrencyText(tr("🎟️ BİRİKEN MÜZE BİLET GELİRİ", "🎟️ ACCUMULATED MUSEUM TICKET REVENUE"), fontSize = 11.sp, fontWeight = FontWeight.Black, color = ThemeNeonCyan, fontFamily = RobotoMonoFontFamily)
-
-                CurrencyText(
-                    text = "₳${formatMoney(unclaimedRevenue)}",
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.Black,
-                    color = ThemePositive,
-                    fontFamily = RobotoMonoFontFamily
-                )
-
-                CurrencyText(
-                    text = tr(
-                        "Müzenizdeki $ownedCount adet tarihi şaheser, her saat yerli ve yabancı ziyaretçilerden +${formatCredit(hourlyIncome)} bilet geliri üretir ve günlük +💎$totalDailyGems elmas kazandırır.",
-                        "The $ownedCount historical masterpieces in your museum generate +${formatCredit(hourlyIncome)} in ticket revenue from local and foreign visitors every hour and yield +💎$totalDailyGems daily gems."
-                    ),
-                    fontSize = 11.sp,
-                    color = Color.LightGray,
-                    textAlign = TextAlign.Center
-                )
-
-                AppButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        if (unclaimedRevenue > 0L) {
-                            val earned = MuseumHeritageManager.claimVisitorRevenue(context)
-                            viewModel.addMoneyDirectly(earned)
-                            SmartNotificationManager.show(tr("🎟️ +${formatCredit(earned)} müze hasılatı holding kasasına aktarıldı!", "🎟️ +${formatCredit(earned)} museum revenue transferred to treasury!", isEnglish), NotificationType.SUCCESS)
-                            onClaimed()
-                        } else {
-                            SmartNotificationManager.show(tr("Henüz birikmiş bilet hasılatı bulunmuyor.", "There is no accumulated ticket revenue yet.", isEnglish), NotificationType.INFO)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = ThemePositive, contentColor = Color.Black)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Rounded.MonetizationOn, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        CurrencyText(tr("HASILATI KASAYA AKTAR", "COLLECT REVENUE TO VAULT"), fontWeight = FontWeight.Black, fontSize = 12.sp)
-                    }
+        // Vault & VIP Visitor Ledger Panel
+        MuseumVisitorLedgerPanel(
+            unclaimedRevenue = unclaimedRevenue,
+            hourlyIncome = hourlyIncome,
+            totalInspections = totalInspections,
+            onClaimClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (unclaimedRevenue > 0L) {
+                    val earned = MuseumHeritageManager.claimVisitorRevenue(context)
+                    viewModel.addMoneyDirectly(earned)
+                    SmartNotificationManager.show(tr("🎟️ +${formatCredit(earned)} müze hasılatı holding kasasına aktarıldı!", "🎟️ +${formatCredit(earned)} museum revenue transferred to treasury!", isEnglish), NotificationType.SUCCESS)
+                    onClaimed()
+                } else {
+                    SmartNotificationManager.show(tr("Henüz birikmiş bilet hasılatı bulunmuyor.", "There is no accumulated ticket revenue yet.", isEnglish), NotificationType.INFO)
                 }
             }
-        }
+        )
 
         // Leaderboard & Profile Views Revenue Explanation Box
         Surface(
@@ -1951,7 +1770,7 @@ private fun MuseumExhibitsSection(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Header Lore Card
+        // Header Explanatory Card (Ne İşe Yarar?)
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp),
@@ -1968,32 +1787,46 @@ private fun MuseumExhibitsSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    CurrencyText("🏛️", fontSize = 22.sp)
+                    CurrencyText("🌍", fontSize = 22.sp)
                     Column {
                         CurrencyText(
-                            text = tr("MÜZEDEKİ ESERLER & ENVANTER", "MUSEUM EXHIBITS & INVENTORY"),
+                            text = tr("DÜNYA ESER ENVANTERİ (ESERLER KİMDE?)", "GLOBAL ARTIFACT CENSUS (WHO OWNS WHAT?)"),
                             fontWeight = FontWeight.Black,
-                            fontSize = 12.sp,
+                            fontSize = 11.5.sp,
                             color = Color.White,
                             fontFamily = RobotoMonoFontFamily
                         )
                         CurrencyText(
-                            text = tr("13 Eşsiz 1/1 Tarihi Eserin Güncel Sahipleri", "Current Owners of the 13 Unique 1/1 Masterpieces"),
-                            fontSize = 9.5.sp,
-                            color = Color(0xFF94A3B8)
+                            text = tr("13 Eşsiz 1/1 Tarihi Eserin Canlı Sahiplik & Müze Takibi", "Live Ownership & Museum Tracking of the 13 Masterpieces"),
+                            fontSize = 9.sp,
+                            color = Color(0xFF38BDF8)
                         )
                     }
                 }
 
-                CurrencyText(
-                    text = tr(
-                        "Anadolu'nun kadim medeniyetlerine ait 13 benzersiz tarihi eser; holding müzelerinde, koleksiyoner vitrinlerinde veya bakanlık korumasında sergilenmektedir.",
-                        "The 13 unique historical masterpieces of ancient Anatolian civilizations are exhibited in holding museums, collector vitrines, or ministry heritage registries."
-                    ),
-                    fontSize = 10.sp,
-                    color = Color.LightGray,
-                    lineHeight = 14.sp
-                )
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF0A1424),
+                    border = BorderStroke(0.6.dp, Color(0xFF1E3A5F)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        CurrencyText("💡", fontSize = 14.sp)
+                        CurrencyText(
+                            text = tr(
+                                "Bu bölüm, oyundaki 13 benzersiz tarihi eserin şu an hangi holding müzesinde olduğunu, hangilerinin açık artırmada satıldığını veya devlette beklediğini canlı gösterir. Böylece hedeflediğiniz eserleri takip edip müzenize kazandırabilirsiniz.",
+                                "This section shows live which player's museum currently holds each of the 13 unique artifacts, which are on auction, or held in state registry."
+                            ),
+                            fontSize = 9.5.sp,
+                            color = Color.LightGray,
+                            lineHeight = 13.5.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -2330,69 +2163,45 @@ private fun ArtifactDetailDialog(
 
                 Divider(color = Color(0xFF1E3A5F))
 
+                // Imperial Certificate Seal
+                ImperialArtifactCertificateCard(
+                    artifact = artifact,
+                    certCode = certCode
+                )
+
+                // Curator Audio & Historical Chronicle
+                CuratorAudioChronicle(
+                    artifact = artifact
+                )
+
+                // Artifact Holding Buff
+                ArtifactHoldingBuffSpotlight(
+                    artifact = artifact
+                )
+
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF0F2338),
-                    border = BorderStroke(1.dp, Color(0xFF0284C7)),
+                    color = Color(0xFF0F1A2C),
+                    border = BorderStroke(0.8.dp, Color(0xFF1E3A5F)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            CurrencyText("🏛️", fontSize = 14.sp)
-                            CurrencyText(
-                                tr("T.C. VAKIFLAR GENEL MÜDÜRLÜĞÜ", "REPUBLIC OF TÜRKİYE GENERAL DIRECTORATE OF FOUNDATIONS"),
-                                color = Color(0xFF38BDF8),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 0.5.sp
-                            )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText(tr("Menşe Şehir:", "City of Origin:"), fontSize = 11.sp, color = Color.Gray)
+                            CurrencyText("📍 ${artifact.getLocalizedOriginCity(isEnglishLanguage())}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
-                        CurrencyText(
-                            tr("1/1 TESCİLLİ ULUSAL KÜLTÜR MİRASI BELGESİ", "1/1 REGISTERED NATIONAL CULTURAL HERITAGE CERTIFICATE"),
-                            color = Color(0xFFFBBF24),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = RobotoMonoFontFamily
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(tr("Sertifika Seri No:", "Certificate Serial No:"), color = Color.Gray, fontSize = 9.sp, fontFamily = RobotoMonoFontFamily)
-                            CurrencyText(certCode, color = Color.White, fontSize = 9.5.sp, fontWeight = FontWeight.Black, fontFamily = RobotoMonoFontFamily)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText(tr("Kalıcı Müze Prestiji:", "Permanent Museum Prestige:"), fontSize = 11.sp, color = Color.Gray)
+                            CurrencyText("⭐ +${artifact.prestigeScore} " + tr("Puan", "Points"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFBBF24))
                         }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            CurrencyText(tr("Toplam Üretim / Adet:", "Total Production / Quantity:"), color = Color.Gray, fontSize = 9.sp, fontFamily = RobotoMonoFontFamily)
-                            CurrencyText(tr("1 ADET (BENZERSİZ TEK ESER)", "1 UNIT (UNIQUE MASTERPIECE)"), color = Color(0xFF34D399), fontSize = 9.5.sp, fontWeight = FontWeight.Black, fontFamily = RobotoMonoFontFamily)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            CurrencyText(tr("Saatlik Bilet Getirisi:", "Hourly Ticket Revenue:"), fontSize = 11.sp, color = Color.Gray)
+                            CurrencyText("+${formatCredit(artifact.hourlyVisitorIncome)}" + tr("/saat", "/hour"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThemePositive)
                         }
                     }
-                }
-
-                CurrencyText(tr("📜 TARİHİ VE KÜLTÜREL ÖNEMİ:", "📜 HISTORICAL & CULTURAL SIGNIFICANCE:"), fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color(0xFFFBBF24), fontFamily = RobotoMonoFontFamily)
-                CurrencyText(artifact.getLocalizedHistoricalLore(isEnglishLanguage()), fontSize = 11.sp, color = Color.LightGray, lineHeight = 16.sp)
-
-                Divider(color = Color(0xFF1E3A5F))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    CurrencyText(tr("Menşe Şehir:", "City of Origin:"), fontSize = 11.sp, color = Color.Gray)
-                    CurrencyText("📍 ${artifact.getLocalizedOriginCity(isEnglishLanguage())}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    CurrencyText(tr("Kalıcı Müze Prestiji:", "Permanent Museum Prestige:"), fontSize = 11.sp, color = Color.Gray)
-                    CurrencyText("⭐ +${artifact.prestigeScore} " + tr("Puan", "Points"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFBBF24))
-                }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    CurrencyText(tr("Saatlik Bilet Getirisi:", "Hourly Ticket Revenue:"), fontSize = 11.sp, color = Color.Gray)
-                    CurrencyText("+${formatCredit(artifact.hourlyVisitorIncome)}" + tr("/saat", "/hour"), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ThemePositive)
                 }
 
                 Spacer(modifier = Modifier.height(4.dp))

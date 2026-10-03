@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.rounded.Star
@@ -83,7 +84,8 @@ fun GameTopBar(
     onNavigateToHome: () -> Unit = {},
     onNavigateToBank: () -> Unit = {},
     onNavigateToInventory: () -> Unit = {},
-    onNavigateToWeeklyGrowth: () -> Unit = {}
+    onNavigateToWeeklyGrowth: () -> Unit = {},
+    onNavigateRoute: (String) -> Unit = {}
 ) {
     val player by viewModel.player.collectAsStateWithLifecycle()
     val gameState by viewModel.gameState.collectAsStateWithLifecycle()

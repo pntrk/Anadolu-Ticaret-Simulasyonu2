@@ -61,7 +61,7 @@ fun TycoonHubCardsSection(
     val scrollState = rememberScrollState()
 
     val level = player?.level ?: 1
-    val warehouseLevel = (inventoryMaxCapacity / 5000).coerceIn(1, 10)
+    val warehouseLevel = player?.warehouseLevel ?: maxOf(1, 1 + ((inventoryMaxCapacity - 5000) / 2500))
     val usedRatio = if (inventoryMaxCapacity > 0) (inventoryTotalCount.toFloat() / inventoryMaxCapacity.toFloat()).coerceIn(0f, 1f) else 0f
     val usedPercent = (usedRatio * 100).toInt()
 
@@ -157,7 +157,7 @@ fun TycoonHubCardsSection(
             TycoonCard(
                 title = tr("DEPO", "WAREHOUSE"),
                 level = warehouseLevel,
-                maxLevel = 5,
+                maxLevel = maxOf(5, warehouseLevel),
                 statusTitle = tr("KAPASİTE DOLULUK", "CAPACITY USAGE"),
                 statusDetail = "%$usedPercent ($inventoryTotalCount/${inventoryMaxCapacity}T)",
                 progress = usedRatio,
@@ -241,15 +241,21 @@ private fun TycoonCard(
         label = "glow"
     )
 
-    Surface(
-        modifier = Modifier
-            .width(268.dp)
-            .clip(RoundedCornerShape(16.dp)),
+    Interactive3DCard(
+        modifier = Modifier.width(268.dp),
         shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF0F172A).copy(alpha = 0.92f),
-        border = BorderStroke(1.2.dp, accentColor.copy(alpha = borderGlow)),
-        shadowElevation = 8.dp
+        maxTiltAngle = 10f,
+        specularShine = true
     ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp)),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF0F172A).copy(alpha = 0.92f),
+            border = BorderStroke(1.2.dp, accentColor.copy(alpha = borderGlow)),
+            shadowElevation = 8.dp
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -454,6 +460,7 @@ private fun TycoonCard(
             }
         }
     }
+}
 }
 
 @Composable

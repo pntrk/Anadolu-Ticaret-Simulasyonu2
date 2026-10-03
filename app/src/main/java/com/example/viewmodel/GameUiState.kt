@@ -84,6 +84,7 @@ data class GameUiState(
     val realTimeShiftName: String = "",
     val realTimeShiftBonusText: String = "",
     val macroState: MacroEconomyState = MacroEconomyState(),
+    val bulletinOpportunities: ImmutableList<com.example.data.BulletinOpportunity> = persistentListOf(),
     val productionProgress: ImmutableMap<String, Float> = persistentMapOf(),
     val productionDurations: ImmutableMap<String, Long> = persistentMapOf(),
     val isEntrepreneurGuideCompleted: Boolean = false,

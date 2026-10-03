@@ -65,7 +65,8 @@ data class SupabasePlayerPayload(
     val guildSharesJson: String,
     val guildBuyPricesJson: String,
     val rawSaveJson: String?,
-    val lastSavedTime: Long = 0L
+    val lastSavedTime: Long = 0L,
+    val saveVersion: Long = 1L
 ) {
     fun toSaveJson(): String {
         val baseMap = mutableMapOf<String, JsonElement>()
@@ -86,199 +87,62 @@ data class SupabasePlayerPayload(
                 ?: System.currentTimeMillis()
         }
 
-        // Smart merge for managers: preserve hired status, assigned name, level, and logs across all sources
+        val effectiveSaveVersion = if (saveVersion > 0L) {
+            saveVersion
+        } else {
+            (baseMap["save_version"] as? JsonPrimitive)?.longOrNull 
+                ?: (baseMap["backup_version"] as? JsonPrimitive)?.longOrNull
+                ?: (baseMap["saveVersion"] as? JsonPrimitive)?.longOrNull
+                ?: 1L
+        }
+
+        // Smart lossless merge for managers
         val rawManagersStr = when (val elem = baseMap["managers_json"] ?: baseMap["managers"]) {
             is JsonPrimitive -> elem.content
             is JsonArray -> elem.toString()
+            is JsonObject -> elem.toString()
             else -> null
         }
         val colManagersStr = managersJson.takeIf { it.isNotBlank() && it != "null" && it != "[]" }
+        val mergedManagersJson = SupabaseManager.mergeManagersPreservingHighest(colManagersStr, rawManagersStr)
 
-        fun parseManagerDtos(json: String?): List<CompanyManagerDto> {
-            if (json.isNullOrBlank() || json == "[]" || json == "null" || json == "{}") return emptyList()
-            return try {
-                AppJson.decodeFromString<List<CompanyManagerDto>>(json)
-            } catch (_: Exception) {
-                try {
-                    val elem = AppJson.parseToJsonElement(json) as? JsonArray ?: return emptyList()
-                    elem.mapNotNull { item ->
-                        val obj = item as? JsonObject ?: return@mapNotNull null
-                        val id = (obj["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
-                        val isHired = (obj["isHired"] as? JsonPrimitive)?.booleanOrNull
-                            ?: (obj["is_hired"] as? JsonPrimitive)?.booleanOrNull
-                            ?: false
-                        val level = (obj["level"] as? JsonPrimitive)?.intOrNull ?: 1
-                        val eff = (obj["efficiency"] as? JsonPrimitive)?.doubleOrNull ?: 1.0
-                        val sal = (obj["dailySalary"] as? JsonPrimitive)?.longOrNull
-                            ?: (obj["daily_salary"] as? JsonPrimitive)?.longOrNull ?: 0L
-                        val name = (obj["name"] as? JsonPrimitive)?.content ?: ""
-                        val title = (obj["title"] as? JsonPrimitive)?.content ?: ""
-                        val spec = (obj["specialty"] as? JsonPrimitive)?.content ?: ""
-                        val desc = (obj["description"] as? JsonPrimitive)?.content ?: ""
-                        CompanyManagerDto(
-                            id = id,
-                            name = name,
-                            title = title,
-                            specialty = spec,
-                            level = level,
-                            dailySalary = sal,
-                            efficiency = eff,
-                            isHired = isHired || level > 1 || name.isNotBlank(),
-                            isActive = true,
-                            description = desc
-                        )
-                    }
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            }
-        }
-
-        val colList = parseManagerDtos(colManagersStr)
-        val rawList = parseManagerDtos(rawManagersStr)
-        val defaultManagers = getDefaultCompanyManagers()
-        val allIds = (colList.map { it.id } + rawList.map { it.id } + defaultManagers.map { it.id }).distinct().filter { it.isNotBlank() }
-
-        val mergedManagersJson = if (allIds.isNotEmpty()) {
-            val mergedDtos = allIds.map { id ->
-                val col = colList.find { it.id == id }
-                val raw = rawList.find { it.id == id }
-                val def = defaultManagers.find { it.id == id }
-                
-                val hasHireEvidence = (col?.isHired == true) || (raw?.isHired == true) || 
-                                      ((col?.level ?: 1) > 1) || ((raw?.level ?: 1) > 1) ||
-                                      (col?.actionLogs?.isNotEmpty() == true) || (raw?.actionLogs?.isNotEmpty() == true) ||
-                                      (col?.name?.isNotBlank() == true && col.name != def?.name) ||
-                                      (raw?.name?.isNotBlank() == true && raw.name != def?.name)
-                val isHired = hasHireEvidence
-                val level = maxOf(col?.level ?: 1, raw?.level ?: 1).coerceIn(1, 5)
-                val eff = maxOf(col?.efficiency ?: 1.0, raw?.efficiency ?: 1.0)
-                val name = when {
-                    col != null && col.name.isNotBlank() -> col.name
-                    raw != null && raw.name.isNotBlank() -> raw.name
-                    def != null && def.name.isNotBlank() -> def.name
-                    else -> ""
-                }
-                val title = col?.title?.ifBlank { raw?.title }?.ifBlank { def?.title } ?: def?.title.orEmpty()
-                val spec = col?.specialty?.ifBlank { raw?.specialty }?.ifBlank { def?.specialty } ?: def?.specialty.orEmpty()
-                val desc = col?.description?.ifBlank { raw?.description }?.ifBlank { def?.description } ?: def?.description.orEmpty()
-                val sal = maxOf(col?.dailySalary ?: 0L, raw?.dailySalary ?: 0L, def?.dailySalary ?: 0L)
-                val logs = if (col != null && col.actionLogs.isNotEmpty()) col.actionLogs else (raw?.actionLogs ?: emptyList())
-
-                CompanyManagerDto(
-                    id = id,
-                    name = name,
-                    title = title,
-                    specialty = spec,
-                    level = level,
-                    dailySalary = sal,
-                    efficiency = eff,
-                    isHired = isHired,
-                    isActive = col?.isActive ?: raw?.isActive ?: true,
-                    description = desc,
-                    actionLogs = logs
-                )
-            }
-            AppJson.encodeToString(mergedDtos)
-        } else {
-            colManagersStr ?: rawManagersStr ?: "[]"
-        }
-
-        // Smart merge for research levels: preserve highest level across all sources
-        val allTechKeys = listOf(
-            "green_energy", "quality_control", "logistics", "automation",
-            "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
-            "aerospace", "heavy_industry", "consumer_goods", "petrochem",
-            "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics"
-        )
-        val mergedLevels = mutableMapOf<String, Int>()
-
-        allTechKeys.forEach { tech ->
-            val directKey = "tech_$tech"
-            val directVal = (baseMap[directKey] as? JsonPrimitive)?.longOrNull?.toInt()
-                ?: (baseMap[tech] as? JsonPrimitive)?.longOrNull?.toInt() ?: 0
-            if (directVal > 0) mergedLevels[tech] = directVal
-        }
-
+        // Smart lossless merge for research levels
         val rawRLevelsStr = when (val elem = baseMap["research_levels_json"] ?: baseMap["research_levels"]) {
             is JsonPrimitive -> elem.content
             is JsonObject -> elem.toString()
             else -> null
         }
-        if (!rawRLevelsStr.isNullOrBlank() && rawRLevelsStr != "null" && rawRLevelsStr != "{}") {
-            try {
-                val parsed = AppJson.decodeFromString<Map<String, Int>>(rawRLevelsStr)
-                parsed.forEach { (k, v) ->
-                    val base = k.removePrefix("tech_")
-                    if (v > 0) mergedLevels[base] = maxOf(mergedLevels[base] ?: 0, v).coerceAtMost(5)
-                }
-            } catch (_: Exception) {
-                try {
-                    val elem = AppJson.parseToJsonElement(rawRLevelsStr) as? JsonObject
-                    elem?.forEach { (k, vElem) ->
-                        val lvl = (vElem as? JsonPrimitive)?.intOrNull ?: (vElem as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
-                        if (lvl > 0) {
-                            val base = k.removePrefix("tech_")
-                            mergedLevels[base] = maxOf(mergedLevels[base] ?: 0, lvl).coerceAtMost(5)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
-        }
+        val mergedResearchLevelsJson = SupabaseManager.mergeResearchLevelsPreservingHighest(rawRLevelsStr, researchLevelsJson)
 
-        if (researchLevelsJson.isNotBlank() && researchLevelsJson != "null" && researchLevelsJson != "{}") {
-            try {
-                val parsed = AppJson.decodeFromString<Map<String, Int>>(researchLevelsJson)
-                parsed.forEach { (k, v) ->
-                    val base = k.removePrefix("tech_")
-                    if (v > 0) mergedLevels[base] = maxOf(mergedLevels[base] ?: 0, v).coerceAtMost(5)
-                }
-            } catch (_: Exception) {
-                try {
-                    val elem = AppJson.parseToJsonElement(researchLevelsJson) as? JsonObject
-                    elem?.forEach { (k, vElem) ->
-                        val lvl = (vElem as? JsonPrimitive)?.intOrNull ?: (vElem as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
-                        if (lvl > 0) {
-                            val base = k.removePrefix("tech_")
-                            mergedLevels[base] = maxOf(mergedLevels[base] ?: 0, lvl).coerceAtMost(5)
-                        }
-                    }
-                } catch (_: Exception) {}
-            }
+        // Smart lossless merge for active researches (preserving ongoing timestamps)
+        val rawActiveStr = when (val elem = baseMap["active_researches_json"] ?: baseMap["active_researches"]) {
+            is JsonPrimitive -> elem.content
+            is JsonObject, is JsonArray -> elem.toString()
+            else -> null
         }
+        val directActiveKey = (baseMap["active_research_tech_key"] as? JsonPrimitive)?.content?.removePrefix("tech_")
+        val directActiveEnd = (baseMap["research_end_time_ms"] as? JsonPrimitive)?.longOrNull ?: 0L
+        val mergedActiveResearchesJson = SupabaseManager.mergeActiveResearchesPreservingHighest(
+            rawActiveStr,
+            activeResearchesJson,
+            directActiveKey,
+            directActiveEnd
+        )
 
-        // Smart merge for active researches & promote completed ones
-        val mergedActive = mutableMapOf<String, Long>()
+        val allTechKeys = listOf(
+            "green_energy", "quality_control", "logistics", "automation",
+            "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
+            "aerospace", "heavy_industry", "consumer_goods", "petrochem",
+            "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics",
+            "global_finance", "cultural_heritage"
+        )
+        val mergedLevels = try {
+            AppJson.decodeFromString<Map<String, Int>>(mergedResearchLevelsJson)
+        } catch (_: Exception) { emptyMap() }
+        val mergedActive = try {
+            AppJson.decodeFromString<Map<String, Long>>(mergedActiveResearchesJson)
+        } catch (_: Exception) { emptyMap() }
         val now = System.currentTimeMillis()
-
-        fun parseActive(jsonStr: String?) {
-            if (jsonStr.isNullOrBlank() || jsonStr == "null" || jsonStr == "{}") return
-            try {
-                val parsed = AppJson.decodeFromString<Map<String, Long>>(jsonStr)
-                parsed.forEach { (k, v) ->
-                    val base = k.removePrefix("tech_")
-                    if (v > now) {
-                        mergedActive[base] = maxOf(mergedActive[base] ?: 0L, v)
-                    } else if (v > 0L) {
-                        val cur = mergedLevels[base] ?: 0
-                        mergedLevels[base] = (cur + 1).coerceAtMost(5)
-                    }
-                }
-            } catch (_: Exception) {}
-        }
-
-        val rawActiveStr = (baseMap["active_researches_json"] as? JsonPrimitive)?.content
-        parseActive(rawActiveStr)
-        parseActive(activeResearchesJson)
-
-        val finalResearchLevelsMap = mutableMapOf<String, Int>()
-        allTechKeys.forEach { tech ->
-            val lvl = (mergedLevels[tech] ?: 0).coerceAtMost(5)
-            finalResearchLevelsMap[tech] = lvl
-            finalResearchLevelsMap["tech_$tech"] = lvl
-        }
-        val mergedResearchLevelsJson = AppJson.encodeToString(finalResearchLevelsMap)
-        val mergedActiveResearchesJson = AppJson.encodeToString(mergedActive)
 
         fun safeElem(jsonStr: String): JsonElement? {
             if (jsonStr.isBlank()) return null
@@ -301,7 +165,24 @@ data class SupabasePlayerPayload(
             put("total_profit", totalProfit)
             put("xp", xp)
             put("level", level)
-            put("inventory_capacity", inventoryCapacity)
+            val effectiveCapacity = maxOf(
+                inventoryCapacity,
+                (baseMap["inventory_capacity"] as? JsonPrimitive)?.intOrNull ?: 0,
+                (baseMap["inventoryCapacity"] as? JsonPrimitive)?.intOrNull ?: 0,
+                ((baseMap["warehouse_level"] as? JsonPrimitive)?.intOrNull ?: 0).let { if (it > 0) 5000 + (it - 1) * 2500 else 0 },
+                ((baseMap["warehouseLevel"] as? JsonPrimitive)?.intOrNull ?: 0).let { if (it > 0) 5000 + (it - 1) * 2500 else 0 },
+                5000
+            )
+            val effectiveWarehouseLevel = maxOf(
+                1 + ((effectiveCapacity - 5000) / 2500),
+                (baseMap["warehouse_level"] as? JsonPrimitive)?.intOrNull ?: 1,
+                (baseMap["warehouseLevel"] as? JsonPrimitive)?.intOrNull ?: 1,
+                1
+            )
+            put("inventory_capacity", effectiveCapacity)
+            put("inventoryCapacity", effectiveCapacity)
+            put("warehouse_level", effectiveWarehouseLevel)
+            put("warehouseLevel", effectiveWarehouseLevel)
             put("current_city", migrateLegacyCity(currentCity))
             put("is_vip", isVip)
             put("gems", gems)
@@ -346,6 +227,9 @@ data class SupabasePlayerPayload(
             put("is_data_saved", true)
             put("has_set_warehouse", true)
             put("last_saved_time", effectiveLastSavedTime)
+            put("save_version", effectiveSaveVersion)
+            put("backup_version", effectiveSaveVersion)
+            put("saveVersion", effectiveSaveVersion)
         }
 
         baseMap.putAll(columnOverrides)
@@ -479,7 +363,7 @@ object SupabaseManager {
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(requestBody)
                 .build()
 
@@ -527,50 +411,71 @@ object SupabaseManager {
         }
         if (!payload.isOnlineRegistered || effectiveEmail.isBlank() || effectiveEmail == "misafir_tuccar" || effectiveEmail == "local_trader" || effectiveUid.isBlank()) {
             Log.d(TAG, "Skipping Supabase sync for offline / guest player: ${payload.id}")
-            return@withContext false
+            return@withContext true
         }
         try {
-            // Anti-Degradation Guard: Fetch existing remote state to prevent lower progress from overwriting higher progress
-            val remoteExisting = try {
-                fetchPlayerFromSupabase(effectiveEmail) ?: fetchPlayerFromSupabase(effectiveUid)
+            val remoteMeta = try {
+                fetchPlayerMetadataFromSupabase(effectiveEmail) ?: fetchPlayerMetadataFromSupabase(effectiveUid)
             } catch (_: Exception) { null }
 
-            val finalPayload = if (remoteExisting != null) {
-                val remoteLevel = remoteExisting.level
-                val remoteGems = remoteExisting.gems
-                val remoteProfit = remoteExisting.totalProfit
-                val remoteMoney = remoteExisting.money
-                val remoteBusinessesCount = safeParseJsonElement(remoteExisting.businessesJson)?.let { (it as? JsonArray)?.size } ?: 0
-                val localBusinessesCount = safeParseJsonElement(payload.businessesJson)?.let { (it as? JsonArray)?.size } ?: 0
+            val nextSaveVersion = payload.saveVersion + 1L
 
-                val isLocalDegraded = payload.level <= 1 && payload.money <= 250_000L && payload.gems == 0 && localBusinessesCount == 0
-                val remoteHasSubstantialProgress = remoteLevel > 1 || remoteGems > 0 || remoteProfit > 0L || remoteBusinessesCount > 0 || remoteMoney > 200_000L
+            val finalPayload = if (remoteMeta != null) {
+                val remoteLevel = remoteMeta.level
+                val remoteGems = remoteMeta.gems
+                val remoteProfit = remoteMeta.totalProfit
+                val remoteMoney = remoteMeta.money
+                val localLevel = payload.level
+                val localMoney = payload.money
 
-                if (isLocalDegraded && remoteHasSubstantialProgress) {
-                    Log.w(TAG, "[DataProtection] Refusing to overwrite rich cloud save with beginner state! (Cloud: Lvl $remoteLevel, Gems $remoteGems, Biz $remoteBusinessesCount, Money $remoteMoney)")
-                    payload.copy(
-                        level = maxOf(payload.level, remoteLevel),
-                        xp = maxOf(payload.xp, remoteExisting.xp),
-                        gems = maxOf(payload.gems, remoteGems),
-                        money = if (remoteMoney > payload.money) remoteMoney else payload.money,
-                        depositBalance = maxOf(payload.depositBalance, remoteExisting.depositBalance),
-                        totalProfit = maxOf(payload.totalProfit, remoteProfit),
-                        businessesJson = if (localBusinessesCount == 0 && remoteBusinessesCount > 0) remoteExisting.businessesJson else payload.businessesJson,
-                        inventoryJson = if (payload.inventoryJson.length < 10 && remoteExisting.inventoryJson.length >= 10) remoteExisting.inventoryJson else payload.inventoryJson,
-                        managersJson = if (remoteExisting.managersJson.length > payload.managersJson.length) remoteExisting.managersJson else payload.managersJson,
-                        researchLevelsJson = if (remoteExisting.researchLevelsJson.length > payload.researchLevelsJson.length) remoteExisting.researchLevelsJson else payload.researchLevelsJson,
-                        rawSaveJson = remoteExisting.rawSaveJson ?: payload.rawSaveJson
-                    )
+                val isRemoteStrictlyHigher = (remoteLevel > localLevel) ||
+                        (remoteLevel > 1 && localLevel <= 1) ||
+                        (remoteProfit > payload.totalProfit + 1_000_000L) ||
+                        (remoteGems > payload.gems + 50) ||
+                        (remoteMoney > localMoney + 5_000_000L && localLevel <= 2)
+
+                // CRITICAL SAFETY SHIELD: If local is a brand new start on a fresh device, NEVER overwrite a veteran cloud save!
+                if (localLevel <= 1 && remoteLevel > 1 && payload.totalProfit <= 0L && localMoney <= 500_000L) {
+                    Log.w(TAG, "[AntiDegradationGuard] CRITICAL SHIELD: Local device is at beginner state (Lvl $localLevel, Money ₳$localMoney) while cloud has Level $remoteLevel (Money ₳$remoteMoney, Gems $remoteGems). ABORTING destructive overwrite to protect player progress!")
+                    return@withContext true
+                }
+
+                if (isRemoteStrictlyHigher) {
+                    val fullRemote = try { fetchPlayerFromSupabase(effectiveEmail) ?: fetchPlayerFromSupabase(effectiveUid) } catch (_: Exception) { null }
+                    if (fullRemote != null) {
+                        Log.w(TAG, "[DataProtection] Preserving rich remote cloud save state (Remote Lvl ${fullRemote.level}, Gems ${fullRemote.gems}, Money ₳${fullRemote.money}) against lower local state (Local Lvl $localLevel)!")
+                        payload.copy(
+                            saveVersion = nextSaveVersion,
+                            level = maxOf(payload.level, fullRemote.level),
+                            xp = maxOf(payload.xp, fullRemote.xp),
+                            gems = maxOf(payload.gems, fullRemote.gems),
+                            money = maxOf(payload.money, fullRemote.money),
+                            depositBalance = maxOf(payload.depositBalance, fullRemote.depositBalance),
+                            totalProfit = maxOf(payload.totalProfit, fullRemote.totalProfit),
+                            businessesJson = if (fullRemote.businessesJson.length > payload.businessesJson.length) fullRemote.businessesJson else payload.businessesJson,
+                            inventoryJson = if (fullRemote.inventoryJson.length > payload.inventoryJson.length) fullRemote.inventoryJson else payload.inventoryJson,
+                            managersJson = mergeManagersPreservingHighest(payload.managersJson, fullRemote.managersJson),
+                            researchLevelsJson = mergeResearchLevelsPreservingHighest(payload.researchLevelsJson, fullRemote.researchLevelsJson),
+                            activeResearchesJson = mergeActiveResearchesPreservingHighest(payload.activeResearchesJson, fullRemote.activeResearchesJson),
+                            activeProductionsJson = if (fullRemote.activeProductionsJson.length > payload.activeProductionsJson.length) fullRemote.activeProductionsJson else payload.activeProductionsJson,
+                            rawSaveJson = fullRemote.rawSaveJson ?: payload.rawSaveJson
+                        )
+                    } else {
+                        payload.copy(
+                            saveVersion = nextSaveVersion,
+                            level = maxOf(payload.level, remoteLevel),
+                            gems = maxOf(payload.gems, remoteGems),
+                            money = maxOf(payload.money, remoteMoney),
+                            depositBalance = maxOf(payload.depositBalance, remoteMeta.depositBalance),
+                            totalProfit = maxOf(payload.totalProfit, remoteProfit),
+                            xp = maxOf(payload.xp, remoteMeta.xp)
+                        )
+                    }
                 } else {
-                    payload.copy(
-                        level = maxOf(payload.level, remoteLevel),
-                        gems = maxOf(payload.gems, remoteGems),
-                        totalProfit = maxOf(payload.totalProfit, remoteProfit),
-                        xp = maxOf(payload.xp, remoteExisting.xp)
-                    )
+                    payload.copy(saveVersion = nextSaveVersion)
                 }
             } else {
-                payload
+                payload.copy(saveVersion = nextSaveVersion)
             }
 
             val businessesElem = safeParseJsonElement(finalPayload.businessesJson) ?: JsonArray(emptyList())
@@ -581,6 +486,15 @@ object SupabaseManager {
             val guildSharesElem = safeParseJsonElement(finalPayload.guildSharesJson) ?: JsonObject(emptyMap())
             val guildBuyPricesElem = safeParseJsonElement(finalPayload.guildBuyPricesJson) ?: JsonObject(emptyMap())
             val rawSaveElem = if (!finalPayload.rawSaveJson.isNullOrBlank()) safeParseJsonElement(finalPayload.rawSaveJson) else null
+
+            val parsedTechLevels = try {
+                AppJson.decodeFromString<Map<String, Int>>(finalPayload.researchLevelsJson)
+            } catch (_: Exception) { emptyMap() }
+            val parsedActiveMap = try {
+                AppJson.decodeFromString<Map<String, Long>>(finalPayload.activeResearchesJson)
+            } catch (_: Exception) { emptyMap() }
+            val now = System.currentTimeMillis()
+            val firstOngoing = parsedActiveMap.entries.firstOrNull { it.value > now }
 
             val jsonObject = buildJsonObject {
                 put("id", effectiveUid)
@@ -603,10 +517,32 @@ object SupabaseManager {
                 put("is_online_registered", finalPayload.isOnlineRegistered)
                 put("online_email", effectiveEmail)
                 put("businesses", businessesElem)
+                put("businesses_json", finalPayload.businessesJson)
                 put("inventory", inventoryElem)
+                put("inventory_json", finalPayload.inventoryJson)
                 put("managers", managersElem)
+                put("managers_json", finalPayload.managersJson)
                 put("active_researches", activeResearchesElem)
+                put("active_researches_json", finalPayload.activeResearchesJson)
                 put("research_levels", researchLevelsElem)
+                put("research_levels_json", finalPayload.researchLevelsJson)
+                listOf(
+                    "green_energy", "quality_control", "logistics", "automation",
+                    "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
+                    "aerospace", "heavy_industry", "consumer_goods", "petrochem",
+                    "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics",
+                    "global_finance", "cultural_heritage"
+                ).forEach { tech ->
+                    val lvl = parsedTechLevels[tech] ?: parsedTechLevels["tech_$tech"] ?: 0
+                    put("tech_$tech", lvl)
+                }
+                if (firstOngoing != null) {
+                    put("active_research_tech_key", firstOngoing.key.removePrefix("tech_"))
+                    put("research_end_time_ms", firstOngoing.value)
+                } else {
+                    put("active_research_tech_key", "")
+                    put("research_end_time_ms", 0L)
+                }
                 put("guild_shares", guildSharesElem)
                 put("guild_buy_prices", guildBuyPricesElem)
                 if (rawSaveElem != null) {
@@ -619,6 +555,9 @@ object SupabaseManager {
                 put("dollar_balance", finalPayload.dollarBalance)
                 put("dollar_deposit_balance", finalPayload.dollarDepositBalance)
                 put("dollar_loan_amount", finalPayload.dollarLoanAmount)
+                put("save_version", nextSaveVersion)
+                put("backup_version", nextSaveVersion)
+                put("saveVersion", nextSaveVersion)
                 put("last_saved_time", if (finalPayload.lastSavedTime > 0L) finalPayload.lastSavedTime else System.currentTimeMillis())
                 put("updated_at", getCurrentIsoTimestamp())
             }
@@ -712,7 +651,8 @@ object SupabaseManager {
         researchLevelsJson: String,
         guildSharesJson: String,
         guildBuyPricesJson: String,
-        rawSaveJson: String? = null
+        rawSaveJson: String? = null,
+        saveVersion: Long = 1L
     ): Boolean = withContext(Dispatchers.IO) {
         val bArray = buildJsonArray {
             businesses.forEach { b ->
@@ -784,7 +724,8 @@ object SupabaseManager {
             guildSharesJson = guildSharesJson,
             guildBuyPricesJson = guildBuyPricesJson,
             rawSaveJson = rawSaveJson,
-            lastSavedTime = System.currentTimeMillis()
+            lastSavedTime = System.currentTimeMillis(),
+            saveVersion = saveVersion
         )
 
         syncPlayerToSupabase(payload)
@@ -799,7 +740,6 @@ object SupabaseManager {
         }
         try {
             val cleanUid = uid.trim()
-            val rawEmail = cleanUid
             val lowerEmail = cleanUid.lowercase()
 
             val candidates = mutableSetOf<String>()
@@ -824,7 +764,12 @@ object SupabaseManager {
                 candidates.add(cleanUid.replace("@", "_").replace(".", "_"))
                 candidates.add(lowerEmail.replace("@", "_").replace(".", "_"))
                 val nameOnly = cleanUid.substringBefore("@")
-                if (nameOnly.isNotBlank()) candidates.add(nameOnly)
+                if (nameOnly.isNotBlank()) {
+                    candidates.add(nameOnly)
+                    candidates.add(nameOnly.lowercase())
+                    candidates.add("player_$nameOnly")
+                    candidates.add("p_$nameOnly")
+                }
             }
             if (cleanUid.contains("_gmail_com")) {
                 candidates.add(cleanUid.replace("_gmail_com", "@gmail.com"))
@@ -834,60 +779,21 @@ object SupabaseManager {
             val distinctCandidates = candidates.filter { it.isNotBlank() }.distinct()
             val foundPayloads = mutableListOf<SupabasePlayerPayload>()
 
-            // 1. First attempt: Super-fast combined PostgREST OR query (1 network roundtrip)
-            try {
-                val orClauses = distinctCandidates.take(8).flatMap { cand ->
-                    listOf(
-                        "online_email.ilike.$cand",
-                        "id.ilike.$cand",
-                        "id.ilike.${cand}_backup"
-                    )
-                }.joinToString(",")
-
-                val httpUrl = ("$SUPABASE_URL/rest/v1/players").toHttpUrlOrNull()?.newBuilder()
-                    ?.addQueryParameter("or", "($orClauses)")
-                    ?.addQueryParameter("select", "*")
-                    ?.addQueryParameter("limit", "20")
-                    ?.build()
-
-                if (httpUrl != null) {
-                    val request = Request.Builder()
-                        .url(httpUrl)
-                        .addHeader("apikey", SUPABASE_KEY)
-                        .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                        .get()
-                        .build()
-
-                    httpClient.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body?.string() ?: ""
-                            val jsonElement = safeParseJsonElement(body) as? JsonArray
-                            if (jsonElement != null) {
-                                for (docElem in jsonElement) {
-                                    val doc = docElem as? JsonObject ?: continue
-                                    foundPayloads.add(parsePlayerDoc(doc))
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Batch OR query failed, will fallback to targeted queries: ${e.message}")
+            // Targeted queries for each candidate across online_email and id
+            for (target in distinctCandidates) {
+                foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = false))
+                foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = true))
+                foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = false))
+                foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = true))
+                if (foundPayloads.isNotEmpty()) break
             }
 
-            // 2. Fallback: targeted exact and ilike queries if batch didn't find anything
-            if (foundPayloads.isEmpty()) {
-                val topCandidates = distinctCandidates.take(4)
-                for (target in topCandidates) {
-                    foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = false))
-                    if (foundPayloads.isEmpty()) {
-                        foundPayloads.addAll(queryPlayerRecords("online_email", target, isIlike = true))
-                    }
-                    foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = false))
-                    if (foundPayloads.isEmpty()) {
-                        foundPayloads.addAll(queryPlayerRecords("id", target, isIlike = true))
-                    }
-                    if (foundPayloads.isNotEmpty()) break
+            // Fallback: Wildcard substring matching for username part if exact match wasn't found
+            if (foundPayloads.isEmpty() && lowerEmail.contains("@")) {
+                val userPart = lowerEmail.substringBefore("@")
+                if (userPart.length >= 4) {
+                    foundPayloads.addAll(queryPlayerRecords("online_email", "*$userPart*", isIlike = true))
+                    foundPayloads.addAll(queryPlayerRecords("id", "*$userPart*", isIlike = true))
                 }
             }
 
@@ -896,23 +802,302 @@ object SupabaseManager {
                 return@withContext null
             }
 
-            // Return the BEST record by Level, Gems, Total Profit, Money, and Timestamp to ensure highest progress is always restored
-            val bestPayload = foundPayloads.distinctBy { it.id + "_" + it.onlineEmail + "_" + it.level + "_" + it.gems + "_" + it.money }.maxWithOrNull(
-                compareBy<SupabasePlayerPayload> { it.level }
+            // Return the BEST record by Save Version, Money, Level, Gems, Total Profit, and Timestamp to ensure highest progress is always restored
+            val bestPayload = foundPayloads.distinctBy { it.id + "_" + it.onlineEmail + "_" + it.level + "_" + it.gems + "_" + it.money + "_" + it.saveVersion }.maxWithOrNull(
+                compareBy<SupabasePlayerPayload> { it.saveVersion }
+                    .thenBy { it.money }
+                    .thenBy { it.level }
                     .thenBy { it.gems }
                     .thenBy { it.totalProfit }
-                    .thenBy { it.money }
                     .thenBy { it.lastSavedTime }
             )
 
             if (bestPayload != null) {
-                Log.i(TAG, "Selected best Supabase player record: ${bestPayload.name} (Lvl ${bestPayload.level}, Gems ${bestPayload.gems}, Money ${bestPayload.money}, Profit ${bestPayload.totalProfit}, email=${bestPayload.onlineEmail})")
+                Log.i(TAG, "Selected best Supabase player record: ${bestPayload.name} (v#${bestPayload.saveVersion}, Money ₳${bestPayload.money}, Lvl ${bestPayload.level}, Gems ${bestPayload.gems}, Profit ${bestPayload.totalProfit}, email=${bestPayload.onlineEmail})")
             }
             bestPayload
         } catch (e: Exception) {
             Log.e(TAG, "Exception fetching player from Supabase", e)
             null
         }
+    }
+
+    data class PlayerMetadata(
+        val id: String,
+        val saveVersion: Long,
+        val level: Int,
+        val gems: Int,
+        val money: Long,
+        val depositBalance: Long,
+        val totalProfit: Long,
+        val xp: Int
+    )
+
+    /**
+     * Sadece seviye, para ve temel değerleri çeken ultra hafif (Egress dostu) sorgu.
+     */
+    suspend fun fetchPlayerMetadataFromSupabase(uid: String): PlayerMetadata? = withContext(Dispatchers.IO) {
+        if (uid.isBlank() || uid == "local_player" || uid == "p_local" || uid == "misafir_tuccar") {
+            return@withContext null
+        }
+        try {
+            val cleanUid = uid.trim()
+            val encodedUid = java.net.URLEncoder.encode(cleanUid, "UTF-8")
+            val url = "$SUPABASE_URL/rest/v1/players?or=(id.eq.$encodedUid,online_email.eq.$encodedUid)&select=id,name,level,gems,money,deposit_balance,total_profit,xp,updated_at&limit=1"
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("apikey", SUPABASE_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                .get()
+                .build()
+
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: ""
+                val array = safeParseJsonElement(body) as? JsonArray ?: return@withContext null
+                if (array.isEmpty()) return@withContext null
+                val obj = array[0] as? JsonObject ?: return@withContext null
+                PlayerMetadata(
+                    id = obj.optString("id", cleanUid),
+                    saveVersion = 1L,
+                    level = obj.optInt("level", 1),
+                    gems = obj.optInt("gems", 0),
+                    money = obj.optLong("money", 0L),
+                    depositBalance = obj.optLong("deposit_balance", 0L),
+                    totalProfit = obj.optLong("total_profit", 0L),
+                    xp = obj.optInt("xp", 0)
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchPlayerMetadataFromSupabase error for $uid: ${e.message}")
+            null
+        }
+    }
+
+    fun parseManagerDtoList(json: String?): List<CompanyManagerDto> {
+        if (json.isNullOrBlank() || json == "[]" || json == "null" || json == "{}") return emptyList()
+        try {
+            return AppJson.decodeFromString<List<CompanyManagerDto>>(json)
+        } catch (_: Exception) {
+            try {
+                val elem = safeParseJsonElement(json) ?: return emptyList()
+                val itemsList: List<JsonObject> = when (elem) {
+                    is JsonArray -> elem.mapNotNull { it as? JsonObject }
+                    is JsonObject -> elem.values.mapNotNull { it as? JsonObject }
+                    else -> emptyList()
+                }
+                return itemsList.mapNotNull { obj ->
+                    val id = (obj["id"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+                    val isHired = (obj["isHired"] as? JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_hired"] as? JsonPrimitive)?.booleanOrNull
+                        ?: ((obj["isHired"] as? JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: ((obj["is_hired"] as? JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: ((obj["isHired"] as? JsonPrimitive)?.intOrNull?.let { it == 1 })
+                        ?: ((obj["is_hired"] as? JsonPrimitive)?.intOrNull?.let { it == 1 })
+                        ?: false
+                    val level = (obj["level"] as? JsonPrimitive)?.intOrNull 
+                        ?: (obj["level"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                    val eff = (obj["efficiency"] as? JsonPrimitive)?.doubleOrNull 
+                        ?: (obj["efficiency"] as? JsonPrimitive)?.content?.toDoubleOrNull() ?: 1.0
+                    val sal = (obj["dailySalary"] as? JsonPrimitive)?.longOrNull
+                        ?: (obj["daily_salary"] as? JsonPrimitive)?.longOrNull 
+                        ?: (obj["dailySalary"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                    val name = (obj["name"] as? JsonPrimitive)?.content ?: ""
+                    val title = (obj["title"] as? JsonPrimitive)?.content ?: ""
+                    val spec = (obj["specialty"] as? JsonPrimitive)?.content ?: ""
+                    val desc = (obj["description"] as? JsonPrimitive)?.content ?: ""
+                    val isActive = (obj["isActive"] as? JsonPrimitive)?.booleanOrNull
+                        ?: (obj["is_active"] as? JsonPrimitive)?.booleanOrNull
+                        ?: ((obj["isActive"] as? JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: ((obj["is_active"] as? JsonPrimitive)?.content?.let { it == "1" || it.equals("true", ignoreCase = true) })
+                        ?: true
+                    val logs = mutableListOf<ManagerActionLogDto>()
+                    val logsElem = (obj["actionLogs"] ?: obj["action_logs"]) as? JsonArray
+                    logsElem?.forEach { lItem ->
+                        val lObj = lItem as? JsonObject ?: return@forEach
+                        val logId = (lObj["id"] as? JsonPrimitive)?.content ?: java.util.UUID.randomUUID().toString()
+                        val ts = ((lObj["timestampMs"] ?: lObj["timestamp_ms"]) as? JsonPrimitive)?.longOrNull 
+                            ?: ((lObj["timestampMs"] ?: lObj["timestamp_ms"]) as? JsonPrimitive)?.content?.toLongOrNull() ?: System.currentTimeMillis()
+                        val lDesc = (lObj["description"] as? JsonPrimitive)?.content ?: ""
+                        val impact = ((lObj["financialImpact"] ?: lObj["financial_impact"]) as? JsonPrimitive)?.longOrNull 
+                            ?: ((lObj["financialImpact"] ?: lObj["financial_impact"]) as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                        logs.add(ManagerActionLogDto(logId, ts, lDesc, impact))
+                    }
+                    CompanyManagerDto(
+                        id = id,
+                        name = name,
+                        title = title,
+                        specialty = spec,
+                        level = level.coerceIn(1, 5),
+                        dailySalary = sal,
+                        efficiency = eff,
+                        isHired = isHired || level > 1 || logs.isNotEmpty(),
+                        isActive = isActive,
+                        description = desc,
+                        actionLogs = logs
+                    )
+                }
+            } catch (_: Exception) {
+                return emptyList()
+            }
+        }
+    }
+
+    fun mergeManagersPreservingHighest(localJson: String?, remoteJson: String?): String {
+        val defaultList = getDefaultCompanyManagers()
+        val localDtos = parseManagerDtoList(localJson)
+        val remoteDtos = parseManagerDtoList(remoteJson)
+        
+        val allIds = (localDtos.map { it.id } + remoteDtos.map { it.id } + defaultList.map { it.id }).distinct().filter { it.isNotBlank() }
+        val merged = allIds.map { id ->
+            val loc = localDtos.find { it.id == id }
+            val rem = remoteDtos.find { it.id == id }
+            val def = defaultList.find { it.id == id }
+            
+            val maxLevel = maxOf(loc?.level ?: 1, rem?.level ?: 1, 1).coerceIn(1, 5)
+            val hasHireEvidence = (rem?.isHired == true) || (loc?.isHired == true) || (maxLevel > 1) ||
+                    (rem?.actionLogs?.isNotEmpty() == true) || (loc?.actionLogs?.isNotEmpty() == true) ||
+                    (rem?.name?.isNotBlank() == true && rem.name != def?.name) ||
+                    (loc?.name?.isNotBlank() == true && loc.name != def?.name)
+            val isHired = hasHireEvidence
+            val eff = maxOf(loc?.efficiency ?: 1.0, rem?.efficiency ?: 1.0, if (maxLevel >= 5) 1.5 else 1.0)
+            val name = when {
+                rem != null && rem.name.isNotBlank() && rem.name != def?.name -> rem.name
+                loc != null && loc.name.isNotBlank() && loc.name != def?.name -> loc.name
+                rem != null && rem.name.isNotBlank() -> rem.name
+                loc != null && loc.name.isNotBlank() -> loc.name
+                def != null && def.name.isNotBlank() -> def.name
+                else -> ""
+            }
+            val title = rem?.title?.ifBlank { loc?.title }?.ifBlank { def?.title } ?: def?.title.orEmpty()
+            val spec = rem?.specialty?.ifBlank { loc?.specialty }?.ifBlank { def?.specialty } ?: def?.specialty.orEmpty()
+            val desc = rem?.description?.ifBlank { loc?.description }?.ifBlank { def?.description } ?: def?.description.orEmpty()
+            
+            var expectedSalary = def?.dailySalary ?: 10000L
+            for (lvl in 2..maxLevel) {
+                expectedSalary = (expectedSalary * 1.25f).toLong()
+            }
+            val sal = maxOf(rem?.dailySalary ?: 0L, loc?.dailySalary ?: 0L, expectedSalary)
+            val logs = when {
+                rem != null && loc != null -> (rem.actionLogs + loc.actionLogs).distinctBy { it.id }.sortedByDescending { it.timestampMs }.take(50)
+                rem != null && rem.actionLogs.isNotEmpty() -> rem.actionLogs
+                loc != null && loc.actionLogs.isNotEmpty() -> loc.actionLogs
+                else -> emptyList()
+            }
+            
+            CompanyManagerDto(
+                id = id,
+                name = if (name.isNotBlank()) name else (def?.name ?: ""),
+                title = title,
+                specialty = spec,
+                level = maxLevel,
+                dailySalary = sal,
+                efficiency = eff,
+                isHired = isHired,
+                isActive = rem?.isActive ?: loc?.isActive ?: true,
+                description = desc,
+                actionLogs = logs
+            )
+        }
+        return AppJson.encodeToString(merged)
+    }
+
+    fun mergeResearchLevelsPreservingHighest(localJson: String?, remoteJson: String?): String {
+        val allTechKeys = listOf(
+            "green_energy", "quality_control", "logistics", "automation",
+            "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
+            "aerospace", "heavy_industry", "consumer_goods", "petrochem",
+            "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics",
+            "global_finance", "cultural_heritage"
+        )
+        val map = mutableMapOf<String, Int>()
+        
+        fun extract(json: String?) {
+            if (json.isNullOrBlank() || json == "{}" || json == "null" || json == "[]") return
+            try {
+                val parsed = AppJson.decodeFromString<Map<String, Int>>(json)
+                parsed.forEach { (k, v) ->
+                    val base = k.removePrefix("tech_")
+                    if (v > 0) {
+                        map[base] = maxOf(map[base] ?: 0, v).coerceIn(0, 5)
+                    }
+                }
+            } catch (_: Exception) {
+                try {
+                    val elem = safeParseJsonElement(json) as? JsonObject
+                    elem?.forEach { (k, vElem) ->
+                        val lvl = (vElem as? JsonPrimitive)?.intOrNull ?: (vElem as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+                        if (lvl > 0) {
+                            val base = k.removePrefix("tech_")
+                            map[base] = maxOf(map[base] ?: 0, lvl).coerceIn(0, 5)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        
+        extract(localJson)
+        extract(remoteJson)
+        
+        val result = mutableMapOf<String, Int>()
+        allTechKeys.forEach { tech ->
+            val lvl = (map[tech] ?: 0).coerceIn(0, 5)
+            result[tech] = lvl
+            result["tech_$tech"] = lvl
+        }
+        return AppJson.encodeToString(result)
+    }
+
+    fun mergeActiveResearchesPreservingHighest(
+        localJson: String?,
+        remoteJson: String?,
+        singleKey: String? = null,
+        singleEndTimeMs: Long = 0L
+    ): String {
+        val mergedActive = mutableMapOf<String, Long>()
+        val now = System.currentTimeMillis()
+
+        fun extract(json: String?) {
+            if (json.isNullOrBlank() || json == "{}" || json == "null" || json == "[]") return
+            try {
+                val elem = safeParseJsonElement(json)
+                when (elem) {
+                    is JsonObject -> {
+                        elem.forEach { (k, vElem) ->
+                            val v = (vElem as? JsonPrimitive)?.longOrNull 
+                                ?: (vElem as? JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+                            if (v > now) {
+                                val base = k.removePrefix("tech_")
+                                mergedActive[base] = maxOf(mergedActive[base] ?: 0L, v)
+                            }
+                        }
+                    }
+                    is JsonArray -> {
+                        elem.forEach { item ->
+                            val obj = item as? JsonObject ?: return@forEach
+                            val k = (obj["techKey"] ?: obj["tech_key"] ?: obj["key"] ?: obj["id"])?.jsonPrimitive?.content ?: return@forEach
+                            val v = (obj["endTimeMs"] ?: obj["end_time_ms"] ?: obj["endTime"])?.jsonPrimitive?.longOrNull
+                                ?: (obj["endTimeMs"] ?: obj["end_time_ms"])?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
+                            if (v > now) {
+                                val base = k.removePrefix("tech_")
+                                mergedActive[base] = maxOf(mergedActive[base] ?: 0L, v)
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            } catch (_: Exception) {}
+        }
+
+        extract(localJson)
+        extract(remoteJson)
+
+        if (!singleKey.isNullOrBlank() && singleEndTimeMs > now) {
+            val base = singleKey.removePrefix("tech_")
+            mergedActive[base] = maxOf(mergedActive[base] ?: 0L, singleEndTimeMs)
+        }
+
+        return AppJson.encodeToString(mergedActive)
     }
 
     private fun queryPlayerRecords(column: String, value: String, isIlike: Boolean = false): List<SupabasePlayerPayload> {
@@ -971,12 +1156,26 @@ object SupabaseManager {
             if (s.isNotBlank() && s != "null") s else null
         } else null
 
+        val rawSaveVersion = doc.optLong("save_version", 0L).let { if (it > 0L) it else doc.optLong("backup_version", 0L) }
+        val effectiveSaveVersion = if (rawSaveVersion > 0L) {
+            rawSaveVersion
+        } else {
+            if (rawSaveStr != null) {
+                val parsed = safeParseJsonElement(rawSaveStr) as? JsonObject
+                parsed?.optLong("save_version", 0L)?.takeIf { it > 0L }
+                    ?: parsed?.optLong("backup_version", 0L)?.takeIf { it > 0L }
+                    ?: parsed?.optLong("saveVersion", 0L)?.takeIf { it > 0L }
+                    ?: 1L
+            } else 1L
+        }
+
         // Extract and combine research levels from research_levels column, research_levels_json, and individual tech_* columns
         val techKeys = listOf(
             "green_energy", "quality_control", "logistics", "automation",
             "quantum_ai", "nanotech", "cyber_security", "biotech_cloning",
             "aerospace", "heavy_industry", "consumer_goods", "petrochem",
-            "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics"
+            "biotech_med", "battery_tech", "cyber_automation", "biotech_synthesis", "quantum_logistics",
+            "global_finance", "cultural_heritage"
         )
         val extractedLevels = mutableMapOf<String, Int>()
         
@@ -1050,7 +1249,29 @@ object SupabaseManager {
             totalProfit = rawTotalProfit,
             xp = doc.optInt("xp", 0),
             level = doc.optInt("level", 1),
-            inventoryCapacity = doc.optInt("inventory_capacity", 5000),
+            inventoryCapacity = run {
+                val rawSaveObj = if (rawSaveStr != null) {
+                    try { safeParseJsonElement(rawSaveStr) as? JsonObject } catch (_: Exception) { null }
+                } else null
+
+                val rawSaveCap = rawSaveObj?.optInt("inventory_capacity", 0)?.takeIf { it > 0 }
+                    ?: rawSaveObj?.optInt("inventoryCapacity", 0)?.takeIf { it > 0 }
+                    ?: 0
+                val rawSaveWLvl = rawSaveObj?.optInt("warehouse_level", 0)?.takeIf { it > 0 }
+                    ?: rawSaveObj?.optInt("warehouseLevel", 0)?.takeIf { it > 0 }
+                    ?: 0
+                val docCap = doc.optInt("inventory_capacity", 0).takeIf { it > 0 } ?: 5000
+                val docWLvl = doc.optInt("warehouse_level", 0)
+
+                val finalWLvl = maxOf(
+                    rawSaveWLvl,
+                    docWLvl,
+                    if (rawSaveCap > 5000) 1 + ((rawSaveCap - 5000) / 2500) else 1,
+                    if (docCap > 5000) 1 + ((docCap - 5000) / 2500) else 1,
+                    1
+                )
+                maxOf(docCap, rawSaveCap, 5000 + (finalWLvl - 1) * 2500)
+            },
             currentCity = migrateLegacyCity(doc.optString("current_city", "istanbul")),
             isVip = doc.optBoolean("is_vip", false),
             gems = doc.optInt("gems", 0),
@@ -1072,7 +1293,8 @@ object SupabaseManager {
             guildSharesJson = doc.optJsonString("guild_shares", "guild_shares_json", "{}"),
             guildBuyPricesJson = doc.optJsonString("guild_buy_prices", "guild_buy_prices_json", "{}"),
             rawSaveJson = rawSaveStr,
-            lastSavedTime = effectiveSavedTime
+            lastSavedTime = effectiveSavedTime,
+            saveVersion = effectiveSaveVersion
         )
     }
 
@@ -1259,7 +1481,7 @@ object SupabaseManager {
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(requestBody)
                 .build()
             executeAndLog(req1, "global_guilds_upsert")
@@ -1269,7 +1491,7 @@ object SupabaseManager {
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(requestBody)
                 .build()
             executeAndLog(req2, "guilds_upsert")
@@ -1362,9 +1584,10 @@ object SupabaseManager {
      */
     suspend fun fetchGuildsFromSupabase(): List<GuildGroup>? = withContext(Dispatchers.IO) {
         try {
-            var list = queryGuildsFromEndpoint("$SUPABASE_URL/rest/v1/global_guilds?select=*")
+            val columns = "id,name,leader_name,member_count,mega_project_title,mega_project_target,mega_project_current,mega_project_requirements,mega_project_contributions,perk_description,bank_balance,is_ipo_active,public_share_percent,target_product_name,target_product_id,warehouse_stock,total_items_produced,unit_batch_price,current_stage,raw_project_json"
+            var list = queryGuildsFromEndpoint("$SUPABASE_URL/rest/v1/global_guilds?select=$columns")
             if (list.isNullOrEmpty()) {
-                list = queryGuildsFromEndpoint("$SUPABASE_URL/rest/v1/guilds?select=*")
+                list = queryGuildsFromEndpoint("$SUPABASE_URL/rest/v1/guilds?select=$columns")
             }
             list
         } catch (e: Exception) {
@@ -1455,6 +1678,10 @@ object SupabaseManager {
                 Log.e(TAG, "Error parsing rawProjectJson for guild: ${guild.id}", e)
             }
         }
+        val defaultBot = com.example.data.ConsortiumBotRegistry.getBotMegaProject(guild.id)
+        if (defaultBot != null) {
+            return defaultBot
+        }
         return try {
             val stageVal = try {
                 com.example.data.MegaProjectStage.valueOf(guild.currentStage)
@@ -1500,8 +1727,9 @@ object SupabaseManager {
      */
     suspend fun fetchMarketPrices(): List<MarketPriceEntity>? = withContext(Dispatchers.IO) {
         try {
+            val marketCols = "item_id,id,symbol,current_price,base_price,borsa_stock,stock,origin_country,origin_city_id,is_usd"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/market_prices?select=*")
+                .url("$SUPABASE_URL/rest/v1/market_prices?select=$marketCols")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()
@@ -1561,8 +1789,9 @@ object SupabaseManager {
 
     suspend fun fetchGlobalMarketBundleFromSupabase(): GlobalMarketBundle? = withContext(Dispatchers.IO) {
         try {
+            val marketCols = "id,item_id,product_id,product_name,seller_id,seller_name,seller_company,quantity,price_per_unit,city_id,type,created_at,delivery_time_ms,buyer_id,buyer_name,target_price,max_budget,contract_status"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/global_market?select=*")
+                .url("$SUPABASE_URL/rest/v1/global_market?select=$marketCols")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()
@@ -1681,6 +1910,9 @@ object SupabaseManager {
     }
 
     suspend fun syncMarketListingToSupabase(listing: com.example.data.MarketListing): Boolean = withContext(Dispatchers.IO) {
+        if (listing.isBotListing || listing.sellerId.startsWith("BOT-") || listing.id.startsWith("BOT_LISTING_") || listing.sellerId == "BOT_AUTO") {
+            return@withContext true
+        }
         try {
             val jsonObject = buildJsonObject {
                 put("id", listing.id)
@@ -1696,7 +1928,7 @@ object SupabaseManager {
                 .url("$SUPABASE_URL/rest/v1/global_market")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(reqBody)
                 .build()
 
@@ -1714,6 +1946,9 @@ object SupabaseManager {
     }
 
     suspend fun deleteMarketListingFromSupabase(listingId: String): Boolean = withContext(Dispatchers.IO) {
+        if (listingId.startsWith("BOT_LISTING_") || listingId.startsWith("BOT-")) {
+            return@withContext true
+        }
         try {
             val request = Request.Builder()
                 .url("$SUPABASE_URL/rest/v1/global_market?id=eq.$listingId")
@@ -1749,7 +1984,7 @@ object SupabaseManager {
                 .url("$SUPABASE_URL/rest/v1/global_market")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(reqBody)
                 .build()
 
@@ -1803,7 +2038,7 @@ object SupabaseManager {
                 .url("$SUPABASE_URL/rest/v1/global_market")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-                .addHeader("Prefer", "resolution=merge-duplicates")
+                .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                 .post(reqBody)
                 .build()
 
@@ -1844,15 +2079,19 @@ object SupabaseManager {
      */
     suspend fun fetchLeaderboardFromSupabase(limit: Int = 50): List<OnlinePlayer>? = withContext(Dispatchers.IO) {
         try {
+            val leaderboardCols = "id,name,company_name,money,deposit_balance,loan_amount,level,is_online_registered,current_city,total_profit,xp,updated_at"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/players?select=*&order=money.desc&limit=$limit")
+                .url("$SUPABASE_URL/rest/v1/players?select=$leaderboardCols&order=money.desc&limit=$limit")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()
                 .build()
 
             val body = httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "fetchLeaderboardFromSupabase error response code: ${response.code}")
+                    return@withContext null
+                }
                 response.body?.string() ?: ""
             }
 
@@ -1862,39 +2101,40 @@ object SupabaseManager {
                 val doc = jsonArray[i] as? JsonObject ?: continue
                 val id = doc.optString("id", "")
                 val name = doc.optString("name", "Tüccar")
-                val isOnlineReg = doc.optBoolean("is_online_registered", false)
                 val botIds = setOf("BOT-KAYA-01", "BOT-NOVA-02", "BOT-TOROS-03", "BOT-EGE-04", "BOT-AVRASYA-05", "BOT-ANADOLU-05")
                 val botNames = setOf("Selim Kaya", "Dr. Aylin Soylu", "Burak Demirci", "Zehra Aydın", "Hakan Erkin", "Defne Aras", "Kaan Yıldırım")
 
                 // Only include authentic registered players who signed in (skip offline/guest entries and bot entries)
-                if (id.isBlank() || id == "local" || id == "misafir_tuccar" || id.startsWith("guest", ignoreCase = true) || id.startsWith("BOT-", ignoreCase = true) || id.startsWith("BOT_", ignoreCase = true) || id.contains("bot", ignoreCase = true) || id in botIds || name in botNames || (!id.contains("@") && !id.contains("_") && !isOnlineReg)) {
+                if (id.isBlank() || id == "local" || id == "misafir_tuccar" || id.startsWith("guest", ignoreCase = true) || id.startsWith("BOT-", ignoreCase = true) || id.startsWith("BOT_", ignoreCase = true) || id.contains("bot", ignoreCase = true) || id in botIds || name in botNames) {
                     continue
                 }
 
                 val money = doc.optLong("money", 0L)
                 val deposit = doc.optLong("deposit_balance", 0L)
                 val loan = doc.optLong("loan_amount", 0L)
-                val dollarBal = doc.optLong("dollar_balance", 0L)
-                val dollarDep = doc.optLong("dollar_deposit_balance", 0L)
-                val dollarLoan = doc.optLong("dollar_loan_amount", 0L)
-                val usdRate = ForexRateManager.currentUsdRate.coerceAtLeast(1.0)
-                val tryNet = money + deposit - loan
-                val usdNet = dollarBal + dollarDep - dollarLoan
-                val netWorth = (tryNet + (usdNet * usdRate)).toLong().coerceAtLeast(0L)
+                val netWorth = (money + deposit - loan).coerceAtLeast(0L)
                 val lvl = doc.optInt("level", 1)
+                val xpVal = doc.optInt("xp", 0)
+                val totProfit = doc.optLong("total_profit", 0L)
+                val monthlyScore = if (totProfit > 0L) (totProfit * 0.20f).toLong() else (netWorth * 0.20f).toLong().coerceAtLeast(100L)
+
+                val compName = doc.optString("company_name", "").ifBlank { "${name} Holding" }
+                val currentCity = doc.optString("current_city", "istanbul")
 
                 resultList.add(
                     OnlinePlayer(
                         id = id,
-                        name = doc.optString("name", "Tüccar"),
-                        companyName = doc.optString("company_name", "${doc.optString("name", "Tüccar")} Holding"),
+                        name = name,
+                        companyName = compName,
                         netWorth = netWorth,
-                        city = doc.optString("current_city", "istanbul"),
+                        city = currentCity,
                         level = lvl,
                         isOnline = true,
                         badge = if (lvl > 15) "CEO" else if (lvl > 10) "LİDER" else "TÜCCAR",
-                        bankBalance = deposit + (dollarDep * usdRate).toLong(),
-                        monthlyScore = doc.optLong("monthly_growth", (netWorth * 0.20f).toLong())
+                        bankBalance = deposit,
+                        monthlyScore = monthlyScore,
+                        xp = xpVal,
+                        facilities = emptyList()
                     )
                 )
             }
@@ -2044,8 +2284,9 @@ object SupabaseManager {
      */
     suspend fun fetchMuseumRegistryFromSupabase(): List<MuseumArtifactOwnershipEntity>? = withContext(Dispatchers.IO) {
         try {
+            val museumCols = "artifact_id,owner_id,owner_name,status,active_auction_id,last_price,updated_at_ms"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/museum_artifacts?select=*")
+                .url("$SUPABASE_URL/rest/v1/museum_artifacts?select=$museumCols")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()
@@ -2144,8 +2385,9 @@ object SupabaseManager {
      */
     suspend fun fetchMuseumAuctionsFromSupabase(): List<MuseumAuctionEntity>? = withContext(Dispatchers.IO) {
         try {
+            val auctionCols = "id,artifact_id,seller_id,seller_name,is_player_seller,starting_bid,current_highest_bid,current_highest_bidder_id,current_highest_bidder_name,buyout_price,ends_at_ms,bid_count,created_at_ms,is_settled"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/museum_auctions?select=*&is_settled=eq.false")
+                .url("$SUPABASE_URL/rest/v1/museum_auctions?select=$auctionCols&is_settled=eq.false")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()
@@ -2188,8 +2430,9 @@ object SupabaseManager {
 
     suspend fun getMuseumAuctionByIdFromSupabase(auctionId: String): MuseumAuctionEntity? = withContext(Dispatchers.IO) {
         try {
+            val auctionCols = "id,artifact_id,seller_id,seller_name,is_player_seller,starting_bid,current_highest_bid,current_highest_bidder_id,current_highest_bidder_name,buyout_price,ends_at_ms,bid_count,created_at_ms,is_settled"
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/museum_auctions?id=eq.$auctionId&select=*")
+                .url("$SUPABASE_URL/rest/v1/museum_auctions?id=eq.$auctionId&select=$auctionCols")
                 .addHeader("apikey", SUPABASE_KEY)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .get()

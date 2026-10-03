@@ -401,4 +401,25 @@ object LocalGameNotificationManager {
             Log.w(TAG, "Failed to cancel notification: ${e.message}")
         }
     }
+
+    /**
+     * Posts a native push notification when monthly leaderboard reward is awarded.
+     */
+    fun postMonthlyRewardNotification(
+        monthName: String,
+        rank: Int,
+        gems: Int
+    ) {
+        val ctx = appContext ?: return
+        val title = "🏆 $monthName Ayı Sıralama Ödülünüz Hesabınızda!"
+        val message = "Tebrikler! $monthName ayı holding liginde $rank. oldunuz. +$gems 💎 Elmas otomatik olarak hesabınıza yansıtıldı!"
+
+        postInstantNotification(
+            context = ctx,
+            channelId = CHANNEL_QUESTS,
+            title = title,
+            message = message,
+            notificationId = 55000 + rank
+        )
+    }
 }

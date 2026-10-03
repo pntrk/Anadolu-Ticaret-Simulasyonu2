@@ -173,7 +173,8 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             is GameIntent.UpdateListingPrice -> updateListingPrice(intent.listingId, intent.newPrice)
             is GameIntent.AddAuction -> addAuction(intent.productId, intent.quantity, intent.startingBid)
             is GameIntent.BuyFromGlobalMarket -> buyFromGlobalMarket(intent.listingId, intent.quantity)
-            is GameIntent.UpgradeWarehouseCapacity -> upgradeWarehouseCapacity()
+            is GameIntent.UpgradeWarehouseCapacity -> upgradeWarehouseCapacity(1)
+            is GameIntent.UpgradeWarehouseCapacityBy -> upgradeWarehouseCapacity(intent.levels)
             is GameIntent.BuildBusiness -> buildBusiness(intent.facilityId, intent.cityId, intent.cost)
             is GameIntent.RelocateWarehouse -> relocateWarehouse(intent.targetCityId)
             is GameIntent.SellGems -> sellGemsForGameMoney(intent.gems, intent.expectedMoney)
@@ -212,7 +213,8 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             is GameIntent.LeaveEntireConsortium -> leaveEntireConsortium(intent.projectId)
             is GameIntent.TakeoverBottleneckSlot -> takeoverBottleneckSlot(intent.projectId, intent.slotId, intent.playerId, intent.playerName)
             is GameIntent.KickPartnerFromConsortiumSlot -> kickPartnerFromConsortiumSlot(intent.projectId, intent.slotId)
-            is GameIntent.SellConsortiumWarehouseStock -> sellConsortiumWarehouseStock(intent.projectId)
+            is GameIntent.SellConsortiumWarehouseStock -> sellConsortiumWarehouseStock(intent.projectId, intent.quantity)
+            is GameIntent.ListConsortiumStockOnMarket -> listConsortiumStockOnMarket(intent.projectId, intent.quantity, intent.price)
             is GameIntent.AdvanceMegaProjectStage -> advanceMegaProjectStage(intent.projectId)
             is GameIntent.ClaimMegaProjectDividend -> claimMegaProjectDividend(intent.projectId)
             is GameIntent.ProduceConsortiumBrandItem -> produceConsortiumBrandItem(intent.projectId)
@@ -238,6 +240,103 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             is GameIntent.VoteOnConsortiumBoardProposal -> voteOnConsortiumBoardProposal(intent.projectId, intent.proposalId, intent.voteYes)
             is GameIntent.UpdateCompanyName -> updateCompanyName(intent.newName)
             is GameIntent.SignInAnonymously -> signInAnonymously(intent.onResult)
+            is GameIntent.ClaimBulletinOpportunityReward -> claimBulletinOpportunityReward(intent.opportunityId)
+            is GameIntent.QuickProduceForBulletinOpportunity -> quickProduceForBulletinOpportunity(intent.opportunityId)
+        }
+    }
+
+    internal val _bulletinOpportunities = MutableStateFlow<List<com.example.data.BulletinOpportunity>>(emptyList())
+    val bulletinOpportunities: StateFlow<List<com.example.data.BulletinOpportunity>> = _bulletinOpportunities.asStateFlow()
+
+    fun claimBulletinOpportunityReward(opportunityId: String) {
+        viewModelScope.launch {
+            val current = _bulletinOpportunities.value
+            val target = current.find { it.id == opportunityId } ?: return@launch
+            if (!target.isCompleted || target.isClaimed) return@launch
+            
+            val (updatedList, earnedDiamonds) = com.example.data.BulletinOpportunityManager.claimOpportunityReward(opportunityId, current)
+            _bulletinOpportunities.value = updatedList
+            
+            if (earnedDiamonds > 0) {
+                val p = player.value
+                if (p != null) {
+                    val updatedPlayer = p.copy(gems = p.gems + earnedDiamonds)
+                    repository.updatePlayer(updatedPlayer)
+                }
+                com.example.ui.components.SmartNotificationManager.show(
+                    "🎉 Bülten Fırsatı Tamamlandı! +$earnedDiamonds Elmas kazandınız! 💎",
+                    "🎉 Bulletin Opportunity Completed! +$earnedDiamonds Diamonds earned! 💎",
+                    com.example.ui.components.NotificationType.SUCCESS
+                )
+                com.example.ui.components.ParticleManager.spawnCelebration()
+                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
+            }
+            saveEconomicDataToDataStore()
+        }
+    }
+
+    fun quickProduceForBulletinOpportunity(opportunityId: String) {
+        val target = _bulletinOpportunities.value.find { it.id == opportunityId } ?: return
+        val needed = (target.targetQuantity - target.producedQuantity).coerceAtLeast(1)
+        val matchingBusiness = businesses.value.find {
+            it.cityId.equals(target.cityId, ignoreCase = true) &&
+            (it.type.equals(target.targetFacilityId, ignoreCase = true) || it.type.contains(target.targetProductId, ignoreCase = true))
+        } ?: businesses.value.find {
+            it.type.equals(target.targetFacilityId, ignoreCase = true) || it.type.contains(target.targetProductId, ignoreCase = true)
+        }
+        val storageCap = matchingBusiness?.getRemainingStorageCapacity() ?: 50
+        val batchQty = minOf(needed, if (storageCap > 0) storageCap else 5, 25).coerceAtLeast(1)
+        produce(target.targetProductId, batchQty, autoProcure = true)
+        val pName = target.targetProductNameTr
+        val cName = target.cityNameTr
+        com.example.ui.components.SmartNotificationManager.show(
+            "⚡ $cName: $pName Hızlı Üretimi Başlatıldı ($batchQty Ton)! Üretim tamamlandığında kotanız işlenecektir.",
+            "⚡ $cName: $pName Quick Production Dispatched ($batchQty Tons)! Progress will update upon completion.",
+            com.example.ui.components.NotificationType.INFO
+        )
+        com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.LIGHT_CLICK)
+    }
+
+    fun onProductionCompletedForBulletin(productId: String, cityId: String, quantity: Int) {
+        if (quantity <= 0) return
+        val current = _bulletinOpportunities.value
+        if (current.isEmpty()) return
+        val updated = com.example.data.BulletinOpportunityManager.onProductionCompleted(productId, cityId, quantity, current)
+        if (updated != current) {
+            _bulletinOpportunities.value = updated
+            val newlyMet = updated.find { opp ->
+                val oldOpp = current.find { it.id == opp.id }
+                opp.isProductionTargetMet && (oldOpp == null || !oldOpp.isProductionTargetMet)
+            }
+            if (newlyMet != null) {
+                com.example.ui.components.SmartNotificationManager.show(
+                    "📦 ${newlyMet.cityNameTr} ${newlyMet.targetProductNameTr} üretim kotası doldu! Şimdi pazarda/borsada satın.",
+                    "📦 ${newlyMet.cityNameEn} ${newlyMet.targetProductNameEn} production target reached! Sell on market/borsa to claim diamonds.",
+                    com.example.ui.components.NotificationType.INFO
+                )
+            }
+        }
+    }
+
+    fun onGoodsSoldForBulletin(productId: String, cityId: String, quantity: Int) {
+        if (quantity <= 0) return
+        val current = _bulletinOpportunities.value
+        if (current.isEmpty()) return
+        val updated = com.example.data.BulletinOpportunityManager.onGoodsSold(productId, cityId, quantity, current)
+        if (updated != current) {
+            _bulletinOpportunities.value = updated
+            val newlyCompleted = updated.find { opp ->
+                val oldOpp = current.find { it.id == opp.id }
+                opp.isCompleted && (oldOpp == null || !oldOpp.isCompleted)
+            }
+            if (newlyCompleted != null) {
+                com.example.ui.components.SmartNotificationManager.show(
+                    "🌟 BÜLTEN ETKİNLİĞİ TAMAMLANDI! ${newlyCompleted.cityNameTr} fırsatından ${newlyCompleted.diamondReward} Elmas ödülünüzü bültenden toplayabilirsiniz! 💎",
+                    "🌟 BULLETIN OPPORTUNITY COMPLETED! Claim your ${newlyCompleted.diamondReward} Diamonds from ${newlyCompleted.cityNameEn} bulletin! 💎",
+                    com.example.ui.components.NotificationType.SUCCESS
+                )
+                com.example.ui.components.ParticleManager.spawnCelebration()
+            }
         }
     }
 
@@ -289,7 +388,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         }
     }
 
-    internal val _selectedLanguage = MutableStateFlow("tr")
+    internal val _selectedLanguage = MutableStateFlow(com.example.ui.theme.getDefaultDeviceLanguage())
     val selectedLanguage: StateFlow<String> = _selectedLanguage.asStateFlow()
 
     fun setSelectedLanguage(langCode: String) {
@@ -350,6 +449,12 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
     internal val _techPetrochem = MutableStateFlow(0)
     val techPetrochem: StateFlow<Int> = _techPetrochem.asStateFlow()
+
+    internal val _techGlobalFinance = MutableStateFlow(0)
+    val techGlobalFinance: StateFlow<Int> = _techGlobalFinance.asStateFlow()
+
+    internal val _techCulturalHeritage = MutableStateFlow(0)
+    val techCulturalHeritage: StateFlow<Int> = _techCulturalHeritage.asStateFlow()
 
     internal val _activeResearches = MutableStateFlow<Map<String, Long>>(emptyMap())
     val activeResearches: StateFlow<Map<String, Long>> = _activeResearches.asStateFlow()
@@ -502,6 +607,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val heavyLvl = resolveLevel(listOf("heavy_industry", "tech_heavy_industry"), _techHeavyIndustry.value)
         val consumerLvl = resolveLevel(listOf("consumer_goods", "tech_consumer_goods"), _techConsumerGoods.value)
         val petrochemLvl = resolveLevel(listOf("petrochem", "tech_petrochem"), _techPetrochem.value)
+        val globalFinanceLvl = resolveLevel(listOf("global_finance", "tech_global_finance"), _techGlobalFinance.value)
+        val culturalHeritageLvl = resolveLevel(listOf("cultural_heritage", "tech_cultural_heritage"), _techCulturalHeritage.value)
 
         _techGreenEnergy.value = greenLvl
         _techQualityControl.value = qualityLvl
@@ -515,6 +622,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         _techHeavyIndustry.value = heavyLvl
         _techConsumerGoods.value = consumerLvl
         _techPetrochem.value = petrochemLvl
+        _techGlobalFinance.value = globalFinanceLvl
+        _techCulturalHeritage.value = culturalHeritageLvl
 
         currentMap["green_energy"] = greenLvl; currentMap["tech_green_energy"] = greenLvl
         currentMap["quality_control"] = qualityLvl; currentMap["tech_quality_control"] = qualityLvl
@@ -529,6 +638,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         currentMap["heavy_industry"] = heavyLvl; currentMap["tech_heavy_industry"] = heavyLvl
         currentMap["consumer_goods"] = consumerLvl; currentMap["tech_consumer_goods"] = consumerLvl
         currentMap["petrochem"] = petrochemLvl; currentMap["tech_petrochem"] = petrochemLvl
+        currentMap["global_finance"] = globalFinanceLvl; currentMap["tech_global_finance"] = globalFinanceLvl
+        currentMap["cultural_heritage"] = culturalHeritageLvl; currentMap["tech_cultural_heritage"] = culturalHeritageLvl
 
         _researchLevels.value = currentMap
         sanitizeActiveResearches()
@@ -583,6 +694,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             "logistics" -> _techLogistics.value
             "automation" -> _techAutomation.value
             "cyber_security" -> _techCyberSecurity.value
+            "global_finance" -> _techGlobalFinance.value
+            "cultural_heritage" -> _techCulturalHeritage.value
             else -> 0
         }
         val levelFromMap = _researchLevels.value[baseId] ?: _researchLevels.value[fullId] ?: 0
@@ -713,8 +826,14 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             _researchEndTimeMs.value = endTime
             _researchRemainingMs.value = durationMs
             
+            val currentLevelsMap = _researchLevels.value.toMutableMap()
+            currentLevelsMap[baseId] = currentLevel
+            currentLevelsMap["tech_$baseId"] = currentLevel
+            _researchLevels.value = currentLevelsMap
+
             syncResearchStateFlowsAndMap()
             saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -811,6 +930,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             "logistics" -> _techLogistics.value = newLvl
             "automation" -> _techAutomation.value = newLvl
             "cyber_security" -> _techCyberSecurity.value = newLvl
+            "global_finance" -> _techGlobalFinance.value = newLvl
+            "cultural_heritage" -> _techCulturalHeritage.value = newLvl
             else -> {
                 val levelsMap = _researchLevels.value.toMutableMap()
                 levelsMap[baseId] = newLvl
@@ -845,6 +966,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
         viewModelScope.launch {
             saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -870,6 +992,27 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     internal val _totalDividendsPaid = MutableStateFlow(0L)
     val totalDividendsPaid: StateFlow<Long> = _totalDividendsPaid.asStateFlow()
     
+    private val authPrefs: android.content.SharedPreferences?
+        get() = try {
+            com.example.di.AppContainer.appContext?.getSharedPreferences("auth_preferences", android.content.Context.MODE_PRIVATE)
+        } catch (_: Throwable) {
+            null
+        }
+
+    internal val _hasChosenGuestMode = MutableStateFlow(false)
+    val hasChosenGuestMode: StateFlow<Boolean> = _hasChosenGuestMode.asStateFlow()
+
+    fun setGuestModePreference(chosen: Boolean) {
+        _hasChosenGuestMode.value = chosen
+        try {
+            authPrefs?.edit()?.putBoolean("has_chosen_guest_mode", chosen)?.apply()
+        } catch (_: Throwable) {}
+    }
+
+    fun isGuestModeChosen(): Boolean {
+        return _hasChosenGuestMode.value || (try { authPrefs?.getBoolean("has_chosen_guest_mode", false) ?: false } catch (_: Throwable) { false })
+    }
+
     internal val _isOnlineRegistered = MutableStateFlow(false)
     val isOnlineRegistered: StateFlow<Boolean> = _isOnlineRegistered.asStateFlow()
     
@@ -884,6 +1027,118 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val reg = _isOnlineRegistered.value
         val email = _onlineEmail.value
         return reg && email.isNotBlank() && email != "misafir_tuccar" && !email.startsWith("guest") && (email.contains("@") || email.endsWith(".com"))
+    }
+
+    fun signInWithGoogleAccount(
+        email: String,
+        displayName: String = "Tüccar",
+        idToken: String? = null,
+        callback: ((Boolean, String?) -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            try {
+                val cleanEmail = email.trim()
+                val resolvedPlayerId = cleanEmail.replace(".", "_")
+
+                // 1. Save online auth state to DataStore & StateFlows
+                repository.saveOnlineAuth(cleanEmail, "", true)
+                _onlineEmail.value = cleanEmail
+                _isOnlineRegistered.value = true
+                setGuestModePreference(false)
+
+                // 2. Direct Cloud Fetch first to guarantee cross-device restoration
+                var cloudSaveJson: String? = null
+
+                // A. Check Google Drive AppData Space
+                try {
+                    val token = com.example.data.GoogleDriveSaveManager.getAccessToken()
+                        ?: repository.economicDataStore?.context?.let { com.example.data.GoogleDriveSaveManager.resolveAccessToken(it) }
+                    if (!token.isNullOrBlank()) {
+                        cloudSaveJson = com.example.data.GoogleDriveSaveManager.downloadSaveJson(token)
+                        if (!cloudSaveJson.isNullOrBlank()) {
+                            android.util.Log.i("GameViewModel", "Cloud save downloaded from Google Drive AppData for $cleanEmail")
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("GameViewModel", "Error downloading from Google Drive in signInWithGoogleAccount", e)
+                }
+
+                // B. If not in Google Drive or failed, query Supabase with multiple candidates
+                if (cloudSaveJson.isNullOrBlank()) {
+                    val searchCandidates = listOf(
+                        cleanEmail,
+                        resolvedPlayerId,
+                        cleanEmail.lowercase(),
+                        cleanEmail.substringBefore("@"),
+                        cleanEmail.substringBefore("@").lowercase(),
+                        cleanEmail.replace("@", "_").replace(".", "_")
+                    ).distinct()
+
+                    for (candidate in searchCandidates) {
+                        cloudSaveJson = com.example.data.SupabaseManager.fetchPlayerSaveData(candidate)
+                        if (!cloudSaveJson.isNullOrBlank()) {
+                            android.util.Log.i("GameViewModel", "Cloud save downloaded from Supabase using candidate '$candidate' for $cleanEmail")
+                            break
+                        }
+                    }
+                }
+
+                // C. If cloud save is found, force import it into DataStore
+                if (!cloudSaveJson.isNullOrBlank()) {
+                    val imported = repository.economicDataStore?.importSaveJson(cloudSaveJson, force = true) ?: false
+                    android.util.Log.i("GameViewModel", "Imported cloud save into DataStore: $imported")
+                }
+
+                // 3. Initialize repository with resolvedPlayerId
+                val snapshot = repository.initializeGame(resolvedPlayerId)
+                if (snapshot != null) {
+                    applySnapshotToState(snapshot)
+                }
+
+                val p = player.value
+                if (p != null) {
+                    val currentName = p.name
+                    val updatedName = if (displayName.isNotBlank() && (currentName == "Yeni Tüccar" || currentName == "Tüccar" || currentName.isBlank())) displayName else currentName
+                    if (updatedName != currentName) {
+                        val updatedPlayer = p.copy(name = updatedName)
+                        repository.updatePlayer(updatedPlayer)
+                    }
+                }
+
+                val finalMoney = snapshot?.money ?: p?.money ?: 0L
+                val finalLevel = snapshot?.level ?: p?.level ?: 1
+                val wasRestored = !cloudSaveJson.isNullOrBlank() || (snapshot != null && snapshot.isDataSaved && (snapshot.hasSetWarehouse || finalMoney > 100_000L || finalLevel > 1 || (snapshot.xp ?: 0) > 0))
+
+                if (wasRestored) {
+                    val moneyFormatted = java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(finalMoney)
+                    SmartNotificationManager.show(
+                        "✅ Bulut Yedeğiniz Yüklendi! (₳$moneyFormatted | Seviye $finalLevel)",
+                        "✅ Cloud Save Restored! (₳$moneyFormatted | Level $finalLevel)",
+                        NotificationType.SUCCESS
+                    )
+                } else {
+                    android.util.Log.w("GameViewModel", "No cloud save found for $cleanEmail. Preserving local state without overwriting remote.")
+                }
+
+                callback?.invoke(true, null)
+            } catch (e: Exception) {
+                android.util.Log.e("GameViewModel", "Error in signInWithGoogleAccount", e)
+                callback?.invoke(false, e.localizedMessage ?: "Giriş başarısız")
+            }
+        }
+    }
+
+    fun signInAnonymously(callback: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch {
+            try {
+                setGuestModePreference(true)
+                _isOnlineRegistered.value = false
+                _onlineEmail.value = "misafir_tuccar"
+                callback?.invoke(true, null)
+            } catch (e: Exception) {
+                callback?.invoke(false, e.localizedMessage ?: "Misafir girişi başarısız")
+            }
+        }
     }
 
     internal var isRestoringFromCloud = false
@@ -975,7 +1230,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     internal val _futuresContracts = MutableStateFlow<List<com.example.data.FuturesContract>>(emptyList())
     val futuresContracts: StateFlow<List<com.example.data.FuturesContract>> = _futuresContracts.asStateFlow()
 
-    internal val _megaProjects = MutableStateFlow<List<com.example.data.MegaProject>>(emptyList())
+    internal val _megaProjects = MutableStateFlow<List<com.example.data.MegaProject>>(com.example.data.ConsortiumBotRegistry.getDefaultBotMegaProjects())
     internal val _marketPriceHistory = ConcurrentHashMap<String, CopyOnWriteArrayList<Pair<Long, Long>>>()
     val megaProjects: StateFlow<List<com.example.data.MegaProject>> = _megaProjects.asStateFlow()
 
@@ -1295,11 +1550,13 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             repository.updatePlayer(p.copy(money = p.money - cost))
             val baseId = techId.removePrefix("tech_")
             val current = _researchLevels.value.toMutableMap()
-            current[baseId] = 1
-            current["tech_$baseId"] = 1
+            val newLvl = maxOf(current[baseId] ?: 0, 1)
+            current[baseId] = newLvl
+            current["tech_$baseId"] = newLvl
             _researchLevels.value = current
             syncResearchStateFlowsAndMap()
             saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
@@ -1664,6 +1921,18 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         }
     }
 
+    fun setMarketScreenActive(active: Boolean) {
+        try {
+            repository.setMarketScreenActive(active)
+        } catch (_: Throwable) {}
+    }
+
+    fun setConsortiumScreenActive(active: Boolean) {
+        try {
+            repository.setConsortiumScreenActive(active)
+        } catch (_: Throwable) {}
+    }
+
     fun checkDailyQuestsReset() {
         val todayKey = DailyQuestManager.getTodayDateKey()
         val currentLevel = player.value?.level ?: 1
@@ -1973,7 +2242,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 NotificationType.SUCCESS
             )
             logManagerAction(managerId, "Transfer Sözleşmesi İmzalandı: $gemCost 💎 elmas bütçesiyle Seviye 1 olarak işe alındı.", 0L)
-            saveEconomicDataToDataStore()
+            saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -1994,7 +2264,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 _managers.value = recalculateManagerSalaries(updatedList)
                 logManagerAction(managerId, "⚠️ DİSİPLİN CEZASI: $reason. Müdür 1 seviye düşürüldü (Yeni Seviye: ${mgr.level - 1}).", 0)
                 SmartNotificationManager.show("Disiplin Cezası: ${mgr.title} 1 seviye düşürüldü!", NotificationType.ALERT)
-                saveEconomicDataToDataStore()
+                saveEconomicDataToDataStore(immediate = true)
+                com.example.data.SaveSyncCoordinator.markDirty()
             }
         } else {
             // Level 1 manager -> Fire them
@@ -2023,7 +2294,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             }
             _managers.value = recalculateManagerSalaries(updatedList)
             SmartNotificationManager.show("🚪 ${mgr.title} (${if (mgr.name.isNotBlank()) mgr.name else "Müdür"}) işten çıkarıldı. Pozisyon boşaltıldı.", NotificationType.INFO)
-            saveEconomicDataToDataStore()
+            saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -2052,7 +2324,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             _managers.value = recalculatedList
             val newLvl = recalculatedList.find { it.id == managerId }?.level ?: (mgr.level + 1)
             SmartNotificationManager.show("⭐ ${mgr.name} Seviye $newLvl'e terfi ettirildi! Maaşı ve performansı arttı.", NotificationType.SUCCESS)
-            saveEconomicDataToDataStore()
+            saveEconomicDataToDataStore(immediate = true)
+            com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -2070,7 +2343,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             if (newActive) "✅ ${mgr.title} göreve başladı (Aktif)." else "⏸️ ${mgr.title} izinli (Pasif).",
             NotificationType.INFO
         )
-        saveEconomicDataToDataStore()
+        saveEconomicDataToDataStore(immediate = true)
+        com.example.data.SaveSyncCoordinator.markDirty()
         if (_isOnlineRegistered.value) {
             syncCloudSaveToSupabase(force = true, immediate = true)
         }
@@ -2093,7 +2367,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             NotificationType.INFO
         )
 
-        saveEconomicDataToDataStore()
+        saveEconomicDataToDataStore(immediate = true)
+        com.example.data.SaveSyncCoordinator.markDirty()
         if (_isOnlineRegistered.value) {
             syncCloudSaveToSupabase(force = true, immediate = true)
         }
@@ -2752,26 +3027,46 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         return recalculateManagerSalaries(repairedList)
     }
 
-    fun upgradeWarehouseCapacity() {
+    fun upgradeWarehouseCapacity(levelsToUpgrade: Int = 1) {
         val p = player.value ?: return
-        // Cost formula: base 25000, then scales up based on current capacity over 5000
-        val upgradesDone = (p.inventoryCapacity - 5000) / 2500
-        val cost = 25000L + (upgradesDone * 15000L)
-        
-        if (p.money >= cost) {
+        val currentLevel = p.warehouseLevel
+        val targetLevels = levelsToUpgrade.coerceAtLeast(1)
+
+        var totalCost = 0L
+        var tempLevel = currentLevel
+        for (i in 0 until targetLevels) {
+            val stepCost = 25000L + ((tempLevel - 1) * 20000L)
+            totalCost += stepCost
+            tempLevel++
+        }
+        val nextLevel = currentLevel + targetLevels
+        val nextCapacity = 5000 + (nextLevel - 1) * 2500
+
+        if (p.money >= totalCost) {
             viewModelScope.launch {
                 val updatedP = p.copy(
-                    money = p.money - cost,
-                    inventoryCapacity = p.inventoryCapacity + 2500
+                    money = p.money - totalCost,
+                    inventoryCapacity = nextCapacity
                 )
                 repository.updatePlayer(updatedP)
-                saveEconomicDataToDataStore()
+                saveEconomicDataToDataStoreSuspend(customPlayer = updatedP)
+                com.example.data.SaveSyncCoordinator.flushImmediately()
                 syncCloudSaveToSupabase(force = true, immediate = true, customPlayer = updatedP)
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
-                SmartNotificationManager.show("Depo Kapasitesi Artırıldı! Yeni Kapasite: ${updatedP.inventoryCapacity}", "Warehouse Capacity Upgraded! New Capacity: ${updatedP.inventoryCapacity}", NotificationType.SUCCESS)
+                val formattedCap = java.text.NumberFormat.getInstance(java.util.Locale.US).format(nextCapacity)
+                val gainedCap = java.text.NumberFormat.getInstance(java.util.Locale.US).format(targetLevels * 2500)
+                SmartNotificationManager.show(
+                    "🏛️ Merkez Depo Seviye $nextLevel'e Yükseltildi! (+${gainedCap}T | Yeni: $formattedCap Ton)",
+                    "🏛️ Central Warehouse Upgraded to Level $nextLevel! (+${gainedCap}T | New: $formattedCap Tons)",
+                    NotificationType.SUCCESS
+                )
             }
         } else {
-            SmartNotificationManager.show("Yetersiz Bakiye! Gerekli: ₳$cost", "Insufficient Balance! Required: ₳$cost", NotificationType.ALERT)
+            SmartNotificationManager.show(
+                "⚠️ Yetersiz Bakiye! Depo yükseltmesi için ₳${com.example.ui.components.formatMoney(totalCost)} gerekli.",
+                "⚠️ Insufficient Balance! ₳${com.example.ui.components.formatMoney(totalCost)} required for warehouse upgrade.",
+                NotificationType.ALERT
+            )
         }
     }
 
@@ -2947,6 +3242,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
         viewModelScope.launch {
             repository.consumeItem(order.itemId, order.quantity)
+            onGoodsSoldForBulletin(order.itemId, p.currentCity, order.quantity)
 
             val totalRevenue = order.quantity * order.pricePerUnit
             val stateTax = (totalRevenue * 0.05f).toLong()
@@ -3171,9 +3467,19 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             return
         }
 
-        if (bidAmount <= auction.currentHighestBid || bidAmount < auction.startingBid) {
-            val minBid = maxOf(auction.currentHighestBid + 1, auction.startingBid)
-            val formattedMin = com.example.ui.components.formatMoney(minBid)
+        if (bidAmount >= auction.buyoutPrice) {
+            buyoutForeclosedFacility(auctionId)
+            return
+        }
+
+        val minAllowedBid = if (auction.highestBidderId == null) {
+            auction.startingBid
+        } else {
+            auction.currentHighestBid + 1
+        }
+
+        if (bidAmount < minAllowedBid) {
+            val formattedMin = com.example.ui.components.formatMoney(minAllowedBid)
             SmartNotificationManager.show("Teklifiniz en az ₳$formattedMin olmalıdır!", NotificationType.ALERT)
             return
         }
@@ -3182,8 +3488,58 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         if (success) {
             com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
             SmartNotificationManager.show("İcralık tesise ₳${com.example.ui.components.formatMoney(bidAmount)} pey sürüldü!", NotificationType.SUCCESS)
+            viewModelScope.launch {
+                saveEconomicDataToDataStore(immediate = true)
+                syncCloudSaveToSupabase(force = true, immediate = true)
+            }
         } else {
             SmartNotificationManager.show("Teklif verilemedi!", NotificationType.ALERT)
+        }
+    }
+
+    fun settleForeclosureAuctions() {
+        val p = player.value ?: return
+        val wins = ForeclosureManager.settleCompletedAuctions(p)
+        if (wins.isNotEmpty()) {
+            viewModelScope.launch {
+                for (win in wins) {
+                    if (p.money >= win.winningBidAmount) {
+                        repository.buyBusinessTransaction(cost = win.winningBidAmount, business = win.wonBusiness)
+                        com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
+                        com.example.ui.components.ParticleManager.spawnCelebration()
+                        SmartNotificationManager.show(
+                            "🏆 İhale Kazanıldı: ${win.wonBusiness.cityId.replaceFirstChar { it.uppercase() }} - Seviye ${win.wonBusiness.level} tesis ₳${com.example.ui.components.formatMoney(win.winningBidAmount)} bedelle portföyünüze eklendi!",
+                            NotificationType.SUCCESS
+                        )
+                    }
+                }
+                saveEconomicDataToDataStore(immediate = true)
+                syncCloudSaveToSupabase(force = true, immediate = true)
+            }
+        }
+    }
+
+    fun finalizeForeclosureAuction(auctionId: String) {
+        val p = player.value ?: return
+        val win = ForeclosureManager.settleAuctionImmediately(auctionId, p)
+        if (win != null) {
+            if (p.money >= win.winningBidAmount) {
+                viewModelScope.launch {
+                    repository.buyBusinessTransaction(cost = win.winningBidAmount, business = win.wonBusiness)
+                    com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
+                    com.example.ui.components.ParticleManager.spawnCelebration()
+                    val facTitle = com.example.data.Product.values().find { it.facilityId == win.wonBusiness.type || it.id == win.wonBusiness.type }?.getFacilityName() ?: win.wonBusiness.type
+                    SmartNotificationManager.show(
+                        "🏆 İflas Masasından Kazanıldı: $facTitle (${win.wonBusiness.cityId.replaceFirstChar { it.uppercase() }}) ₳${com.example.ui.components.formatMoney(win.winningBidAmount)} bedelle portföyünüze devredildi!",
+                        NotificationType.SUCCESS
+                    )
+                    saveEconomicDataToDataStore(immediate = true)
+                    syncCloudSaveToSupabase(force = true, immediate = true)
+                }
+            } else {
+                SmartNotificationManager.show("Yetersiz bakiye! İhale tutarı (₳${com.example.ui.components.formatMoney(win.winningBidAmount)}) kasanızda bulunmuyor.", NotificationType.ALERT)
+                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
+            }
         }
     }
 
@@ -3309,7 +3665,18 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             try {
                 // 1. Client-Side Prediction: Anında ilanı listeden kaldır ve ürünleri depoya iade et
                 _marketListings.value = _marketListings.value.filterNot { it.id == listingId }
-                repository.produceItem(listing.itemId, listing.quantity)
+                if (listing.id.startsWith("clist_")) {
+                    val proj = _megaProjects.value.find { listing.id.contains(it.id.take(6)) || it.targetProductId == listing.itemId }
+                    if (proj != null) {
+                        val updated = proj.copy(warehouseStock = proj.warehouseStock + listing.quantity)
+                        _megaProjects.value = _megaProjects.value.map { if (it.id == proj.id) updated else it }
+                        syncMegaProject(updated, force = true)
+                    } else {
+                        repository.produceItem(listing.itemId, listing.quantity)
+                    }
+                } else {
+                    repository.produceItem(listing.itemId, listing.quantity)
+                }
                 repository.deletePendingSale(listingId)
 
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.BUY_SELL)
@@ -3336,7 +3703,18 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 // 3. Rollback Mekanizması: Sunucu hatasında ilanı tekrar listeye koy ve ürünleri depodan geri düş
                 android.util.Log.e("GameViewModel", "cancelMarketListing server sync failed, rolling back", e)
                 _marketListings.value = previousListings
-                repository.consumeItem(listing.itemId, listing.quantity)
+                if (listing.id.startsWith("clist_")) {
+                    val proj = _megaProjects.value.find { listing.id.contains(it.id.take(6)) || it.targetProductId == listing.itemId }
+                    if (proj != null) {
+                        val updated = proj.copy(warehouseStock = (proj.warehouseStock - listing.quantity).coerceAtLeast(0))
+                        _megaProjects.value = _megaProjects.value.map { if (it.id == proj.id) updated else it }
+                        syncMegaProject(updated, force = true)
+                    } else {
+                        repository.consumeItem(listing.itemId, listing.quantity)
+                    }
+                } else {
+                    repository.consumeItem(listing.itemId, listing.quantity)
+                }
 
                 com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.ERROR)
                 SmartNotificationManager.show("⚠️ İlan iptali sunucu hatası nedeniyle geri alındı.", NotificationType.ALERT)
@@ -3571,7 +3949,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     )
                 }
 
-            _marketListings.value = (bundle.listings + localPendingListings).distinctBy { it.id }
+            val currentBotListings = _marketListings.value.filter { it.isBotListing || it.sellerId.startsWith("BOT-") || it.id.startsWith("BOT_LISTING_") }
+            _marketListings.value = (bundle.listings + localPendingListings + currentBotListings).distinctBy { it.id }
 
             // 5. Vadeli Sözleşmeler ve Tedarik Taleplerini güncelle
             val myActiveBuyOrders = updatedLocalBuyOrders.filter { it.buyerId == myUid || it.buyerName.equals(myName, ignoreCase = true) }
@@ -3627,6 +4006,11 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
     internal var lastCloudSyncTimeMs: Long = 0L
     internal var lastAutoCloudBackupMinuteKey: Int = -1
+    internal var lastUserInteractionTimeMs: Long = System.currentTimeMillis()
+
+    fun registerUserActivity() {
+        lastUserInteractionTimeMs = System.currentTimeMillis()
+    }
 
     internal val _lastCloudBackupTimeMs = MutableStateFlow<Long>(0L)
     val lastCloudBackupTimeMs: StateFlow<Long> = _lastCloudBackupTimeMs.asStateFlow()
@@ -3672,21 +4056,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     internal fun syncMegaProject(proj: com.example.data.MegaProject, force: Boolean = false) {
         val now = System.currentTimeMillis()
         localMegaProjectUpdates[proj.id] = now
-        viewModelScope.launch(Dispatchers.IO) {
-            val ok = com.example.data.SupabaseManager.syncMegaProjectToSupabase(proj)
-            if (ok) {
-                com.example.data.MultiplayerManager.sendBroadcastConsortiumAction(
-                    com.example.data.network.LiveConsortiumActionEventDto(
-                        projectId = proj.id,
-                        playerId = player.value?.id ?: "local_player",
-                        playerName = player.value?.name ?: "Tüccar",
-                        moveType = "CONSORTIUM_SYNC",
-                        quantityDelivered = proj.totalItemsProduced.toLong(),
-                        details = proj.consortiumName
-                    )
-                )
-            }
-        }
+        // Değişiklikler yerel state ve DataStore üzerinde anında güncellenir; çıkışta tek seferde buluta aktarılır
+        saveEconomicDataToDataStore(immediate = false)
     }
 
 
@@ -3696,6 +4067,21 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             val cal = java.util.Calendar.getInstance()
             cal.add(java.util.Calendar.MONTH, -1)
             val pastMonthKey = "${cal.get(java.util.Calendar.YEAR)}_${cal.get(java.util.Calendar.MONTH) + 1}"
+            val pastMonthName = when (cal.get(java.util.Calendar.MONTH)) {
+                java.util.Calendar.JANUARY -> "Ocak"
+                java.util.Calendar.FEBRUARY -> "Şubat"
+                java.util.Calendar.MARCH -> "Mart"
+                java.util.Calendar.APRIL -> "Nisan"
+                java.util.Calendar.MAY -> "Mayıs"
+                java.util.Calendar.JUNE -> "Haziran"
+                java.util.Calendar.JULY -> "Temmuz"
+                java.util.Calendar.AUGUST -> "Ağustos"
+                java.util.Calendar.SEPTEMBER -> "Eylül"
+                java.util.Calendar.OCTOBER -> "Ekim"
+                java.util.Calendar.NOVEMBER -> "Kasım"
+                java.util.Calendar.DECEMBER -> "Aralık"
+                else -> "Geçmiş Ay"
+            }
 
             val lastClaimed = repository.getLastClaimedMonthlyRewardKey()
             if (lastClaimed == pastMonthKey && !forceManualCheck) {
@@ -3712,11 +4098,19 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 it.id !in botIds &&
                 it.name !in botNames
             }.sortedByDescending { it.netWorth }
-            val authName = p.name
-            val rankIndex = pastPlayers.indexOfFirst {
-                it.name.equals(authName, ignoreCase = true) ||
-                it.name.equals(p.name, ignoreCase = true) ||
-                it.companyName.contains(p.name, ignoreCase = true)
+            val pEmail = _onlineEmail.value.trim().lowercase()
+            val pEmailKey = pEmail.replace(".", "_")
+            val pId = p.id.trim().lowercase().replace(".", "_")
+            val pName = p.name.trim().lowercase()
+
+            val rankIndex = pastPlayers.indexOfFirst { cand ->
+                val candId = cand.id.trim().lowercase().replace(".", "_")
+                val candName = cand.name.trim().lowercase()
+                val candCompany = cand.companyName.trim().lowercase()
+
+                (pEmail.isNotBlank() && (candId == pEmailKey || candId.contains(pEmailKey) || candCompany.contains(pEmail))) ||
+                (pId.isNotBlank() && (candId == pId || candCompany.contains(pId))) ||
+                (pName.isNotBlank() && pName != "tüccar" && pName != "tuccar" && (candName == pName || candCompany.contains(pName)))
             }
 
             if (rankIndex in 0..2) {
@@ -3730,18 +4124,29 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     val newGems = p.gems + rewardGems
                     repository.updatePlayer(p.copy(gems = newGems))
                     repository.setLastClaimedMonthlyRewardKey(pastMonthKey)
+                    saveEconomicDataToDataStore()
+                    syncCloudSaveToSupabase()
+
+                    // 1. Oyun İçi Akıllı Bildirim
                     SmartNotificationManager.show(
-                        "🎉 TEBRİKLER! Geçmiş ay liginde ${rankIndex + 1}. oldunuz! +$rewardGems 💎 Elmas hesabınıza aktarıldı!",
+                        "🎉 $pastMonthName AYI SIRALAMA ÖDÜLÜ! Holding liginde ${rankIndex + 1}. oldunuz! +$rewardGems 💎 Elmas otomatik olarak hesabınıza yansıtıldı!",
                         NotificationType.SUCCESS
+                    )
+
+                    // 2. Android Sistem Bildirimi
+                    com.example.notification.LocalGameNotificationManager.postMonthlyRewardNotification(
+                        monthName = pastMonthName,
+                        rank = rankIndex + 1,
+                        gems = rewardGems
                     )
                     return@launch
                 }
             }
             if (forceManualCheck) {
                 if (lastClaimed == pastMonthKey) {
-                    SmartNotificationManager.show("Geçmiş ay ($pastMonthKey) ligi ödülünüz daha önce hesabınıza aktarılmıştır.", NotificationType.INFO)
+                    SmartNotificationManager.show("$pastMonthName ($pastMonthKey) ayı sıralama ödülünüz otomatik olarak hesabınıza yansıtılmıştır.", NotificationType.INFO)
                 } else {
-                    SmartNotificationManager.show("Geçmiş ay ligi sonuçlarında ilk 3 sıralamasına giremediğiniz için hak edilmiş elmas ödülü bulunmuyor (1. 2000💎, 2. 1000💎, 3. 500💎).", NotificationType.INFO)
+                    SmartNotificationManager.show("$pastMonthName ayı lig sonuçlarında ilk 3 sıralamasına giremediğiniz için hak edilmiş elmas ödülü bulunmuyor (1. 2000💎, 2. 1000💎, 3. 500💎).", NotificationType.INFO)
                 }
             }
         }
@@ -3755,6 +4160,16 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             repository.updatePlayer(p.copy(money = p.money + amount, totalProfit = newTotalProfit))
             saveEconomicDataToDataStore()
         }
+    }
+
+    fun deductMoneyDirectly(amount: Long): Boolean {
+        val p = player.value ?: return false
+        if (p.money < amount) return false
+        viewModelScope.launch {
+            repository.updatePlayer(p.copy(money = (p.money - amount).coerceAtLeast(0L)))
+            saveEconomicDataToDataStore()
+        }
+        return true
     }
 
     fun addMoney(amount: Long) {
@@ -4368,7 +4783,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
             val remainingProd = _activeProductions.value.find { it.id == prodEntityId }
             if (remainingProd != null) {
-                completeActiveProduction(remainingProd, isOffline = false, isSilent = isSilent)
+                completeActiveProduction(remainingProd, isOffline = false, isSilent = isSilent, forceComplete = true)
             }
         }
     }
@@ -5062,6 +5477,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 var updatedBiz = latestBiz.copy(wearLevel = newWear)
                 if (finalHarvestQty > 0) {
                     updatedBiz = updatedBiz.withAddedItem(qualityInventoryKey, finalHarvestQty)
+                    repository.produceItem(qualityInventoryKey, finalHarvestQty)
                 }
                 repository.updateBusiness(updatedBiz)
 
@@ -5069,8 +5485,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     val cityName = com.example.data.cities.find { it.id == latestBiz.cityId }?.name ?: latestBiz.cityId
                     if (isOffline) {
                         SmartNotificationManager.show(
-                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag $cityName tesisi deposuna yerleştirildi! (+$finalHarvestQty XP) 🏭",
-                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in $cityName facility warehouse! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Çevrimdışı Üretim Tamamlandı: $finalHarvestQty Ton $prodDisplayName$qualityTag $cityName tesisi ve merkez deposuna yerleştirildi! (+$finalHarvestQty XP) 🏭",
+                            "🎉 Offline Production Completed: $finalHarvestQty Tons of $prodDisplayName$qualityTag placed in $cityName facility and central warehouse! (+$finalHarvestQty XP) 🏭",
                             NotificationType.SUCCESS
                         )
                     } else if (!isSilent) {
@@ -5085,7 +5501,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
 
                     val isLogisticsOrHrActive = _managers.value.any { (it.id == "mgr_logistics" || it.id == "mgr_hr") && it.isHired && it.isActive }
-                    if (isLogisticsOrHrActive && !isOffline) {
+                    if (isLogisticsOrHrActive) {
                         transferFacilityStockToCentral(updatedBiz.id, qualityInventoryKey, finalHarvestQty)
                     }
                 }
@@ -5097,6 +5513,9 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                         NotificationType.ALERT
                     )
                 }
+
+                val updatedBizList = currentBizList.map { if (it.id == latestBiz.id) updatedBiz else it }
+                saveEconomicDataToDataStore(immediate = true, customBusinesses = updatedBizList)
             } else {
                 if (finalHarvestQty > 0) {
                     repository.produceItem(qualityInventoryKey, finalHarvestQty)
@@ -5117,9 +5536,10 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                     processXpGain((finalHarvestQty * 5 * itemQuality.priceMultiplier).toInt(), currentPlayerState)
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
                 }
+
+                saveEconomicDataToDataStore(immediate = true)
             }
 
-            saveEconomicDataToDataStore(immediate = true)
             if (_isOnlineRegistered.value) {
                 syncCloudSaveToSupabase(force = true, immediate = true)
             }
@@ -5128,27 +5548,30 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
     fun checkAndProcessActiveProductions(isOffline: Boolean = false, explicitBizList: List<com.example.data.BusinessEntity>? = null) {
         val currentProductions = _activeProductions.value
-        if (currentProductions.isEmpty()) return
+        if (currentProductions.isEmpty()) {
+            if (_productionProgress.value.isNotEmpty()) _productionProgress.value = emptyMap()
+            if (_productionDurations.value.isNotEmpty()) _productionDurations.value = emptyMap()
+            return
+        }
         val now = com.example.data.security.TimeSecurityManager.getSecureCurrentTimeMs()
 
         val finished = currentProductions.filter { prod -> prod.isCompleted(now) }
         val ongoing = currentProductions.filter { prod -> !prod.isCompleted(now) }
 
-        if (ongoing.isNotEmpty()) {
-            val progressMap = _productionProgress.value.toMutableMap()
-            val durationsMap = _productionDurations.value.toMutableMap()
-            ongoing.forEach { item ->
-                durationsMap[item.productId] = item.totalDurationMs
-                val fraction = item.getProgress(now)
-                progressMap[item.productId] = fraction
-            }
-            _productionProgress.value = progressMap
-            _productionDurations.value = durationsMap
+        val activeProductIds = ongoing.map { it.productId }.toSet()
+        val progressMap = _productionProgress.value.filterKeys { activeProductIds.contains(it) }.toMutableMap()
+        val durationsMap = _productionDurations.value.filterKeys { activeProductIds.contains(it) }.toMutableMap()
+
+        ongoing.forEach { item ->
+            durationsMap[item.productId] = item.totalDurationMs
+            progressMap[item.productId] = item.getProgress(now)
         }
+        _productionProgress.value = progressMap
+        _productionDurations.value = durationsMap
 
         if (finished.isNotEmpty()) {
             finished.forEach { prod ->
-                completeActiveProduction(prod, isOffline = isOffline, explicitBizList = explicitBizList)
+                completeActiveProduction(prod, isOffline = isOffline, explicitBizList = explicitBizList, forceComplete = true)
             }
         }
     }
@@ -5870,6 +6293,9 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
     }
 
     init {
+        try {
+            _hasChosenGuestMode.value = authPrefs?.getBoolean("has_chosen_guest_mode", false) ?: false
+        } catch (_: Throwable) {}
         com.example.data.SaveSyncCoordinator.bindViewModel(this)
         com.example.data.SaveSyncCoordinator.bindRepository(repository)
         startUiStateSync(viewModelScope)
@@ -5884,9 +6310,35 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                 }
             }
         }
-        _managers.value = sanitizeManagerSalaries(_managers.value)
-        _megaProjects.value = emptyList()
+        if (_megaProjects.value.isEmpty()) {
+            _megaProjects.value = com.example.data.ConsortiumBotRegistry.getDefaultBotMegaProjects()
+        }
+
+        // Fast dedicated ticker for active facility productions ensuring continuous real-time progress and instant completion
         viewModelScope.launch {
+            while (true) {
+                if (_activeProductions.value.isNotEmpty()) {
+                    checkAndProcessActiveProductions()
+                }
+                delay(500L)
+            }
+        }
+
+        viewModelScope.launch {
+            // Immediate pre-load of active productions from local DataStore to prevent UI flickering or reset
+            try {
+                val immediateSnapshot = repository.economicDataStore?.getEconomicSnapshot()
+                if (immediateSnapshot != null && immediateSnapshot.activeProductionsJson.isNotBlank() && immediateSnapshot.activeProductionsJson != "[]") {
+                    val localProds = com.example.data.network.AppJson.decodeFromString<List<com.example.data.ActiveProduction>>(immediateSnapshot.activeProductionsJson)
+                    if (localProds.isNotEmpty()) {
+                        _activeProductions.value = localProds
+                        checkAndProcessActiveProductions(isOffline = true)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("GameViewModel", "Failed to pre-load active productions", e)
+            }
+
             val snapshot = repository.initializeGame()
             if (snapshot != null) {
                 val dbBusinesses = try {
@@ -5963,6 +6415,18 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
             checkDailyLoginBonus()
             checkAndPerformBankDailySettlement(showNotification = true)
+
+            // Otomatik Ay Başı Sıralama Ödülü Kontrolü (Kullanıcının butona basmasına gerek kalmadan otomatik yansıtılır)
+            checkAndClaimMonthlyLeaderboardReward(forceManualCheck = false)
+        }
+
+        viewModelScope.launch {
+            _onlineEmail.collect { email ->
+                if (email.isNotBlank() && email != "misafir_tuccar" && !email.startsWith("guest")) {
+                    kotlinx.coroutines.delay(1200L)
+                    checkAndClaimMonthlyLeaderboardReward(forceManualCheck = false)
+                }
+            }
         }
         viewModelScope.launch {
             val currentInv = repository.inventory.first()

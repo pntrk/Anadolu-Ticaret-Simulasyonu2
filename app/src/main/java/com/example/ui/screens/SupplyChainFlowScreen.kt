@@ -32,6 +32,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.ui.components.AppButton
 import com.example.ui.components.CurrencyText
+import com.example.ui.components.GameAdaptiveModalSheet
+import com.example.ui.components.GameUnifiedDropdownMenu
 import com.example.ui.components.GlassCard
 import com.example.ui.components.ProductIconBadge
 import com.example.ui.components.formatMoney
@@ -216,12 +218,11 @@ fun SupplyChainFlowScreen(
                             Text(tr("Katalog", "Catalog"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        DropdownMenu(
+                        GameUnifiedDropdownMenu(
                             expanded = showProductCatalogDropdown,
                             onDismissRequest = { showProductCatalogDropdown = false },
-                            modifier = Modifier
-                                .background(Color(0xFF131D2D))
-                                .heightIn(max = 380.dp)
+                            modifier = Modifier.heightIn(max = 380.dp),
+                            widthMin = 220.dp
                         ) {
                             val complexProducts = remember {
                                 Product.values().filter { it.recipe.isNotEmpty() || it.tier >= ProductTier.TIER_2 }
@@ -358,59 +359,34 @@ fun SupplyChainFlowScreen(
                 val business = node.ownedBusiness
                 val isNodeStorageFull = (business?.getRemainingStorageCapacity() ?: 0) <= 0 && business != null
 
-                ModalBottomSheet(
+                GameAdaptiveModalSheet(
                     onDismissRequest = { selectedNodeForSheet = null },
-                    sheetState = sheetState,
-                    containerColor = Color(0xFF111827),
-                    contentColor = Color.White,
-                    tonalElevation = 8.dp,
-                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+                    title = node.product.displayName,
+                    subtitle = node.product.facilityName,
+                    icon = node.product.icon,
+                    iconTint = ThemePositive,
+                    badgeText = if (business != null) "SEVİYE ${business.level}" else null,
+                    badgeColor = ThemePositive,
+                    primaryButtonText = if (isNodeStorageFull) tr("⚠️ Depo Dolu", "⚠️ Storage Full") else tr("Hızlı Üret", "Fast Produce"),
+                    primaryButtonEnabled = !isNodeStorageFull,
+                    primaryButtonColor = if (isNodeStorageFull) Color(0xFF334155) else ThemePositive,
+                    primaryButtonIcon = if (isNodeStorageFull) Icons.Rounded.Inventory2 else Icons.Rounded.Bolt,
+                    onPrimaryAction = {
+                        viewModel.produce(node.product.id, requestedQuantity = 1)
+                        selectedNodeForSheet = null
+                    },
+                    secondaryButtonText = tr("Depoyu Gör", "View Storage"),
+                    onSecondaryAction = {
+                        selectedNodeForSheet = null
+                        onNavigateToWarehouse(node.product.id)
+                    }
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 12.dp)
-                            .navigationBarsPadding()
+                            .verticalScroll(rememberScrollState())
                     ) {
-                        // Sheet Başlık
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            ProductIconBadge(product = node.product, size = 44.dp)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = node.product.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = node.product.facilityName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = ThemePositive,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                            if (business != null) {
-                                Surface(
-                                    color = Color(0xFF1F2937),
-                                    shape = RoundedCornerShape(6.dp),
-                                    border = BorderStroke(1.dp, ThemePositive.copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = "SEVİYE ${business.level}",
-                                        color = ThemePositive,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Black,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
 
                         // Tesis Durum İstatistikleri
                         if (business != null) {
@@ -647,64 +623,7 @@ fun SupplyChainFlowScreen(
                             Spacer(modifier = Modifier.height(10.dp))
                         }
 
-                        // Aksiyon Butonları
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            // Hızlı Üret Butonu
-                            AppButton(
-                                onClick = {
-                                    viewModel.produce(node.product.id, requestedQuantity = 1)
-                                    selectedNodeForSheet = null
-                                },
-                                enabled = !isNodeStorageFull,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isNodeStorageFull) Color(0xFF334155) else ThemePositive,
-                                    contentColor = Color.Black,
-                                    disabledContainerColor = Color(0xFF1E293B),
-                                    disabledContentColor = Color(0xFFEF5350)
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(if (isNodeStorageFull) Icons.Rounded.Inventory2 else Icons.Rounded.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isNodeStorageFull) tr("⚠️ Depo Dolu", "⚠️ Storage Full") else tr("Hızlı Üret", "Fast Produce"),
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 12.5.sp
-                                )
-                            }
-
-                            // Depoyu Gör Butonu
-                            OutlinedButton(
-                                onClick = {
-                                    selectedNodeForSheet = null
-                                    onNavigateToWarehouse(node.product.id)
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = ThemeNeonCyan
-                                ),
-                                border = BorderStroke(1.2.dp, ThemeNeonCyan),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Rounded.Inventory2, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = tr("Depoyu Gör", "View Storage"),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }

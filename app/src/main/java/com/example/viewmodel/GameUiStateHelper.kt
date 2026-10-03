@@ -19,6 +19,12 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
     }
 
     scope.launch {
+        bulletinOpportunities.collect { opps ->
+            updateUiState { copy(bulletinOpportunities = opps.toPersistentList()) }
+        }
+    }
+
+    scope.launch {
         var lastUpdateMs = 0L
         combine(
             productionProgress,
@@ -27,7 +33,7 @@ fun GameViewModel.startUiStateSync(scope: CoroutineScope) {
             Pair(prog, durs)
         }.collect { (prog, durs) ->
             val now = System.currentTimeMillis()
-            if (now - lastUpdateMs >= 1500L || prog.isEmpty()) {
+            if (now - lastUpdateMs >= 200L || prog.isEmpty() || durs.size != productionDurations.value.size) {
                 lastUpdateMs = now
                 updateUiState { copy(productionProgress = prog.toPersistentMap(), productionDurations = durs.toPersistentMap()) }
             }

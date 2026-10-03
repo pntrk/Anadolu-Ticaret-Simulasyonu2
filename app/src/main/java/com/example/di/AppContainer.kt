@@ -26,6 +26,9 @@ object AppContainer {
         appContextRef = WeakReference(context.applicationContext)
     }
 
+    val appContext: Context?
+        get() = appContextRef?.get()
+
     val fileStorageProvider: IFileStorageProvider by lazy {
         AndroidFileStorageProvider { appContextRef?.get() }
     }
