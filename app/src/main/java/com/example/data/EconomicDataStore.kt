@@ -725,8 +725,7 @@ class EconomicDataStore(val context: Context) {
             val obj = savedMap[defaultMgr.id] ?: return@map defaultMgr
             val level = obj.level.coerceIn(1, 5)
             val savedName = obj.name.trim()
-            val hasHireEvidence = obj.isHired || obj.level > 1 || obj.actionLogs.isNotEmpty() || (savedName.isNotBlank() && savedName != defaultMgr.name)
-            val isHired = hasHireEvidence
+            val isHired = obj.isHired
             val name = if (savedName.isNotBlank()) savedName else defaultMgr.name
             val title = obj.title.ifBlank { defaultMgr.title }
             val specialty = obj.specialty.ifBlank { defaultMgr.specialty }

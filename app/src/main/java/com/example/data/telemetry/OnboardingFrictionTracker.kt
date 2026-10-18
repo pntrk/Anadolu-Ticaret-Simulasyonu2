@@ -1,16 +1,54 @@
 package com.example.data.telemetry
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 /**
- * Onboarding Friction Tracker:
- * Specifically dedicated to capturing friction points, UX stumbling blocks,
- * and logical confusion for new players (Level <= 2).
+ * Onboarding Friction Tracker (Faz 4 Canlı Kurtarma & Sürtünme Analizi):
+ * Captures friction points, UX stumbling blocks, repeated lock clicks,
+ * cash starvation, and idle facility events for players.
  */
 object OnboardingFrictionTracker {
 
+    private val lockClickCounts = mutableMapOf<String, Int>()
+
     /**
-     * Checks if player is in the early onboarding / adaptation phase (Level <= 2).
+     * Checks if player is in the early onboarding / adaptation phase (Level <= 3).
      */
-    fun isNewPlayer(playerLevel: Int): Boolean = playerLevel <= 2
+    fun isNewPlayer(playerLevel: Int): Boolean = playerLevel <= 3
+
+    /**
+     * Captures when a player repeatedly clicks a locked feature tab (3+ times)
+     * to trigger a helpful mini guidance dialog or friction alert.
+     */
+    fun trackRepeatedLockClick(
+        playerLevel: Int,
+        featureId: String,
+        featureName: String,
+        onMiniGuideTriggered: (() -> Unit)? = null
+    ) {
+        val currentClicks = (lockClickCounts[featureId] ?: 0) + 1
+        lockClickCounts[featureId] = currentClicks
+
+        if (currentClicks >= 3) {
+            TelemetryService.recordEvent(
+                eventType = TelemetryEventType.ONBOARDING_FRICTION,
+                severity = TelemetrySeverity.WARN,
+                tag = "Onboarding_Repeated_Lock_Click",
+                message = "Oyuncu (Lvl $playerLevel) kilitli '$featureName' sekmeye $currentClicks kez ardı ardına tıkladı. Yardımcı mini rehber tetiklendi.",
+                playerLevel = playerLevel,
+                metadata = mapOf(
+                    "featureId" to featureId,
+                    "featureName" to featureName,
+                    "clickCount" to currentClicks.toString()
+                )
+            )
+            onMiniGuideTriggered?.invoke()
+            lockClickCounts[featureId] = 0 // Reset after trigger
+        }
+    }
 
     /**
      * Captures when a new player tries to purchase or build something without enough funds.
@@ -99,7 +137,7 @@ object OnboardingFrictionTracker {
     }
 
     /**
-     * Captures when a new player dismisses a key tutorial/help dialog in less than 2 seconds (confusion or accidental tap).
+     * Captures when a new player dismisses a key tutorial/help dialog in less than 2.5 seconds (confusion or accidental tap).
      */
     fun trackRapidDialogDismissal(
         playerLevel: Int,

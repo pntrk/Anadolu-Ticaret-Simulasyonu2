@@ -50,7 +50,7 @@ data class Manager(
     val hierarchy: Int,
     val timestamp: String = "19:54",
     val logCount: Int = 10,
-    @DrawableRes val templateRes: Int = R.drawable.k1,
+    @DrawableRes val templateRes: Int = R.drawable.k7,
     val isHired: Boolean = true,
     val isActive: Boolean = true,
     val hireCostGems: Int = 0
@@ -83,17 +83,13 @@ val TURKISH_MALE_NAMES = listOf(
 )
 
 /**
- * ManagerProfileCard
+ * ManagerProfileCard (Faz 1 Plate Mimarisi)
  * 
- * Renders the static executive card template plate (female/male) as background
- * and places dynamic game database information onto designated slots with ConstraintLayout.
+ * Görseller (erkek: e1–e6, kadın: k7–k10) Image(painterResource(...), contentScale = ContentScale.FillBounds)
+ * ile doğrudan arkaplan şablonu olarak yerleştirilir.
  * 
- * STRICT RULES & SHIFT PREVENTION:
- * 1. Background uses Box + Image(painterResource, contentScale = ContentScale.FillBounds).
- * 2. Avatar/Portrait is anchored on the left side (0.00f to ~0.415f). Content strictly starts at 0.425f
- *    to prevent any text from overlapping or shifting into the avatar photo.
- * 3. Left and right boxes use exact matching guidelines with 0.265f symmetrical width and a 0.015f gutter.
- * 4. All texts have strict maxLines, ellipsis, and scaled typography to guarantee zero layout shift.
+ * Veriler (manager.title, manager.salary, manager.passiveEffect, manager.logText, manager.level, manager.hierarchy)
+ * oransal ConstraintLayout ile şablon üzerindeki gri/koyu kutulara tam oturtulur.
  */
 @Composable
 fun ManagerProfileCard(
@@ -122,7 +118,7 @@ fun ManagerProfileCard(
                 } else Modifier
             )
     ) {
-        // 1. Static Plate Background Template
+        // 1. Direct Background Template Image (Erkek: e1-e6, Kadın: k7-k10)
         Image(
             painter = painterResource(id = manager.templateRes),
             contentDescription = "${manager.name} - ${manager.title}",
@@ -130,11 +126,11 @@ fun ManagerProfileCard(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. ConstraintLayout with strict guidelines to lock text in position without shift
+        // 2. Proportional ConstraintLayout overlay mapped directly to template slots
         ConstraintLayout(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Strict Content Guidelines anchored to the visual slots on the card templates
+            // Guidelines mapped to template boxes
             val glTopTitle = createGuidelineFromTop(0.040f)
             val glBottomTitle = createGuidelineFromTop(0.260f)
             val glStartContent = createGuidelineFromStart(0.425f)
@@ -258,7 +254,7 @@ fun ManagerProfileCard(
                 }
             }
 
-            // 3. Orta Sol Kutu (Maaş & Canlı Mini Sparkline Çizgi Grafiği)
+            // 3. Orta Sol Kutu (Maaş & Canlı Mini Sparkline)
             Surface(
                 modifier = Modifier
                     .constrainAs(salaryRef) {
@@ -332,7 +328,6 @@ fun ManagerProfileCard(
                         )
                     }
 
-                    // Sparkline chart
                     SparklineChart(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -341,7 +336,7 @@ fun ManagerProfileCard(
                 }
             }
 
-            // 4. Orta Sağ Kutu (Hiyerarşi & Pasif Etki + Dairesel Yüzde Göstergesi)
+            // 4. Orta Sağ Kutu (Pasif Etki & Verim)
             Surface(
                 modifier = Modifier
                     .constrainAs(effectRef) {
@@ -558,7 +553,6 @@ fun ManagerProfileCard(
                             )
                         }
 
-                        // Circular level badge at the right edge
                         Box(
                             modifier = Modifier.size(15.dp),
                             contentAlignment = Alignment.Center
@@ -644,7 +638,6 @@ fun SparklineChart(
             }
         }
 
-        // Fill under chart
         drawPath(
             path = fillPath,
             brush = Brush.verticalGradient(
@@ -652,14 +645,12 @@ fun SparklineChart(
             )
         )
 
-        // Draw sparkline path
         drawPath(
             path = path,
             color = lineColor,
             style = Stroke(width = 2.dp.toPx())
         )
 
-        // Draw end dot
         val lastPoint = points.last()
         drawCircle(
             color = lineColor,
@@ -685,7 +676,6 @@ fun CircularProgressGauge(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 2.dp.toPx()
 
-            // Background Track
             drawArc(
                 color = color.copy(alpha = 0.2f),
                 startAngle = 0f,
@@ -694,7 +684,6 @@ fun CircularProgressGauge(
                 style = Stroke(width = strokeWidth)
             )
 
-            // Active Arc
             val sweep = (percentage / 100f) * 360f
             drawArc(
                 color = color,
@@ -806,7 +795,7 @@ fun ManagerProfileCard(
 }
 
 /**
- * Returns matching male (e1..e10) or female (k1..k10) name for the manager.
+ * Returns matching male (e1..e6) or female (k7..k10) name for the manager.
  */
 fun getManagerDisplayName(manager: CompanyManager): String {
     if (manager.name.isNotBlank()) return manager.name
@@ -841,15 +830,12 @@ fun isFemaleManager(manager: CompanyManager): Boolean {
     val tokens = cleanName.split(" ", ".", ",").filter { it.isNotBlank() }
     val firstName = tokens.firstOrNull { it !in listOf("dr", "prof", "müh", "av", "uzm") } ?: ""
 
-    // 1. Direct female first name match (e.g. Nazlı Bozkurt -> female)
     if (TURKISH_FEMALE_FIRST_NAMES.contains(firstName)) return true
     if (TURKISH_FEMALE_FIRST_NAMES.any { cleanName.startsWith(it) || cleanName.contains(it) }) return true
 
-    // 2. Direct male first name match
     if (TURKISH_MALE_FIRST_NAMES.contains(firstName)) return false
     if (TURKISH_MALE_FIRST_NAMES.any { cleanName.startsWith(it) || cleanName.contains(it) }) return false
 
-    // 3. Fallback to default specialty only when name is generic or blank
     return when (manager.id) {
         "mgr_treasury", "mgr_contracts", "mgr_logistics", "mgr_hr" -> true
         else -> false
@@ -857,34 +843,35 @@ fun isFemaleManager(manager: CompanyManager): Boolean {
 }
 
 /**
- * Deterministically maps e1-e10 templates to male names, k1-k10 templates to female names.
+ * Deterministically maps e1-e6 templates to male managers, k7-k10 templates to female managers (Faz 1 Plate Mimarisi).
  */
 fun getManagerTemplateDrawable(manager: CompanyManager): Int {
     val isFemale = isFemaleManager(manager)
     val nameSeed = if (manager.name.isNotBlank()) manager.name else manager.id
     val hash = Math.abs(nameSeed.hashCode())
-    val index = (hash % 10) + 1
 
     return if (isFemale) {
+        val index = (hash % 4) + 7 // k7 .. k10
         getFemaleTemplateResource(index)
     } else {
+        val index = (hash % 6) + 1 // e1 .. e6
         getMaleTemplateResource(index)
     }
 }
 
 fun getFemaleTemplateResource(index: Int): Int {
     return when (index) {
+        7 -> R.drawable.k7
+        8 -> R.drawable.k8
+        9 -> R.drawable.k9
+        10 -> R.drawable.k10
         1 -> R.drawable.k1
         2 -> R.drawable.k2
         3 -> R.drawable.k3
         4 -> R.drawable.k4
         5 -> R.drawable.k5
         6 -> R.drawable.k6
-        7 -> R.drawable.k7
-        8 -> R.drawable.k8
-        9 -> R.drawable.k9
-        10 -> R.drawable.k10
-        else -> R.drawable.k1
+        else -> R.drawable.k7
     }
 }
 
@@ -896,10 +883,6 @@ fun getMaleTemplateResource(index: Int): Int {
         4 -> R.drawable.e4
         5 -> R.drawable.e5
         6 -> R.drawable.e6
-        7 -> R.drawable.e7
-        8 -> R.drawable.e8
-        9 -> R.drawable.e9
-        10 -> R.drawable.e10
         else -> R.drawable.e1
     }
 }

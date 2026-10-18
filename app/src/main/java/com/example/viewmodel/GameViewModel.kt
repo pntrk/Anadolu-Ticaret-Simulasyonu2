@@ -797,7 +797,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
      */
     fun isFeatureUnlocked(feature: com.example.data.GameFeature): Boolean {
         val lvl = player.value?.level ?: 1
-        return com.example.data.FeatureLockManager.isUnlocked(feature, lvl, _researchLevels.value)
+        val nw = netWorth.value
+        return com.example.data.FeatureLockManager.isUnlocked(feature, lvl, _researchLevels.value, nw)
     }
 
     /**
@@ -805,7 +806,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
      */
     fun getFeatureLockInfo(feature: com.example.data.GameFeature): com.example.data.FeatureLockInfo {
         val lvl = player.value?.level ?: 1
-        return com.example.data.FeatureLockManager.getLockInfo(feature, lvl, _researchLevels.value)
+        val nw = netWorth.value
+        return com.example.data.FeatureLockManager.getLockInfo(feature, lvl, _researchLevels.value, nw)
     }
 
     /**
@@ -813,7 +815,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
      */
     fun getAllFeaturesLockInfo(): List<com.example.data.FeatureLockInfo> {
         val lvl = player.value?.level ?: 1
-        return com.example.data.FeatureLockManager.getAllFeaturesLockInfo(lvl, _researchLevels.value)
+        val nw = netWorth.value
+        return com.example.data.FeatureLockManager.getAllFeaturesLockInfo(lvl, _researchLevels.value, nw)
     }
 
     /**
@@ -830,6 +833,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
         val prods = _activeProductions.value
         val resMap = _researchLevels.value
         val activeRes = _activeResearches.value
+        val nw = netWorth.value
 
         return com.example.data.SmartAdvisorManager.analyzeAndRecommend(
             playerLevel = lvl,
@@ -840,7 +844,8 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
             researchLevels = resMap,
             activeResearches = activeRes,
             depositBalance = depositBalance,
-            currentCityId = currentCity
+            currentCityId = currentCity,
+            netWorth = nw
         )
     }
 

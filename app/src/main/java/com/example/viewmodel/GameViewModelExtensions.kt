@@ -3096,12 +3096,11 @@ fun GameViewModel.applySnapshotToState(snapshot: EconomicSnapshot) {
         val remoteMgr = baseManagers.find { it.id == def.id }
         val localMgr = currentLocal.find { it.id == def.id }
         val level = maxOf(remoteMgr?.level ?: 1, localMgr?.level ?: 1, 1).coerceIn(1, 5)
-        val hasHire = (remoteMgr?.isHired == true) || (localMgr?.isHired == true) || 
-                      (level > 1) ||
-                      (remoteMgr?.actionLogs?.isNotEmpty() == true) || (localMgr?.actionLogs?.isNotEmpty() == true) ||
-                      (remoteMgr?.name?.isNotBlank() == true && remoteMgr.name != def.name) ||
-                      (localMgr?.name?.isNotBlank() == true && localMgr.name != def.name)
-        val isHired = hasHire
+        val isHired = when {
+            localMgr != null -> localMgr.isHired
+            remoteMgr != null -> remoteMgr.isHired
+            else -> false
+        }
         val eff = maxOf(remoteMgr?.efficiency ?: 1.0f, localMgr?.efficiency ?: 1.0f, if (level >= 5) 1.5f else 1.0f)
         val name = when {
             remoteMgr != null && remoteMgr.name.isNotBlank() && remoteMgr.name != def.name -> remoteMgr.name

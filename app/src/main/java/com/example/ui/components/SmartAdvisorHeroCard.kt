@@ -73,6 +73,7 @@ fun SmartAdvisorHeroCard(
         AdvisorGoalType.WAIT_PRODUCTION -> Color(0xFF94A3B8)      // Gray (Waiting)
         AdvisorGoalType.TRANSFER_TO_CENTRAL_WAREHOUSE -> Color(0xFFF97316) // Orange
         AdvisorGoalType.SELL_ON_BORSA -> Color(0xFF38BDF8)        // Sky Blue
+        AdvisorGoalType.EMERGENCY_LIQUIDITY_TENDER -> Color(0xFFEF4444) // Emergency Red
         AdvisorGoalType.START_FIRST_RESEARCH -> Color(0xFFA855F7) // Purple
         AdvisorGoalType.OPEN_MARKET_DELIVERY -> Color(0xFFEC4899) // Pink / Magenta
         AdvisorGoalType.HIRE_AUTOMATION_MANAGER -> Color(0xFF6366F1) // Indigo
@@ -193,6 +194,7 @@ fun SmartAdvisorHeroCard(
                                 AdvisorGoalType.WAIT_PRODUCTION -> Icons.Rounded.HourglassEmpty
                                 AdvisorGoalType.TRANSFER_TO_CENTRAL_WAREHOUSE -> Icons.Rounded.MoveToInbox
                                 AdvisorGoalType.SELL_ON_BORSA -> Icons.Rounded.TrendingUp
+                                AdvisorGoalType.EMERGENCY_LIQUIDITY_TENDER -> Icons.Rounded.Warning
                                 AdvisorGoalType.START_FIRST_RESEARCH -> Icons.Rounded.Science
                                 AdvisorGoalType.OPEN_MARKET_DELIVERY -> Icons.Rounded.LocalShipping
                                 AdvisorGoalType.HIRE_AUTOMATION_MANAGER -> Icons.Rounded.Badge

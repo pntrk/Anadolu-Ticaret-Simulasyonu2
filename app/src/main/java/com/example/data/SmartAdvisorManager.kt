@@ -6,17 +6,18 @@ import com.example.R
  * Akıllı Danışman (Smart Advisor) Eylem Tipleri
  */
 enum class AdvisorGoalType {
-    BUILD_FIRST_FACILITY,      // 1. İlk Tesisi Kur
-    START_PRODUCTION,          // 2. Üretimi Başlat
-    WAIT_PRODUCTION,           // 2.5 Üretimin Bitmesini Bekle
+    BUILD_FIRST_FACILITY,          // 1. İlk Tesisi Kur
+    START_PRODUCTION,              // 2. Üretimi Başlat (Atıl Kapasite Önleme)
+    WAIT_PRODUCTION,               // 2.5 Üretimin Bitmesini Bekle
     TRANSFER_TO_CENTRAL_WAREHOUSE, // 2.75 Merkez Depoya Aktar
-    SELL_ON_BORSA,             // 3. Borsada Sat & Kâr Et
-    DEPOSIT_IDLE_CASH,         // 4. Parayı Bankada Değerlendir (Mevduat)
-    START_FIRST_RESEARCH,      // 5. Ar-Ge Laboratuvarında Araştırma Başlat
-    OPEN_MARKET_DELIVERY,      // 6. İller Arası Pazar & Lojistik Sevkiyatı Yap
-    HIRE_AUTOMATION_MANAGER,   // 7. İK Müdürü Kirala (Otomasyon)
-    SUPPLY_MEGA_CONSORTIUM,    // 8. Mega Proje Konsorsiyumuna Tedarik Sağla
-    EXPAND_EMPIRE              // 9. Şirketini Büyüt (Holding & İhracat)
+    SELL_ON_BORSA,                 // 3. Borsada Sat & Kâr Et (Nakit Sıkışıklığı & Likidite)
+    EMERGENCY_LIQUIDITY_TENDER,    // 3.5 Acil Likidite & Devlet İhalesi
+    DEPOSIT_IDLE_CASH,             // 4. Parayı Bankada Değerlendir (Mevduat)
+    START_FIRST_RESEARCH,          // 5. Ar-Ge Laboratuvarında Araştırma Başlat
+    OPEN_MARKET_DELIVERY,          // 6. İller Arası Pazar & Lojistik Sevkiyatı Yap
+    HIRE_AUTOMATION_MANAGER,       // 7. İK Müdürü Kirala (Otomasyon)
+    SUPPLY_MEGA_CONSORTIUM,        // 8. Mega Proje Konsorsiyumuna Tedarik Sağla
+    EXPAND_EMPIRE                  // 9. Şirketini Büyüt (Holding & İhracat)
 }
 
 /**
@@ -38,11 +39,13 @@ data class AdvisorRecommendation(
     val iconRes: Int = R.drawable.ic_tab_headquarters,
     val badgeTr: String = "ÖNERİLEN HAMLE",
     val badgeEn: String = "RECOMMENDED MOVE",
-    val progressRatio: Float = 0f
+    val progressRatio: Float = 0f,
+    val isEmergencyAlert: Boolean = false
 )
 
 /**
  * Oyuncunun durumunu (seviye, tesisler, nakit, envanter, üretim, ar-ge) analiz edip
+ * Faz 4 Canlı Kurtarma (Nakit Sıkışıklığı & Atıl Kapasite) desteğiyle
  * tek bir kristal netliğinde eylem üreten Akıllı Danışman Karar Motoru.
  */
 object SmartAdvisorManager {
@@ -56,7 +59,8 @@ object SmartAdvisorManager {
         researchLevels: Map<String, Int>,
         activeResearches: Map<String, Long>,
         depositBalance: Long = 0L,
-        currentCityId: String = "istanbul"
+        currentCityId: String = "istanbul",
+        netWorth: Long = 0L
     ): AdvisorRecommendation? {
         val totalInventoryCount = inventoryItems.sumOf { it.quantity }
         val facilityStoredTotal = businesses.sumOf { b ->
@@ -64,6 +68,28 @@ object SmartAdvisorManager {
         }
         val hasActiveProduction = activeProductions.isNotEmpty()
         val hasBusinesses = businesses.isNotEmpty()
+
+        // -------------------------------------------------------------
+        // FAZ 4 CANLI KURTARMA 1: Nakit Sıkışıklığı (Cash Starvation)
+        // Para kritik seviyenin altındaysa (<15.000 ₳) ve depoda mal varsa anında borsada satış öner
+        // -------------------------------------------------------------
+        if (money < 15_000L && totalInventoryCount > 0) {
+            return AdvisorRecommendation(
+                goalType = AdvisorGoalType.EMERGENCY_LIQUIDITY_TENDER,
+                stepOrder = 0,
+                titleTr = "🚨 Nakit Sıkışıklığı: Depodaki Malları Sat!",
+                titleEn = "🚨 Cash Starvation: Sell Warehouse Goods!",
+                messageTr = "Kasanızda sadece ₳${com.example.ui.components.formatMoney(money)} kaldı ancak deponuzda $totalInventoryCount ton mal bekliyor! Acil likidite için borsada hemen satış yapın.",
+                messageEn = "You only have ₳${com.example.ui.components.formatMoney(money)} cash left, but $totalInventoryCount tons of goods are in stock! Sell immediately for emergency liquidity.",
+                actionTextTr = "Acil Satış Yap ⚡",
+                actionTextEn = "Emergency Sell ⚡",
+                targetRoute = "inventory",
+                badgeTr = "ACİL LİKİDİTE",
+                badgeEn = "EMERGENCY LIQUIDITY",
+                progressRatio = 0.50f,
+                isEmergencyAlert = true
+            )
+        }
 
         // -------------------------------------------------------------
         // DURUM 1: Oyuncunun hiç tesisi yok -> İlk tesisi kurma adımı
@@ -88,26 +114,27 @@ object SmartAdvisorManager {
         }
 
         // -------------------------------------------------------------
-        // DURUM 2: Tesisi var ama üretim çalışmıyor ve stok yok -> Üretimi Başlat
+        // FAZ 4 CANLI KURTARMA 2: Atıl Kapasite (Idle Facility)
+        // Tesis var ama üretim çalışmıyor ve stok yok -> Üretimi Başlat
         // -------------------------------------------------------------
         if (!hasActiveProduction && totalInventoryCount == 0 && facilityStoredTotal == 0) {
             val firstBiz = businesses.first()
             val isAdvanced = playerLevel >= 3
-            val isGrinding = playerLevel < 3 && money > 15_000 // if they already sold once, they have money
+            val isGrinding = playerLevel < 3 && money > 15_000
             return AdvisorRecommendation(
                 goalType = AdvisorGoalType.START_PRODUCTION,
                 stepOrder = if (isAdvanced) 4 else if (isGrinding) 3 else 2,
-                titleTr = if (isGrinding) "Seviye Atlamak İçin Üret ⚙️" else "Üretim Çarklarını Döndür ⚙️",
-                titleEn = if (isGrinding) "Produce to Level Up ⚙️" else "Start Facility Production ⚙️",
-                messageTr = if (isGrinding) "Seviye 3'e ulaşıp Ar-Ge'yi açmak için üretmeye ve satmaya devam etmelisiniz!" else "${firstBiz.cityId.uppercase()} şehrindeki tesisiniz boşta bekliyor. Şirketinizi büyütmek için üretime ara vermeyin!",
-                messageEn = if (isGrinding) "Keep producing and selling to reach Level 3 and unlock R&D!" else "Your facility in ${firstBiz.cityId.uppercase()} is idle. Don't stop producing to grow your company!",
+                titleTr = if (isGrinding) "Seviye Atlamak İçin Üret ⚙️" else "Atıl Kapasiteyi Devreye Al ⚙️",
+                titleEn = if (isGrinding) "Produce to Level Up ⚙️" else "Activate Idle Capacity ⚙️",
+                messageTr = if (isGrinding) "Seviye 3'e ulaşıp Ar-Ge'yi açmak için üretmeye ve satmaya devam etmelisiniz!" else "${firstBiz.cityId.uppercase()} şehrindeki tesisiniz atıl durumda bekliyor. Şirket gelirinizi korumak için hemen üretim başlatın!",
+                messageEn = if (isGrinding) "Keep producing and selling to reach Level 3 and unlock R&D!" else "Your facility in ${firstBiz.cityId.uppercase()} is idle. Start production immediately to protect revenues!",
                 actionTextTr = "Üretime Başla ⚡",
                 actionTextEn = "Start Production ⚡",
                 targetRoute = "production",
                 targetCityId = firstBiz.cityId,
                 targetFacilityType = firstBiz.type,
-                badgeTr = if (isAdvanced) "ÜRETİM TAVSİYESİ" else if (isGrinding) "DENEYİM KAZAN" else "2. ADIM: ÜRETİM",
-                badgeEn = if (isAdvanced) "PRODUCTION ADVICE" else if (isGrinding) "GAIN EXPERIENCE" else "STEP 2: PRODUCTION",
+                badgeTr = if (isAdvanced) "ATIL KAPASİTE UYARISI" else if (isGrinding) "DENEYİM KAZAN" else "2. ADIM: ÜRETİM",
+                badgeEn = if (isAdvanced) "IDLE CAPACITY WARNING" else if (isGrinding) "GAIN EXPERIENCE" else "STEP 2: PRODUCTION",
                 progressRatio = if (isGrinding) 0.45f else 0.25f
             )
         }
@@ -180,7 +207,7 @@ object SmartAdvisorManager {
         // -------------------------------------------------------------
         // DURUM 4: Seviye 3+ ve Ar-Ge araştırması başlatılmamış -> Ar-Ge'ye Başla
         // -------------------------------------------------------------
-        val isRdUnlocked = FeatureLockManager.isUnlocked(GameFeature.RD_LAB, playerLevel, researchLevels)
+        val isRdUnlocked = FeatureLockManager.isUnlocked(GameFeature.RD_LAB, playerLevel, researchLevels, netWorth)
         val activeResCount = activeResearches.size
         val totalCompletedTech = researchLevels.values.sum()
 
@@ -190,8 +217,8 @@ object SmartAdvisorManager {
                 stepOrder = 4,
                 titleTr = "Ar-Ge ile Yeni Piyasaları Aç 🔬",
                 titleEn = "Unlock New Markets with R&D 🔬",
-                messageTr = "Şirketiniz Seviye 3 oldu! İller arası pazarı ve otomasyon müdürlerini açmak için ilk Ar-Ge araştırmanızı başlatın.",
-                messageEn = "You reached Level 3! Start your first R&D research to unlock intercity trade and automation managers.",
+                messageTr = "Şirketiniz Ar-Ge aşamasına ulaştı! İller arası pazarı ve otomasyon müdürlerini açmak için ilk Ar-Ge araştırmanızı başlatın.",
+                messageEn = "Your company reached R&D stage! Start your first R&D research to unlock intercity trade and automation managers.",
                 actionTextTr = "Ar-Ge'yi Aç 🔬",
                 actionTextEn = "Open R&D 🔬",
                 targetRoute = "rd",
@@ -205,7 +232,7 @@ object SmartAdvisorManager {
         // -------------------------------------------------------------
         // DURUM 7: Yüksek Boşta Nakit (>₳250.000) ve Mevduat Yoksa -> Bankada Değerlendir
         // -------------------------------------------------------------
-        val isBankUnlocked = FeatureLockManager.isUnlocked(GameFeature.BANKING, playerLevel, researchLevels)
+        val isBankUnlocked = FeatureLockManager.isUnlocked(GameFeature.BANKING, playerLevel, researchLevels, netWorth)
         if (isBankUnlocked && money > 250_000L && depositBalance == 0L) {
             return AdvisorRecommendation(
                 goalType = AdvisorGoalType.DEPOSIT_IDLE_CASH,
@@ -223,11 +250,6 @@ object SmartAdvisorManager {
             )
         }
 
-        // -------------------------------------------------------------
-        // VARSAYILAN / GENEL GELİŞİM
-        // -------------------------------------------------------------
-        // Seviye 3 ve sonrasında özel bir aksiyon yoksa (üretim/satış/banka vs. uyarısı yoksa)
-        // kalabalık yapmamak adına danışmanı gizliyoruz (null dönüyoruz).
         if (playerLevel >= 3) {
             return null
         }
