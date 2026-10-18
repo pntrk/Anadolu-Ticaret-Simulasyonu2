@@ -327,10 +327,10 @@ object BotTycoonManager {
             viewModel._marketListings.value = viewModel._marketListings.value.filterNot { it in expiredListings }
             expiredListings.forEach { expired ->
                 val isRealPlayerListing = !expired.isBotListing && !expired.sellerId.startsWith("BOT-") && !expired.id.startsWith("BOT_LISTING_")
-                if (isRealPlayerListing) {
+                val isMyListing = expired.sellerId == myUid || expired.sellerName.equals(myName, ignoreCase = true)
+                if (isMyListing && isRealPlayerListing) {
                     com.example.data.SupabaseManager.deleteMarketListingFromSupabase(expired.id)
                 }
-                val isMyListing = expired.sellerId == myUid || expired.sellerName.equals(myName, ignoreCase = true)
                 if (isMyListing && expired.quantity > 0) {
                     val baseId = ItemQuality.extractBaseProductId(expired.itemId)
                     val prod = Product.values().find { it.id == baseId }
@@ -394,9 +394,10 @@ object BotTycoonManager {
                     // Oyuncunun ilanını al ve parayı oyuncuya ver
                     val remainingQty = listing.quantity - purchaseQty
                     val isRealPlayerListing = !listing.isBotListing && !listing.sellerId.startsWith("BOT-") && !listing.id.startsWith("BOT_LISTING_")
+                    val isMyListing = listing.sellerId == myUid || listing.sellerName.equals(myName, ignoreCase = true)
                     if (remainingQty <= 0) {
                         viewModel._marketListings.value = viewModel._marketListings.value.filterNot { it.id == listing.id }
-                        if (isRealPlayerListing) {
+                        if (isRealPlayerListing && isMyListing) {
                             com.example.data.SupabaseManager.deleteMarketListingFromSupabase(listing.id)
                         }
                     } else {
@@ -404,7 +405,7 @@ object BotTycoonManager {
                         viewModel._marketListings.value = viewModel._marketListings.value.map {
                             if (it.id == listing.id) updatedListing else it
                         }
-                        if (isRealPlayerListing) {
+                        if (isRealPlayerListing && isMyListing) {
                             com.example.data.SupabaseManager.syncMarketListingToSupabase(updatedListing)
                         }
                     }
@@ -415,6 +416,9 @@ object BotTycoonManager {
                         totalProfit = p.totalProfit + totalPaid
                     )
                     viewModel.repository.updatePlayer(updatedPlayer)
+                    if (isRealPlayerListing) {
+                        viewModel.onGoodsSoldForBulletin(baseId, listing.originCityId, purchaseQty)
+                    }
 
                     // İlgili botun istatistiklerini güncelle
                     matchingBot.completedTradeCount += 1

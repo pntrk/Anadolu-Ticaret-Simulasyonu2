@@ -46,9 +46,11 @@ billing = "9.1.0"
 mockk = "1.13.16"
 kotlinxSerializationJson = "1.8.0"
 appUpdate = "2.1.0"
+constraintlayoutCompose = "1.1.1"
 
 
 [libraries]
+androidx-constraintlayout-compose = { group = "androidx.constraintlayout", name = "constraintlayout-compose", version.ref = "constraintlayoutCompose" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

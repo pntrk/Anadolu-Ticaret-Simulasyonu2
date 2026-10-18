@@ -478,11 +478,15 @@ object MultiplayerManager {
                 Log.d(TAG, "Received Postgres Realtime change on topic: $topic")
                 scope.launch {
                     if (topic == "realtime:auctions") {
-                        com.example.data.MuseumHeritageManager.syncWithSupabaseSafe()
+                        val now = System.currentTimeMillis()
+                        if (now - lastAuctionsSyncMs >= 60_000L) {
+                            lastAuctionsSyncMs = now
+                            com.example.data.MuseumHeritageManager.syncWithSupabaseSafe()
+                        }
                     } else if (topic == "realtime:market") {
                         _marketChangeTriggerFlow.tryEmit(System.currentTimeMillis())
                     } else {
-                        refreshGuildsFromSupabase()
+                        refreshGuildsFromSupabase(force = false)
                     }
                 }
             }
@@ -807,18 +811,22 @@ object MultiplayerManager {
         activeWebSocket = null
     }
 
+    private var lastGuildsRefreshMs = 0L
+    private var lastAuctionsSyncMs = 0L
+
     /**
-     * Supabase'den konsorsiyumları ve halka arz şirketlerini tazeleyip canlı state'e aktarır
+     * Supabase'den konsorsiyumları ve halka arz şirketlerini tazeleyip canlı state'e aktarır.
+     * Egress ve Log patlamasını önlemek için 60 saniyelik minimum aralıkla (cooldown) çalışır
+     * ve asla dinleme esnasında veritabanı silme (DELETE) işlemi tetiklemez.
      */
-    suspend fun refreshGuildsFromSupabase() {
+    suspend fun refreshGuildsFromSupabase(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && (now - lastGuildsRefreshMs < 60_000L)) {
+            return
+        }
+        lastGuildsRefreshMs = now
         try {
             val supabaseGuilds = SupabaseManager.fetchGuildsFromSupabase()
-            
-            // Legacy cleanup (remove old bots so the new bots are uniquely loaded)
-            supabaseGuilds?.filter { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v5-")) }?.forEach { oldBot ->
-                SupabaseManager.deleteMegaProjectFromSupabase(oldBot.id)
-            }
-
             val currentGuilds = supabaseGuilds?.filterNot { it.id.startsWith("guild-") || (it.id.startsWith("bot-guild-") && !it.id.startsWith("bot-guild-v5-")) } ?: emptyList()
             
             val missingBots = defaultBotGuilds.filter { bot -> currentGuilds.none { it.id == bot.id } }

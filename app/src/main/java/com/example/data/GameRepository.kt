@@ -57,10 +57,16 @@ class GameRepository(
     fun startListeningToGlobalMarketBundle(onUpdate: (SupabaseManager.GlobalMarketBundle) -> Unit): Job {
         globalMarketJob?.cancel()
         val job = CoroutineScope(Dispatchers.IO).launch {
-            // 1. Canlı Realtime WebSocket yayınlarını dinle ve anında pazar paketini güncelle
+            // 1. Canlı Realtime WebSocket yayınlarını dinle ve akıllı debounce ile pazar paketini güncelle
             launch {
+                var lastMarketFetchMs = 0L
                 MultiplayerManager.broadcastMarketActionFlow.collect { event ->
                     try {
+                        val now = System.currentTimeMillis()
+                        if (now - lastMarketFetchMs < 30_000L) {
+                            return@collect // Egress koruması: En fazla 30 saniyede bir tam pazar paketi çek
+                        }
+                        lastMarketFetchMs = now
                         val bundle = SupabaseManager.fetchGlobalMarketBundleFromSupabase()
                         if (bundle != null && isActive) {
                             withContext(Dispatchers.Main) {

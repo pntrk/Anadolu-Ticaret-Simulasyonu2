@@ -134,10 +134,10 @@ fun ProductIconBadge(
         pulseAlpha = 0.55f
     }
 
-    val cornerRadius = size * 0.28f
-    val iconSize = size * 0.54f
-    val sectorBadgeSize = size * 0.36f
-    val sectorIconSize = size * 0.22f
+    val cornerRadius = size * 0.22f
+    val iconSize = size * 0.72f
+    val sectorBadgeSize = size * 0.34f
+    val sectorIconSize = size * 0.20f
 
     Box(
         contentAlignment = Alignment.Center,

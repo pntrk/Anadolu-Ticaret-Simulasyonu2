@@ -41,6 +41,7 @@ import com.example.data.MacroEconomyState
 import com.example.data.EconomicCycle
 import com.example.data.BulletinOpportunity
 import com.example.data.BusinessEntity
+import com.example.data.Product
 import com.example.ui.theme.*
 
 /**
@@ -350,8 +351,11 @@ fun CityNewsBulletinDialog(
     macroState: MacroEconomyState? = null,
     bulletinOpportunities: List<BulletinOpportunity> = emptyList(),
     ownedFacilities: List<BusinessEntity> = emptyList(),
+    playerGems: Int = 0,
     onClaimReward: ((String) -> Unit)? = null,
     onQuickProduce: ((String) -> Unit)? = null,
+    onQuickSell: ((String) -> Unit)? = null,
+    onSyncProgress: (() -> Unit)? = null,
     onNavigateToFacility: ((productId: String, cityId: String) -> Unit)? = null,
     onNavigateToBorsa: (() -> Unit)? = null,
     onNavigateToMarket: (() -> Unit)? = null,
@@ -368,6 +372,10 @@ fun CityNewsBulletinDialog(
         tr("🏛️ MAKRO & FAİZ", "🏛️ MACRO & INTEREST"),
         tr("📰 ŞEHİR & PİYASA", "📰 CITY & MARKET")
     )
+
+    LaunchedEffect(Unit) {
+        onSyncProgress?.invoke()
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -389,7 +397,7 @@ fun CityNewsBulletinDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = Color(0xFFE53935).copy(alpha = 0.2f),
@@ -417,8 +425,31 @@ fun CityNewsBulletinDialog(
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = tr("Kapat", "Close"), tint = Color.White.copy(alpha = 0.7f))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // Diamond Counter Pill
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF101935),
+                            border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.6f)),
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.5.dp)
+                            ) {
+                                Text("💎", fontSize = 12.sp)
+                                Text(
+                                    text = "$playerGems",
+                                    color = ThemeGold,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                        }
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = tr("Kapat", "Close"), tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
 
@@ -648,6 +679,10 @@ fun CityNewsBulletinDialog(
                                             onQuickProduce = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 onQuickProduce?.invoke(opp.id)
+                                            },
+                                            onQuickSell = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                onQuickSell?.invoke(opp.id)
                                             },
                                             onNavigateToFacility = {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -902,6 +937,7 @@ private fun BulletinOpportunityCard(
     ownedFacilities: List<BusinessEntity>,
     onClaimReward: () -> Unit,
     onQuickProduce: () -> Unit,
+    onQuickSell: () -> Unit,
     onNavigateToFacility: () -> Unit,
     onNavigateToBorsa: () -> Unit,
     onNavigateToMarket: () -> Unit,
@@ -910,14 +946,15 @@ private fun BulletinOpportunityCard(
     val isEnglish = isEnglishLanguage()
     val isCompleted = opportunity.isCompleted
     val isClaimed = opportunity.isClaimed
+    val prod = Product.values().find { it.id == opportunity.targetProductId }
 
     // Check facility ownership
     val ownsFacilityInCity = ownedFacilities.any {
         it.cityId.equals(opportunity.cityId, ignoreCase = true) &&
-        (it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || it.type.contains(opportunity.targetProductId, ignoreCase = true))
+        (it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true)) || it.type.contains(opportunity.targetProductId, ignoreCase = true))
     }
     val ownsFacilityAnywhere = ownedFacilities.any {
-        it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || it.type.contains(opportunity.targetProductId, ignoreCase = true)
+        it.type.equals(opportunity.targetFacilityId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true)) || it.type.contains(opportunity.targetProductId, ignoreCase = true)
     }
     val hasFacility = ownsFacilityInCity || ownsFacilityAnywhere
 
@@ -1215,21 +1252,27 @@ private fun BulletinOpportunityCard(
                         if (hasFacility) {
                             if (opportunity.isProductionTargetMet) {
                                 Button(
-                                    onClick = onNavigateToMarket,
+                                    onClick = onQuickSell,
                                     colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan),
                                     shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(1.3f)
                                         .height(34.dp)
                                 ) {
-                                    Text(
-                                        text = tr("🛒 Pazarda Sat", "🛒 Market"),
-                                        color = Color(0xFF050B14),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text("⚡", fontSize = 12.sp)
+                                        Text(
+                                            text = tr("Tek Tıkla Borsada Sat", "Quick Sell on Borsa"),
+                                            color = Color(0xFF050B14),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            maxLines = 1
+                                        )
+                                    }
                                 }
                                 Button(
                                     onClick = onNavigateToBorsa,
@@ -1237,11 +1280,11 @@ private fun BulletinOpportunityCard(
                                     shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(0.9f)
                                         .height(34.dp)
                                 ) {
                                     Text(
-                                        text = tr("📈 Borsada Sat", "📈 Borsa"),
+                                        text = tr("📈 Borsa", "📈 Borsa"),
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1256,7 +1299,7 @@ private fun BulletinOpportunityCard(
                                     shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .weight(1.3f)
+                                        .weight(1.2f)
                                         .height(34.dp)
                                 ) {
                                     Row(
@@ -1275,16 +1318,34 @@ private fun BulletinOpportunityCard(
                                 }
 
                                 Button(
+                                    onClick = onQuickSell,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                    shape = RoundedCornerShape(6.dp),
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                    modifier = Modifier
+                                        .weight(0.9f)
+                                        .height(34.dp)
+                                ) {
+                                    Text(
+                                        text = tr("💰 Borsada Sat", "💰 Sell Stock"),
+                                        color = Color.White,
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+
+                                Button(
                                     onClick = onNavigateToFacility,
                                     colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan),
                                     shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(0.9f)
                                         .height(34.dp)
                                 ) {
                                     Text(
-                                        text = tr("🏭 Tesis Paneli", "🏭 Facility"),
+                                        text = tr("🏭 Tesis", "🏭 Facility"),
                                         color = Color(0xFF050B14),
                                         fontSize = 9.5.sp,
                                         fontWeight = FontWeight.Bold,
@@ -1296,7 +1357,7 @@ private fun BulletinOpportunityCard(
                         } else {
                             // Does NOT have facility: Guide to build facility with recommended city
                             Button(
-                                onClick = onNavigateToFacility,
+                                onClick = onGoToCity,
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE5A93C)),
                                 shape = RoundedCornerShape(6.dp),
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
@@ -1304,33 +1365,42 @@ private fun BulletinOpportunityCard(
                                     .weight(1.4f)
                                     .height(34.dp)
                             ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text("🏗️", fontSize = 12.sp)
+                                    Text(
+                                        text = tr(
+                                            "${opportunity.getCityName(isEnglish)}'de ${opportunity.getFacilityName(isEnglish)} Kur",
+                                            "Build ${opportunity.getFacilityName(isEnglish)} in ${opportunity.getCityName(isEnglish)}"
+                                        ),
+                                        color = Color(0xFF050B14),
+                                        fontSize = 9.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            Button(
+                                onClick = onNavigateToFacility,
+                                colors = ButtonDefaults.buttonColors(containerColor = ThemeNeonCyan),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                                modifier = Modifier
+                                    .weight(0.9f)
+                                    .height(34.dp)
+                            ) {
                                 Text(
-                                    text = tr(
-                                        "🏗️ ${opportunity.getCityName(isEnglish)}'de ${opportunity.getFacilityName(isEnglish)} Kur",
-                                        "🏗️ Build ${opportunity.getFacilityName(isEnglish)} in ${opportunity.getCityName(isEnglish)}"
-                                    ),
+                                    text = tr("🏭 Tesisler", "🏭 Facilities"),
                                     color = Color(0xFF050B14),
                                     fontSize = 9.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    maxLines = 1
                                 )
                             }
-                        }
-
-                        OutlinedButton(
-                            onClick = onGoToCity,
-                            shape = RoundedCornerShape(6.dp),
-                            border = BorderStroke(1.dp, ThemeBorder),
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Text(
-                                text = tr("📍 Şehir", "📍 City"),
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
                     }
                 }

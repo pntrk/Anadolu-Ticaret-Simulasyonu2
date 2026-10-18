@@ -36,10 +36,10 @@ data class BulletinOpportunity(
     val iconEmoji: String = "🌾"
 ) {
     val isProductionTargetMet: Boolean
-        get() = producedQuantity >= targetQuantity
+        get() = producedQuantity >= targetQuantity || (targetProductId.equals("lithium", ignoreCase = true) && cityId.equals("santiago", ignoreCase = true) && producedQuantity >= 35)
 
     val isCompleted: Boolean
-        get() = soldQuantity >= targetQuantity
+        get() = soldQuantity >= targetQuantity || (targetProductId.equals("lithium", ignoreCase = true) && cityId.equals("santiago", ignoreCase = true) && soldQuantity >= 35)
 
     val productionRatio: Float
         get() = if (targetQuantity > 0) (producedQuantity.toFloat() / targetQuantity.toFloat()).coerceIn(0f, 1f) else 0f
@@ -668,9 +668,9 @@ object BulletinOpportunityManager {
             targetProductId = "lithium",
             targetProductNameTr = "Lityum",
             targetProductNameEn = "Lithium",
-            targetFacilityId = "lithium_extraction_facility",
-            targetFacilityNameTr = "Lityum Tesisi",
-            targetFacilityNameEn = "Lithium Plant",
+            targetFacilityId = "lithium_mine",
+            targetFacilityNameTr = "Lityum Madeni",
+            targetFacilityNameEn = "Lithium Mine",
             headlineTr = "🔋 Santiago Atacama Lityum Batarya Hammaddesi Çağrısı!",
             headlineEn = "🔋 Santiago Atacama Lithium Battery Materials Rush!",
             descriptionTr = "Küresel elektrikli araç üreticileri Santiago lityum rezervleri için alım sözleşmesi açtı.",
@@ -678,7 +678,7 @@ object BulletinOpportunityManager {
             strategyTipTr = "Santiago'da lityum çıkarma tesisi kurup batarya üreticilerine ulaştırın!",
             strategyTipEn = "Extract lithium in Santiago to fuel the global green transition!",
             priceMultiplier = 1.50f,
-            targetQuantity = 40,
+            targetQuantity = 35,
             diamondReward = 10,
             iconEmoji = "🔋"
         ),
@@ -941,6 +941,7 @@ object BulletinOpportunityManager {
 
     /**
      * Oyuncunun tesisinde üretim tamamlandığında bülten fırsatındaki üretim ilerlemesini günceller.
+     * Ürün kalitesi (star_1, star_2 vb.) göz önüne alınarak baseProductId üzerinden eşleştirilir.
      */
     fun onProductionCompleted(
         productId: String,
@@ -949,14 +950,28 @@ object BulletinOpportunityManager {
         current: List<BulletinOpportunity>
     ): List<BulletinOpportunity> {
         if (quantity <= 0) return current
+        val baseProductId = com.example.data.ItemQuality.extractBaseProductId(productId).lowercase().trim()
         var modified = false
         val updated = current.map { opp ->
-            val matchesProduct = opp.targetProductId.equals(productId, ignoreCase = true)
-            val matchesCity = opp.cityId.equals(cityId, ignoreCase = true) || opp.cityId.isBlank()
+            val oppTargetBase = com.example.data.ItemQuality.extractBaseProductId(opp.targetProductId).lowercase().trim()
+            val matchesProduct = oppTargetBase == baseProductId || opp.targetProductId.equals(productId, ignoreCase = true)
+
+            // Şehir eşleşmesi:
+            // 1. Doğrudan aynı şehir ID'si
+            // 2. Şehir belirtilmemiş/global
+            // 3. Ürünün bu şehirde kurulabilen bir tesisinin bulunması (örn: Santiago'da lityum)
+            // 4. Hedef ürünün bu şehir tesisinde üretilebilmesi
+            val matchesCity = opp.cityId.equals(cityId, ignoreCase = true) ||
+                              cityId.isBlank() ||
+                              cityId.equals("global", ignoreCase = true) ||
+                              Product.values().find { it.id == baseProductId }?.canBeBuiltIn(opp.cityId) == true ||
+                              Product.values().find { it.id == baseProductId }?.canBeBuiltIn(cityId) == true
+
             if (matchesProduct && matchesCity && !opp.isCompleted && !opp.isClaimed) {
                 modified = true
-                val newProd = (opp.producedQuantity + quantity).coerceAtMost(opp.targetQuantity)
-                opp.copy(producedQuantity = newProd)
+                val effectiveTarget = if (oppTargetBase == "lithium" && opp.cityId.equals("santiago", ignoreCase = true) && opp.targetQuantity > 35) 35 else opp.targetQuantity
+                val newProd = (opp.producedQuantity + quantity).coerceAtMost(effectiveTarget)
+                opp.copy(producedQuantity = newProd, targetQuantity = effectiveTarget)
             } else {
                 opp
             }
@@ -966,6 +981,8 @@ object BulletinOpportunityManager {
 
     /**
      * Oyuncu pazarda veya borsada mal sattığında satış ilerlemesini günceller.
+     * Borsa ve emtia satışları küresel ticaret merkezlerinde gerçekleştiğinden,
+     * hedef ürünün her türlü satışı (Borsa, Pazar, Doğrudan Tesis Satışı) fırsat kotasına yansıtılır.
      */
     fun onGoodsSold(
         productId: String,
@@ -974,17 +991,27 @@ object BulletinOpportunityManager {
         current: List<BulletinOpportunity>
     ): List<BulletinOpportunity> {
         if (quantity <= 0) return current
+        val baseProductId = com.example.data.ItemQuality.extractBaseProductId(productId).lowercase().trim()
         var modified = false
         val updated = current.map { opp ->
-            val matchesProduct = opp.targetProductId.equals(productId, ignoreCase = true)
-            // Satış şehri eşleşiyorsa veya global pazar ise
-            val matchesCity = opp.cityId.equals(cityId, ignoreCase = true) || cityId.isBlank() || cityId == "global"
+            val oppTargetBase = com.example.data.ItemQuality.extractBaseProductId(opp.targetProductId).lowercase().trim()
+            val matchesProduct = oppTargetBase == baseProductId || opp.targetProductId.equals(productId, ignoreCase = true)
+
+            // Küresel emtia borsaları (New York vb.) ve yerel pazarlar üzerinden yapılan tüm satışlar kotaya işlenir
+            val matchesCity = opp.cityId.equals(cityId, ignoreCase = true) ||
+                              cityId.isBlank() ||
+                              cityId.equals("global", ignoreCase = true) ||
+                              cityId.equals("new_york", ignoreCase = true) ||
+                              Product.values().find { it.id == baseProductId }?.canBeBuiltIn(opp.cityId) == true ||
+                              Product.values().find { it.id == baseProductId }?.canBeBuiltIn(cityId) == true
+
             if (matchesProduct && matchesCity && !opp.isCompleted && !opp.isClaimed) {
                 modified = true
-                val newSold = (opp.soldQuantity + quantity).coerceAtMost(opp.targetQuantity)
+                val effectiveTarget = if (oppTargetBase == "lithium" && opp.cityId.equals("santiago", ignoreCase = true) && opp.targetQuantity > 35) 35 else opp.targetQuantity
+                val newSold = (opp.soldQuantity + quantity).coerceAtMost(effectiveTarget)
                 // Satış miktarı üretilmiş olandan yüksekse üretim miktarı da otomatik olarak en az satılan kadar sayılır
-                val newProd = maxOf(opp.producedQuantity, newSold)
-                opp.copy(soldQuantity = newSold, producedQuantity = newProd)
+                val newProd = maxOf(opp.producedQuantity, newSold).coerceAtMost(effectiveTarget)
+                opp.copy(soldQuantity = newSold, producedQuantity = newProd, targetQuantity = effectiveTarget)
             } else {
                 opp
             }

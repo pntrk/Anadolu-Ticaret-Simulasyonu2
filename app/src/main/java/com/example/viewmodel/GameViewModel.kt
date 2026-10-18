@@ -242,6 +242,8 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             is GameIntent.SignInAnonymously -> signInAnonymously(intent.onResult)
             is GameIntent.ClaimBulletinOpportunityReward -> claimBulletinOpportunityReward(intent.opportunityId)
             is GameIntent.QuickProduceForBulletinOpportunity -> quickProduceForBulletinOpportunity(intent.opportunityId)
+            is GameIntent.QuickSellForBulletinOpportunity -> quickSellForBulletinOpportunity(intent.opportunityId)
+            is GameIntent.SyncBulletinProgressFromInventory -> syncBulletinProgressFromInventory()
         }
     }
 
@@ -253,19 +255,21 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
             val current = _bulletinOpportunities.value
             val target = current.find { it.id == opportunityId } ?: return@launch
             if (!target.isCompleted || target.isClaimed) return@launch
-            
+
             val (updatedList, earnedDiamonds) = com.example.data.BulletinOpportunityManager.claimOpportunityReward(opportunityId, current)
             _bulletinOpportunities.value = updatedList
-            
+
             if (earnedDiamonds > 0) {
                 val p = player.value
-                if (p != null) {
+                val newGems = if (p != null) {
                     val updatedPlayer = p.copy(gems = p.gems + earnedDiamonds)
                     repository.updatePlayer(updatedPlayer)
-                }
+                    updatedPlayer.gems
+                } else earnedDiamonds
+
                 com.example.ui.components.SmartNotificationManager.show(
-                    "🎉 Bülten Fırsatı Tamamlandı! +$earnedDiamonds Elmas kazandınız! 💎",
-                    "🎉 Bulletin Opportunity Completed! +$earnedDiamonds Diamonds earned! 💎",
+                    "🎉 ${target.cityNameTr} Görevi Tamamlandı! +$earnedDiamonds Elmas Hesabınıza Eklendi! (Toplam: $newGems 💎)",
+                    "🎉 ${target.cityNameEn} Task Completed! +$earnedDiamonds Diamonds added! (Total: $newGems 💎)",
                     com.example.ui.components.NotificationType.SUCCESS
                 )
                 com.example.ui.components.ParticleManager.spawnCelebration()
@@ -277,15 +281,19 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
 
     fun quickProduceForBulletinOpportunity(opportunityId: String) {
         val target = _bulletinOpportunities.value.find { it.id == opportunityId } ?: return
+        val prod = Product.values().find { it.id == target.targetProductId }
         val needed = (target.targetQuantity - target.producedQuantity).coerceAtLeast(1)
+
         val matchingBusiness = businesses.value.find {
-            it.cityId.equals(target.cityId, ignoreCase = true) &&
-            (it.type.equals(target.targetFacilityId, ignoreCase = true) || it.type.contains(target.targetProductId, ignoreCase = true))
+            (it.cityId.equals(target.cityId, ignoreCase = true) || target.cityId.isBlank() || target.cityId == "global") &&
+            (it.type.equals(target.targetFacilityId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true)) || it.type.contains(target.targetProductId, ignoreCase = true))
         } ?: businesses.value.find {
-            it.type.equals(target.targetFacilityId, ignoreCase = true) || it.type.contains(target.targetProductId, ignoreCase = true)
+            it.type.equals(target.targetFacilityId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true)) || it.type.contains(target.targetProductId, ignoreCase = true)
         }
-        val storageCap = matchingBusiness?.getRemainingStorageCapacity() ?: 50
-        val batchQty = minOf(needed, if (storageCap > 0) storageCap else 5, 25).coerceAtLeast(1)
+
+        val storageCap = matchingBusiness?.getRemainingStorageCapacity() ?: 100
+        val batchQty = if (storageCap > 0) minOf(needed, storageCap) else minOf(needed, 50).coerceAtLeast(1)
+
         produce(target.targetProductId, batchQty, autoProcure = true)
         val pName = target.targetProductNameTr
         val cName = target.cityNameTr
@@ -297,21 +305,100 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
         com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.LIGHT_CLICK)
     }
 
+    fun quickSellForBulletinOpportunity(opportunityId: String) {
+        val target = _bulletinOpportunities.value.find { it.id == opportunityId } ?: return
+        val baseProductId = com.example.data.ItemQuality.extractBaseProductId(target.targetProductId)
+        val prod = Product.values().find { it.id == baseProductId }
+        val neededToSell = (target.targetQuantity - target.soldQuantity).coerceAtLeast(1)
+
+        val centralInv = inventory.value.filter {
+            com.example.data.ItemQuality.extractBaseProductId(it.itemId) == baseProductId && it.quantity > 0
+        }
+        val centralQty = centralInv.sumOf { it.quantity }
+
+        val matchingBiz = businesses.value.find {
+            (it.cityId.equals(target.cityId, ignoreCase = true) || it.type.contains(baseProductId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true))) &&
+            it.getStoredItemsMap().any { entry -> com.example.data.ItemQuality.extractBaseProductId(entry.key) == baseProductId && entry.value > 0 }
+        }
+
+        if (centralQty > 0) {
+            val qtyToSell = minOf(neededToSell, centralQty)
+            sell(baseProductId, qtyToSell, originCountry = target.countryFlag)
+            onGoodsSoldForBulletin(baseProductId, target.cityId, qtyToSell)
+        } else if (matchingBiz != null) {
+            val stored = matchingBiz.getStoredItemsMap()
+            val targetKey = stored.keys.find { com.example.data.ItemQuality.extractBaseProductId(it) == baseProductId }
+            val avail = if (targetKey != null) stored[targetKey] ?: 0 else 0
+            if (avail > 0) {
+                val qtyToSell = minOf(neededToSell, avail)
+                sellFacilityStockOnBorsa(matchingBiz.id, targetKey ?: baseProductId, qtyToSell)
+                onGoodsSoldForBulletin(baseProductId, matchingBiz.cityId, qtyToSell)
+            }
+        } else {
+            com.example.ui.components.SmartNotificationManager.show(
+                "⚠️ Satılacak ${target.targetProductNameTr} stoku bulunamadı! '⚡ Hızlı Üret' butonuna dokunun.",
+                "⚠️ No ${target.targetProductNameEn} stock found! Tap '⚡ Quick Produce'.",
+                com.example.ui.components.NotificationType.ALERT
+            )
+        }
+    }
+
+    fun syncBulletinProgressFromInventory() {
+        val current = _bulletinOpportunities.value
+        if (current.isEmpty()) return
+        val currentInventory = inventory.value
+        val currentBusinesses = businesses.value
+
+        var updated = current
+        var changed = false
+        for (opp in current) {
+            if (opp.isCompleted || opp.isClaimed) continue
+            val baseId = com.example.data.ItemQuality.extractBaseProductId(opp.targetProductId)
+            val prod = Product.values().find { it.id == baseId }
+
+            val centralStock = currentInventory.filter {
+                com.example.data.ItemQuality.extractBaseProductId(it.itemId) == baseId
+            }.sumOf { it.quantity }
+
+            val facilityStock = currentBusinesses.filter {
+                it.cityId.equals(opp.cityId, ignoreCase = true) || it.type.contains(baseId, ignoreCase = true) || (prod != null && it.type.equals(prod.facilityId, ignoreCase = true))
+            }.sumOf { biz ->
+                biz.getStoredItemsMap().filter {
+                    com.example.data.ItemQuality.extractBaseProductId(it.key) == baseId
+                }.values.sum()
+            }
+
+            val totalStock = centralStock + facilityStock
+            val effectiveTarget = if (baseId == "lithium" && opp.cityId.equals("santiago", ignoreCase = true) && opp.targetQuantity > 35) 35 else opp.targetQuantity
+            if (totalStock > opp.producedQuantity || opp.targetQuantity != effectiveTarget) {
+                changed = true
+                val newProduced = minOf(effectiveTarget, maxOf(opp.producedQuantity, totalStock))
+                updated = updated.map { if (it.id == opp.id) it.copy(producedQuantity = newProduced, targetQuantity = effectiveTarget) else it }
+            }
+        }
+        if (changed) {
+            _bulletinOpportunities.value = updated
+            saveEconomicDataToDataStore()
+        }
+    }
+
     fun onProductionCompletedForBulletin(productId: String, cityId: String, quantity: Int) {
         if (quantity <= 0) return
         val current = _bulletinOpportunities.value
         if (current.isEmpty()) return
-        val updated = com.example.data.BulletinOpportunityManager.onProductionCompleted(productId, cityId, quantity, current)
+        val cleanProductId = com.example.data.ItemQuality.extractBaseProductId(productId)
+        val updated = com.example.data.BulletinOpportunityManager.onProductionCompleted(cleanProductId, cityId, quantity, current)
         if (updated != current) {
             _bulletinOpportunities.value = updated
+            saveEconomicDataToDataStore()
             val newlyMet = updated.find { opp ->
                 val oldOpp = current.find { it.id == opp.id }
                 opp.isProductionTargetMet && (oldOpp == null || !oldOpp.isProductionTargetMet)
             }
             if (newlyMet != null) {
                 com.example.ui.components.SmartNotificationManager.show(
-                    "📦 ${newlyMet.cityNameTr} ${newlyMet.targetProductNameTr} üretim kotası doldu! Şimdi pazarda/borsada satın.",
-                    "📦 ${newlyMet.cityNameEn} ${newlyMet.targetProductNameEn} production target reached! Sell on market/borsa to claim diamonds.",
+                    "📦 ${newlyMet.cityNameTr}: ${newlyMet.targetProductNameTr} üretim kotası doldu (${newlyMet.producedQuantity}/${newlyMet.targetQuantity} Ton)! Şimdi '⚡ Tek Tıkla Borsada Sat' ile satabilirsiniz.",
+                    "📦 ${newlyMet.cityNameEn}: ${newlyMet.targetProductNameEn} production target reached! Sell on borsa to claim diamonds.",
                     com.example.ui.components.NotificationType.INFO
                 )
             }
@@ -322,20 +409,23 @@ class GameViewModel(internal val repository: GameRepository) : ViewModel() {
         if (quantity <= 0) return
         val current = _bulletinOpportunities.value
         if (current.isEmpty()) return
-        val updated = com.example.data.BulletinOpportunityManager.onGoodsSold(productId, cityId, quantity, current)
+        val cleanProductId = com.example.data.ItemQuality.extractBaseProductId(productId)
+        val updated = com.example.data.BulletinOpportunityManager.onGoodsSold(cleanProductId, cityId, quantity, current)
         if (updated != current) {
             _bulletinOpportunities.value = updated
+            saveEconomicDataToDataStore()
             val newlyCompleted = updated.find { opp ->
                 val oldOpp = current.find { it.id == opp.id }
-                opp.isCompleted && (oldOpp == null || !oldOpp.isCompleted)
+                opp.isCompleted && !opp.isClaimed && (oldOpp == null || !oldOpp.isCompleted)
             }
             if (newlyCompleted != null) {
                 com.example.ui.components.SmartNotificationManager.show(
-                    "🌟 BÜLTEN ETKİNLİĞİ TAMAMLANDI! ${newlyCompleted.cityNameTr} fırsatından ${newlyCompleted.diamondReward} Elmas ödülünüzü bültenden toplayabilirsiniz! 💎",
-                    "🌟 BULLETIN OPPORTUNITY COMPLETED! Claim your ${newlyCompleted.diamondReward} Diamonds from ${newlyCompleted.cityNameEn} bulletin! 💎",
+                    "🎉 ${newlyCompleted.cityNameTr} ${newlyCompleted.targetProductNameTr} kotası tamamlandı! Bülten ekranından ${newlyCompleted.diamondReward} Elmas ödülünüzü alabilirsiniz! 💎",
+                    "🎉 ${newlyCompleted.cityNameEn} ${newlyCompleted.targetProductNameEn} completed! Claim ${newlyCompleted.diamondReward} Diamonds from bulletin! 💎",
                     com.example.ui.components.NotificationType.SUCCESS
                 )
                 com.example.ui.components.ParticleManager.spawnCelebration()
+                com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.CONSORTIUM_APPROVAL)
             }
         }
     }
@@ -5496,7 +5586,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                             NotificationType.SUCCESS
                         )
                     }
-                    onProductProduced(productId, finalHarvestQty, originCountry)
+                    onProductProduced(productId, finalHarvestQty, latestBiz.cityId)
                     processXpGain((finalHarvestQty * 5 * itemQuality.priceMultiplier).toInt(), currentPlayerState)
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
 
@@ -5532,7 +5622,7 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
                             NotificationType.SUCCESS
                         )
                     }
-                    onProductProduced(productId, finalHarvestQty, originCountry)
+                    onProductProduced(productId, finalHarvestQty, item.cityId)
                     processXpGain((finalHarvestQty * 5 * itemQuality.priceMultiplier).toInt(), currentPlayerState)
                     com.example.utils.HapticManager.performHaptic(com.example.utils.HapticManager.HapticType.WAREHOUSE_CHANGE)
                 }
@@ -5698,9 +5788,6 @@ val managers: StateFlow<List<com.example.data.CompanyManager>> = _managers.asSta
 
                 // Determine Real-World Shift (Day Shift: 08:00 - 20:00 / Night Shift: 20:00 - 08:00)
                 val cal = java.util.Calendar.getInstance()
-                if (cal.get(java.util.Calendar.SECOND) == 0) {
-                    triggerMinuteAutoCloudBackup()
-                }
 
                 // Saatlik Borsa Fiyat Yeniden Hesaplama Kontrolü (Her saat başında :00)
                 val millisInCurrentHour = (cal.get(java.util.Calendar.MINUTE) * 60 + cal.get(java.util.Calendar.SECOND)) * 1000L

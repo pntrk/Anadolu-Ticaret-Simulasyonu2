@@ -88,9 +88,11 @@ fun ExitSaveLoadingDialog(
         isStep3Done = true
         saveStatusText = if (isEng) "Securely uploading to Cloud Server (Supabase)..." else "Bulut sunucuya (Supabase) güvenle aktarılıyor..."
 
-        // Perform real blocking save to Supabase
+        // Perform real blocking save to Supabase with safety timeout
         try {
-            viewModel.performCloudSaveBlocking()
+            kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                viewModel.performCloudSaveBlocking()
+            }
         } catch (_: Exception) {}
 
         isCloudUploadDone = true
@@ -98,8 +100,9 @@ fun ExitSaveLoadingDialog(
         isCompletedSuccessfully = true
         saveStatusText = if (isEng) "✓ Progress saved successfully! Closing game..." else "✓ İlerlemeniz Başarıyla Kaydedildi! Oyun kapatılıyor..."
 
-        // Sıfır bekleme: Veriler aktarıldığı an oyunu derhal kapat
-        (context as? Activity)?.finishAffinity()
+        // Kısa görsel teyit sonrası oyunu otomatik ve kesin olarak kapat
+        delay(400L)
+        terminateAppProcess(context)
     }
 
     Dialog(
@@ -270,7 +273,7 @@ fun ExitSaveLoadingDialog(
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
                             onClick = {
-                                (context as? Activity)?.finishAffinity()
+                                terminateAppProcess(context)
                             },
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, Color(0xFF64748B)),
@@ -288,6 +291,30 @@ fun ExitSaveLoadingDialog(
             }
         }
     }
+}
+
+private fun android.content.Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
+
+private fun terminateAppProcess(context: android.content.Context) {
+    val activity = context.findActivity() ?: com.example.MainActivity.currentActivity
+    try {
+        activity?.finishAffinity()
+        activity?.finishAndRemoveTask()
+    } catch (_: Throwable) {}
+
+    // Kesin sonlandırma: İşlemi arka planda asılı kalmayacak şekilde temizce kapat
+    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        try {
+            kotlin.system.exitProcess(0)
+        } catch (_: Throwable) {}
+    }, 150L)
 }
 
 @Composable

@@ -15,8 +15,8 @@ android {
     applicationId = "anadolu.ticaret.simulasyonu"
     minSdk = 24
     targetSdk = 36
-    versionCode = 33
-    versionName = "1.33"
+    versionCode = 34
+    versionName = "1.34"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -87,6 +87,7 @@ dependencies {
   implementation(platform(libs.androidx.compose.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
+  implementation(libs.androidx.constraintlayout.compose)
   // implementation(libs.androidx.camera.camera2)
   // implementation(libs.androidx.camera.core)
   // implementation(libs.androidx.camera.lifecycle)

@@ -174,6 +174,7 @@ fun GameViewModel.sellAllFacilityStockOnBorsa(facilityId: Any? = null) {
                 totalEarned += income
                 totalTonsSold += qty
                 currentBiz = currentBiz.withRemovedItem(storedItemId, qty)
+                onGoodsSoldForBulletin(baseId, biz.cityId, qty)
             }
             if (currentBiz != biz) {
                 repository.updateBusiness(currentBiz)
@@ -2023,7 +2024,7 @@ fun GameViewModel.fulfillConsortiumExportTender(projectId: String, tenderId: Str
 fun GameViewModel.startConsortiumSupplyLoop() {
     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
         while (true) {
-            kotlinx.coroutines.delay(5000L)
+            kotlinx.coroutines.delay(10000L)
             try {
                 val currentProjects = _megaProjects.value
                 if (currentProjects.isEmpty()) continue
@@ -2478,6 +2479,7 @@ suspend fun GameViewModel.saveEconomicDataToDataStoreSuspend(
 }
 
 private var lastSupabaseSyncTimeMs = 0L
+private var lastUploadedStateSignature = ""
 
 fun GameViewModel.saveEconomicDataToDataStore(
     showNotification: Boolean = false,
@@ -2495,8 +2497,8 @@ fun GameViewModel.saveEconomicDataToDataStore(
         if (force) {
             com.example.data.SaveSyncCoordinator.markDirty()
             if (_isOnlineRegistered.value && _onlineEmail.value.isNotBlank() && _onlineEmail.value != "misafir_tuccar") {
-                // If it has been more than 3 minutes, flush to Supabase
-                if (now - lastSupabaseSyncTimeMs >= 180_000L) {
+                // Egress tasarrufu: Arka plan eşitlemesini en az 5 dakika aralıkla tut
+                if (now - lastSupabaseSyncTimeMs >= 300_000L) {
                     syncCloudSaveToSupabase(force = true, immediate = immediate, customPlayer = customPlayer, customBusinesses = customBusinesses, isManual = false)
                 }
             }
@@ -2513,8 +2515,8 @@ fun GameViewModel.syncCloudSaveToSupabase(
 ) {
     val now = System.currentTimeMillis()
     if (!isManual) {
-        // Smart Egress Saving: Debounce background syncs to 3 minutes
-        if (now - lastSupabaseSyncTimeMs < 180_000L) {
+        // Smart Egress Saving: Debounce background syncs to 5 minutes
+        if (now - lastSupabaseSyncTimeMs < 300_000L) {
             com.example.data.SaveSyncCoordinator.markDirty()
             return
         }
@@ -2550,6 +2552,14 @@ fun GameViewModel.syncCloudSaveToSupabase(
             val localBizCount = (customBusinesses ?: businesses.value).size
             if (!isManual && p.level <= 1 && p.money <= 200_000L && p.gems == 0 && localBizCount == 0 && p.totalProfit <= 0L) {
                 Log.d("GameViewModel", "Skipping automatic cloud sync: player state is at initial start (100k AL, 0 biz). Cloud remains protected.")
+                return@launch
+            }
+
+            // Egress & Quota Guard: Veri değişmediyse gereksiz yere megabaytlarca upload yapma
+            val currentInvCount = inventory.value.sumOf { it.quantity }
+            val currentSignature = "${p.level}_${p.money}_${p.gems}_${p.xp}_${p.totalProfit}_${localBizCount}_${currentInvCount}"
+            if (!isManual && !force && currentSignature == lastUploadedStateSignature) {
+                Log.d("GameViewModel", "Skipping background cloud sync: Player state unchanged since last sync.")
                 return@launch
             }
 
@@ -2630,6 +2640,8 @@ fun GameViewModel.syncCloudSaveToSupabase(
                             Log.w("GameViewModel", "Supabase sync attempt $attempts failed. Retrying in 2 seconds...")
                             kotlinx.coroutines.delay(2000L)
                         }
+                    } else {
+                        lastUploadedStateSignature = currentSignature
                     }
                 }
                 
@@ -3380,10 +3392,15 @@ fun GameViewModel.skipResearchWithGems(techId: String) {
 }
 fun GameViewModel.resetManagerDisciplineWithGems(managerId: String) {}
 
-fun GameViewModel.onProductProduced(productId: String, quantity: Int, facilityId: String? = null) {
-    val biz = if (facilityId != null) businesses.value.find { it.type == facilityId || it.id.toString() == facilityId } else null
-    val cityId = biz?.cityId ?: player.value?.currentCity ?: ""
-    onProductionCompletedForBulletin(productId, cityId, quantity)
+fun GameViewModel.onProductProduced(productId: String, quantity: Int, facilityOrCityId: String? = null) {
+    val cleanProductId = com.example.data.ItemQuality.extractBaseProductId(productId)
+    val cityId = if (facilityOrCityId != null && com.example.data.cities.any { it.id.equals(facilityOrCityId, ignoreCase = true) }) {
+        facilityOrCityId
+    } else {
+        val biz = if (facilityOrCityId != null) businesses.value.find { it.type == facilityOrCityId || it.id.toString() == facilityOrCityId } else null
+        biz?.cityId ?: player.value?.currentCity ?: ""
+    }
+    onProductionCompletedForBulletin(cleanProductId, cityId, quantity)
 }
 fun GameViewModel.addXp(amount: Int) {
     if (amount > 0) {
@@ -3522,7 +3539,7 @@ fun GameViewModel.startDemoPlayerBotLoop() {
         var cycleCount = 0
         while (true) {
             try {
-                kotlinx.coroutines.delay(12000L) // Every 12 seconds
+                kotlinx.coroutines.delay(45000L) // 45 saniyede bir dengeli bot döngüsü (Egress ve CPU tasarrufu)
                 cycleCount++
 
                 // 1. Market Trading Cycle (Buys player's goods, posts fresh market offers, fulfills buy orders)
@@ -3531,17 +3548,17 @@ fun GameViewModel.startDemoPlayerBotLoop() {
                 // 2. Live Borsa Exchange Cycle (Bots trade Tier 1 commodities with Borsa pool)
                 com.example.data.BotTycoonManager.processBorsaTradingCycle(this@startDemoPlayerBotLoop)
 
-                // 3. Consortium Delivery Cycle (Every 24s)
+                // 3. Consortium Delivery Cycle (Every 90s)
                 if (cycleCount % 2 == 0) {
                     com.example.data.BotTycoonManager.processConsortiumCycle(this@startDemoPlayerBotLoop)
                 }
 
-                // 4. R&D and Net Worth Progression Cycle (Every 36s)
+                // 4. R&D and Net Worth Progression Cycle (Every 135s)
                 if (cycleCount % 3 == 0) {
                     com.example.data.BotTycoonManager.processBotProgressionCycle()
                 }
 
-                // 5. Foreclosure Auction Maintenance & Bot Bidding Cycle (Every 24s)
+                // 5. Foreclosure Auction Maintenance & Bot Bidding Cycle (Every 90s)
                 if (cycleCount % 2 == 0) {
                     val p = player.value
                     if (p != null) {
@@ -3561,7 +3578,7 @@ fun GameViewModel.startDemoPlayerBotLoop() {
                     com.example.data.ForeclosureManager.processBotBiddingCycle()
                 }
 
-                // 6. Autopilot Smart Directives Execution Cycle (Every 24s)
+                // 6. Autopilot Smart Directives Execution Cycle (Every 90s)
                 if (cycleCount % 2 == 0) {
                     com.example.data.automation.AutopilotEngine.evaluateLiveGameContext(this@startDemoPlayerBotLoop)
                     val smartDirectives = com.example.data.automation.AutopilotEngine.directivesState.value
@@ -3585,19 +3602,20 @@ fun GameViewModel.startAutoSaveDataStoreLoop() {
         }
     }
 }
-fun GameViewModel.triggerMinuteAutoCloudBackup() {
+fun GameViewModel.triggerPeriodicAutoCloudBackup() {
     val cal = java.util.Calendar.getInstance()
     val currentMinute = cal.get(java.util.Calendar.MINUTE)
     val minuteKey = cal.get(java.util.Calendar.DAY_OF_YEAR) * 1440 + cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + currentMinute
     if (lastAutoCloudBackupMinuteKey == minuteKey) {
-        return // Bu dakikada zaten yedekleme tetiklendi
+        return // Bu dakikada zaten yedekleme kontrol edildi
     }
 
     val now = System.currentTimeMillis()
     val isIdle = (now - lastUserInteractionTimeMs) > 2 * 60_000L // 2 dakikadır etkileşim yoksa hareketsiz kabul edilir
 
-    // Hareketsizlik varsa 5 dakikada bir (:00, :05, :10, :15 vb.) yedekle
-    if (isIdle && (currentMinute % 5 != 0)) {
+    // Aktif oynanışta 10 dakikada bir, hareketsiz kalındığında 30 dakikada bir yedekle (Egress & Quota koruması)
+    val intervalMinutes = if (isIdle) 30 else 10
+    if (currentMinute % intervalMinutes != 0) {
         return
     }
 
@@ -3608,10 +3626,14 @@ fun GameViewModel.triggerMinuteAutoCloudBackup() {
         cal.get(java.util.Calendar.HOUR_OF_DAY),
         currentMinute
     )
-    Log.i("GameViewModel", "⏰ Otomatik bulut yedekleme tetiklendi (Hareketsiz=$isIdle): $timeFormatted")
+    Log.i("GameViewModel", "⏰ Periyodik bulut yedekleme tetiklendi (Hareketsiz=$isIdle, her $intervalMinutes dk): $timeFormatted")
 
-    // syncCloudSaveToSupabase arka planda onlineEmail/snapshot kontrolünü yapıp Supabase'e güvenle yedekler
-    syncCloudSaveToSupabase(force = true, immediate = true, isManual = false)
+    // syncCloudSaveToSupabase arka planda onlineEmail/snapshot ve veri değişim kontrolü yaparak güvenle yedekler
+    syncCloudSaveToSupabase(force = false, immediate = false, isManual = false)
+}
+
+fun GameViewModel.triggerMinuteAutoCloudBackup() {
+    triggerPeriodicAutoCloudBackup()
 }
 
 fun GameViewModel.checkAndTriggerHourlyBorsaPriceRecalculation(cal: java.util.Calendar) {

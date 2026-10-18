@@ -7,6 +7,7 @@ import com.example.ui.components.AnadoluLiraIcon
 import com.example.ui.components.Interactive3DCard
 import com.example.ui.components.DynamicParticleField
 import com.example.ui.components.ExitSaveLoadingDialog
+import com.example.ui.components.PlayerDashboardCard
 import androidx.activity.compose.BackHandler
 
 import com.example.ui.theme.trAuto
@@ -798,11 +799,18 @@ fun DashboardScreen(
             macroState = macroState,
             bulletinOpportunities = uiState.bulletinOpportunities,
             ownedFacilities = uiState.businesses,
+            playerGems = player?.gems ?: 0,
             onClaimReward = { oppId ->
                 onIntent(com.example.viewmodel.GameIntent.ClaimBulletinOpportunityReward(oppId))
             },
             onQuickProduce = { oppId ->
                 onIntent(com.example.viewmodel.GameIntent.QuickProduceForBulletinOpportunity(oppId))
+            },
+            onQuickSell = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.QuickSellForBulletinOpportunity(oppId))
+            },
+            onSyncProgress = {
+                onIntent(com.example.viewmodel.GameIntent.SyncBulletinProgressFromInventory)
             },
             onNavigateToFacility = { productId, cityId ->
                 showNewsBulletinDialog = false
@@ -1507,7 +1515,6 @@ fun HeroPlayerCompanyCard(
     onProfileClick: () -> Unit,
     onBalanceSheetClick: () -> Unit
 ) {
-    val themeOption = LocalAppThemeOption.current
     val isEng = isEnglishLanguage()
 
     // Title & Level Calculations from XpLevelEngine
@@ -1522,12 +1529,6 @@ fun HeroPlayerCompanyCard(
     val xpNeeded = levelProgress.targetLevelXp
     val progressRatio = levelProgress.progressFraction
 
-    val animatedProgressRatio by animateFloatAsState(
-        targetValue = progressRatio,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
-        label = "xpAnimatedProgressBar"
-    )
-
     // Date Text
     val dateText = if (uiState.realTimeClockText.isNotBlank()) {
         uiState.realTimeClockText
@@ -1535,735 +1536,116 @@ fun HeroPlayerCompanyCard(
         if (isEng) "Day ${player.loginStreak.coerceAtLeast(1)}" else "Gün ${player.loginStreak.coerceAtLeast(1)}"
     }
 
-    // Pulse animation for avatar ring
-    val infiniteTransition = rememberInfiniteTransition(label = "avatarPulse")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha"
-    )
-
-    Interactive3DCard(
-        shape = RoundedCornerShape(16.dp),
-        maxTiltAngle = 8f,
-        specularShine = true,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (themeOption.isDark) Color(0xFF070E20).copy(alpha = 0.78f) else themeOption.surfaceColor.copy(alpha = 0.90f)
-            ),
-            border = BorderStroke(
-                1.2.dp,
-                Brush.horizontalGradient(
-                    listOf(
-                        ThemeGold.copy(alpha = 0.85f),
-                        ThemeNeonCyan.copy(alpha = 0.50f),
-                        ThemeGold.copy(alpha = 0.35f)
-                    )
-                )
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            // Ambient subtle glow overlay
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                ThemeGold.copy(alpha = 0.07f),
-                                Color.Transparent,
-                                ThemeNeonCyan.copy(alpha = 0.05f)
-                            )
-                        )
-                    )
-            )
-
-            Image(
-                painter = painterResource(id = R.drawable.bg_company_summary),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .matchParentSize()
-                    .alpha(0.08f)
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-            ) {
-                // 1. TOP ROW: Player Avatar + Profile Info + Date & Bilanço Action
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Profile section (clickable -> Profile Dialog)
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable(onClick = onProfileClick),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Avatar Orb with Glowing Border
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFF131D33),
-                            border = BorderStroke(1.5.dp, ThemeGold.copy(alpha = glowAlpha)),
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Person,
-                                    contentDescription = player.name,
-                                    tint = ThemeGold,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(10.dp))
-
-                        Column(modifier = Modifier.weight(1f, fill = false)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CurrencyText(
-                                    text = player.name.ifEmpty { tr("Usta Tüccar", "Master Trader", isEng) },
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = ThemeGold.copy(alpha = 0.20f),
-                                    border = BorderStroke(0.6.dp, ThemeGold.copy(alpha = 0.70f))
-                                ) {
-                                    CurrencyText(
-                                        text = "LVL $effectiveLevel",
-                                        color = ThemeGold,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(2.dp))
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    shape = RoundedCornerShape(3.dp),
-                                    color = ThemeNeonCyan.copy(alpha = 0.15f)
-                                ) {
-                                    CurrencyText(
-                                        text = title,
-                                        color = ThemeNeonCyan,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Date & Bilanço Actions
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Date Chip
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                            border = BorderStroke(0.7.dp, Color(0xFF334155).copy(alpha = 0.7f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.CalendarToday,
-                                    contentDescription = null,
-                                    tint = ThemeGold,
-                                    modifier = Modifier.size(10.dp)
-                                )
-                                CurrencyText(
-                                    text = dateText,
-                                    color = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        // Bilanço Raporu Button
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF131D33).copy(alpha = 0.90f),
-                            border = BorderStroke(0.8.dp, ThemeGold.copy(alpha = 0.65f)),
-                            modifier = Modifier.clickable(onClick = onBalanceSheetClick)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CurrencyText(
-                                    text = tr("Bilanço", "Report", isEng),
-                                    color = ThemeGold,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    imageVector = Icons.Rounded.ChevronRight,
-                                    contentDescription = null,
-                                    tint = ThemeGold,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 2. XP PROGRESS ROW (Minimal & Sleek)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(5.dp)
-                            .clip(RoundedCornerShape(2.5.dp))
-                            .background(Color(0xFF1E293B))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(animatedProgressRatio.coerceIn(0.02f, 1f))
-                                .background(
-                                    Brush.horizontalGradient(
-                                        listOf(ThemeNeonCyan, ThemeGold)
-                                    )
-                                )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    val percent = (progressRatio * 100).toInt().coerceIn(0, 100)
-                    CurrencyText(
-                        text = "${formatCompactNumber(xpInLevel)} / ${formatCompactNumber(xpNeeded)} XP (%$percent)",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Medium,
-                        fontFamily = RobotoMonoFontFamily
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 3. FINANCIAL SUMMARY ROW (Net Worth + Sparkline + Cashflow Velocity)
-                val cashAndDeposit = (cash + deposit + player.lockedDepositBalance).coerceAtLeast(0L)
-                val facilityVal = uiState.facilityValuation.coerceAtLeast(0L)
-                val invVal = uiState.inventoryValuation.coerceAtLeast(0L)
-                val rdVal = uiState.rdValuation.coerceAtLeast(0L)
-                val consortiumVal = uiState.consortiumValuation.coerceAtLeast(0L)
-                val guildSharesVal = remember(uiState.guildsState.playerGuildShares, uiState.guildsState.playerGuildBuyPrices) {
-                    uiState.guildsState.playerGuildShares.entries.sumOf { (id, count) ->
-                        val p = uiState.guildsState.playerGuildBuyPrices[id] ?: 1000.0
-                        (count * p).toLong()
-                    }
-                }
-                val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal + rdVal)).coerceAtLeast(consortiumVal).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
-                val totalAllocation = (cashAndDeposit + facilityVal + invVal + rdVal + otherVal).coerceAtLeast(1L)
-
-                val pctCash = ((cashAndDeposit.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
-                val pctFac = ((facilityVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
-                val pctInv = ((invVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
-                val pctRd = ((rdVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
-                val pctOther = (100 - (pctCash + pctFac + pctInv + pctRd)).coerceAtLeast(0)
-
-                val weightCash = if (cashAndDeposit > 0L) (cashAndDeposit.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
-                val weightFac = if (facilityVal > 0L) (facilityVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
-                val weightInv = if (invVal > 0L) (invVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
-                val weightRd = if (rdVal > 0L) (rdVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
-                val weightOther = if (otherVal > 0L) (otherVal.toFloat() / totalAllocation).coerceAtLeast(0.04f) else 0f
-
-                // Sparkline history & Momentum
-                val growthHistory = uiState.growthHistory
-                val sparklineHistory: List<Long> = remember(growthHistory, netWorth) {
-                    if (growthHistory.size >= 2) {
-                        growthHistory.takeLast(8).map { it.netWorth.toLong() }
-                    } else if (growthHistory.size == 1) {
-                        val p0 = (netWorth * 0.92).toLong().coerceAtLeast(10000L)
-                        listOf(p0, (netWorth * 0.95).toLong(), (netWorth * 0.98).toLong(), netWorth)
-                    } else {
-                        val p0 = (netWorth * 0.88).toLong().coerceAtLeast(10000L)
-                        listOf(p0, (p0 * 1.03).toLong(), (p0 * 1.06).toLong(), (p0 * 1.10).toLong(), netWorth)
-                    }
-                }
-
-                val prevNetWorth: Long = remember(growthHistory, netWorth) {
-                    if (growthHistory.isNotEmpty()) {
-                        growthHistory.first().netWorth.toLong()
-                    } else {
-                        (netWorth * 0.922).toLong()
-                    }
-                }
-                val momentumDiff = netWorth - prevNetWorth
-                val momentumPct = if (prevNetWorth > 0L) {
-                    (momentumDiff.toDouble() / prevNetWorth.toDouble()) * 100.0
-                } else 8.4
-                val isPositiveTrend = momentumPct >= 0
-
-                val cashflowVelocity = remember(dailyIncome, uiState.businesses.size, player.depositBalance) {
-                    if (dailyIncome != 0L) {
-                        val perMin = (dailyIncome.toDouble() / 15.0).toLong()
-                        if (perMin >= 0) perMin.coerceAtLeast(12450L) else perMin
-                    } else {
-                        val facilityEst = uiState.businesses.sumOf { b -> ((b.level * 1850L) * (1f - b.wearLevel)).toLong() }
-                        val depositInterestEst = (player.depositBalance * 0.0005).toLong()
-                        (facilityEst + depositInterestEst).coerceAtLeast(12450L)
-                    }
-                }
-
-                var showAssetAllocationDialog by remember { mutableStateOf(false) }
-
-                if (showAssetAllocationDialog) {
-                    AssetAllocationDetailDialog(
-                        player = player,
-                        uiState = uiState,
-                        cashAndDeposit = cashAndDeposit,
-                        facilityVal = facilityVal,
-                        invVal = invVal,
-                        rdVal = rdVal,
-                        otherVal = otherVal,
-                        totalNetWorth = netWorth,
-                        pctCash = pctCash,
-                        pctFac = pctFac,
-                        pctInv = pctInv,
-                        pctRd = pctRd,
-                        pctOther = pctOther,
-                        isEng = isEng,
-                        onDismiss = { showAssetAllocationDialog = false },
-                        onBalanceSheetClick = {
-                            showAssetAllocationDialog = false
-                            onBalanceSheetClick()
-                        }
-                    )
-                }
-
-                // Row: Net Worth + Sparkline + Cashflow Velocity
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Left Column: Net Worth, Sparkline & Momentum
-                    Column(
-                        modifier = Modifier
-                            .weight(1.15f)
-                            .clickable(onClick = onBalanceSheetClick)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            CurrencyText(
-                                text = tr("NET ŞİRKET DEĞERİ", "TOTAL NET WORTH", isEng),
-                                color = Color(0xFF94A3B8),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp,
-                                maxLines = 1
-                            )
-                            // Compact Momentum Badge
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = if (isPositiveTrend) Color(0xFF052E16) else Color(0xFF3F0B11),
-                                border = BorderStroke(0.6.dp, if (isPositiveTrend) ThemePositive.copy(alpha = 0.7f) else ThemeNegative.copy(alpha = 0.7f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPositiveTrend) Icons.Rounded.TrendingUp else Icons.Rounded.TrendingDown,
-                                        contentDescription = null,
-                                        tint = if (isPositiveTrend) ThemePositive else ThemeNegative,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                    CurrencyText(
-                                        text = "${if (isPositiveTrend) "+" else ""}${String.format(java.util.Locale.US, "%.1f%%", momentumPct)}",
-                                        color = if (isPositiveTrend) ThemePositive else ThemeNegative,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CurrencyText(
-                                text = formatCredit(netWorth),
-                                color = ThemeGold,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = RobotoMonoFontFamily,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            // Mini Canvas Sparkline
-                            CompanyMiniSparkline(
-                                history = sparklineHistory,
-                                isPositive = isPositiveTrend,
-                                modifier = Modifier
-                                    .width(40.dp)
-                                    .height(18.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Right Column: Cashflow Velocity + Daily Income
-                    Column(
-                        modifier = Modifier.weight(0.85f, fill = false),
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                            border = BorderStroke(0.7.dp, ThemePositive.copy(alpha = 0.65f))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(ThemePositive.copy(alpha = glowAlpha))
-                                )
-                                Column(horizontalAlignment = Alignment.End) {
-                                    val sign = if (cashflowVelocity >= 0) "+" else ""
-                                    CurrencyText(
-                                        text = "$sign${formatCredit(cashflowVelocity)} ₳/${tr("dk", "m", isEng)}",
-                                        color = ThemePositive,
-                                        fontSize = 9.5.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = RobotoMonoFontFamily,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-
-                        // Günlük Kâr
-                        val profitColor = if (dailyIncome >= 0) ThemePositive else ThemeNegative
-                        val sign = if (dailyIncome >= 0) "+" else ""
-                        CurrencyText(
-                            text = "${tr("Günlük", "Daily", isEng)}: $sign${formatCredit(dailyIncome)}",
-                            color = profitColor,
-                            fontSize = 8.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = RobotoMonoFontFamily,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // 4. ASSET ALLOCATION TILES (Nakit, Tesis, Depo, Ar-Ge 4-Sütunlu Ferah Görünüm)
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color(0xFF0A1326).copy(alpha = 0.80f),
-                    border = BorderStroke(0.7.dp, Color(0xFF1E293B)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showAssetAllocationDialog = true }
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Nakit & Banka
-                            Column(modifier = Modifier.weight(1f)) {
-                                CurrencyText(
-                                    text = tr("💵 Nakit", "💵 Cash", isEng),
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = "${formatCompactNumber(cashAndDeposit)} ₳ (%$pctCash)",
-                                    color = Color(0xFFF59E0B),
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Tesis & Sanayi
-                            Column(modifier = Modifier.weight(1f)) {
-                                CurrencyText(
-                                    text = tr("🏭 Tesis", "🏭 Facilities", isEng),
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = "${formatCompactNumber(facilityVal)} ₳ (%$pctFac)",
-                                    color = Color(0xFF06B6D4),
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Depo & Emtia
-                            Column(modifier = Modifier.weight(1f)) {
-                                CurrencyText(
-                                    text = tr("📦 Depo", "📦 Warehouse", isEng),
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = "${formatCompactNumber(invVal)} ₳ (%$pctInv)",
-                                    color = Color(0xFF10B981),
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            // Ar-Ge & Teknoloji
-                            Column(modifier = Modifier.weight(1f)) {
-                                CurrencyText(
-                                    text = tr("🔬 Ar-Ge", "🔬 R&D", isEng),
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 7.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                CurrencyText(
-                                    text = "${formatCompactNumber(rdVal)} ₳ (%$pctRd)",
-                                    color = Color(0xFFA855F7),
-                                    fontSize = 8.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = RobotoMonoFontFamily,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // Multi-Segment Horizontal Bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(2.5.dp))
-                                .background(Color(0xFF1E293B))
-                        ) {
-                            if (weightCash > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weightCash)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFFF59E0B))
-                                )
-                            }
-                            if (weightFac > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weightFac)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFF06B6D4))
-                                )
-                            }
-                            if (weightInv > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weightInv)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFF10B981))
-                                )
-                            }
-                            if (weightRd > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weightRd)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFFA855F7))
-                                )
-                            }
-                            if (weightOther > 0f) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(weightOther)
-                                        .fillMaxHeight()
-                                        .background(Color(0xFF38BDF8))
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // 5. OPERATIONAL HEALTH & DIRECTIVE ROW
-                val totalBusinesses = uiState.businesses.size
-                val activeBusinesses = uiState.businesses.count { !it.isUpgrading && it.wearLevel < 0.90f }
-                val avgHealthPct = if (totalBusinesses > 0) {
-                    ((1f - uiState.businesses.map { it.wearLevel }.average().toFloat()) * 100f).toInt().coerceIn(0, 100)
-                } else 100
-                val invFillPct = (uiState.inventoryFillPercentage * 100f).toInt().coerceIn(0, 100)
-                val deliveriesCount = uiState.inventoryState.activeDeliveries.size
-
-                val activePolicyDirectiveText = remember(uiState.managers, uiState.hrState.activeResearches, player.level, isEng) {
-                    val hiredManager = uiState.managers.firstOrNull { it.isHired && it.isActive }
-                    when {
-                        hiredManager != null -> {
-                            when (hiredManager.specialty) {
-                                "rd" -> tr("Ar-Ge Hızlandırma (-%15)", "R&D Acceleration (-15%)", isEng)
-                                "treasury" -> tr("Hazine ve Likidite (+%10)", "Treasury (+10%)", isEng)
-                                "logistics" -> tr("Lojistik (-%20 Navlun)", "Logistics (-20%)", isEng)
-                                "contracts" -> tr("B2B Vadeli Önceliği", "B2B Futures Priority", isEng)
-                                "maintenance" -> tr("Tesis Koruma (-%30 Aşınma)", "Maintenance (-30%)", isEng)
-                                else -> "${hiredManager.title} ${tr("Direktifi", "Directive", isEng)}"
-                            }
-                        }
-                        uiState.hrState.activeResearches.isNotEmpty() -> {
-                            tr("Ar-Ge Teşviki", "R&D Incentive", isEng)
-                        }
-                        player.level <= 3 -> {
-                            tr("Girişimci Teşviki", "Entrepreneur Incentive", isEng)
-                        }
-                        else -> {
-                            tr("Serbest Ticaret", "Free Trade", isEng)
-                        }
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF0F172A).copy(alpha = 0.85f),
-                    border = BorderStroke(0.7.dp, Color(0xFF334155).copy(alpha = 0.6f)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CurrencyText(
-                                text = "🏭 $activeBusinesses/$totalBusinesses • %$avgHealthPct",
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                            CurrencyText(
-                                text = "📦 %$invFillPct",
-                                color = if (invFillPct > 85) Color(0xFFF59E0B) else Color(0xFFCBD5E1),
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                            CurrencyText(
-                                text = "🚚 ${if (deliveriesCount > 0) "$deliveriesCount" else "0"}",
-                                color = Color(0xFFCBD5E1),
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = RobotoMonoFontFamily
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Rounded.Verified,
-                                contentDescription = null,
-                                tint = ThemeGold,
-                                modifier = Modifier.size(11.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            CurrencyText(
-                                text = activePolicyDirectiveText,
-                                color = Color(0xFFE2E8F0),
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    }
-                }
-            }
+    val cashAndDeposit = (cash + deposit + player.lockedDepositBalance).coerceAtLeast(0L)
+    val facilityVal = uiState.facilityValuation.coerceAtLeast(0L)
+    val invVal = uiState.inventoryValuation.coerceAtLeast(0L)
+    val rdVal = uiState.rdValuation.coerceAtLeast(0L)
+    val consortiumVal = uiState.consortiumValuation.coerceAtLeast(0L)
+    val guildSharesVal = remember(uiState.guildsState.playerGuildShares, uiState.guildsState.playerGuildBuyPrices) {
+        uiState.guildsState.playerGuildShares.entries.sumOf { (id, count) ->
+            val p = uiState.guildsState.playerGuildBuyPrices[id] ?: 1000.0
+            (count * p).toLong()
         }
     }
-}
+    val otherVal = (netWorth - (cashAndDeposit + facilityVal + invVal + rdVal)).coerceAtLeast(consortiumVal).coerceAtLeast(guildSharesVal).coerceAtLeast(0L)
+    val totalAllocation = (cashAndDeposit + facilityVal + invVal + rdVal + otherVal).coerceAtLeast(1L)
+
+    val pctCash = ((cashAndDeposit.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
+    val pctFac = ((facilityVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
+    val pctInv = ((invVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
+    val pctRd = ((rdVal.toDouble() / totalAllocation) * 100).toInt().coerceIn(0, 100)
+
+    val growthHistory = uiState.growthHistory
+    val prevNetWorth: Long = remember(growthHistory, netWorth) {
+        if (growthHistory.isNotEmpty()) {
+            growthHistory.first().netWorth.toLong()
+        } else {
+            (netWorth * 0.922).toLong()
+        }
+    }
+    val momentumDiff = netWorth - prevNetWorth
+    val momentumPct = if (prevNetWorth > 0L) {
+        (momentumDiff.toDouble() / prevNetWorth.toDouble()) * 100.0
+    } else 0.0
+    val isPositiveTrend = momentumPct >= 0
+
+    val cashflowVelocity = remember(dailyIncome, uiState.businesses.size, player.depositBalance) {
+        if (dailyIncome != 0L) {
+            val perMin = (dailyIncome.toDouble() / 15.0).toLong()
+            if (perMin >= 0) perMin.coerceAtLeast(12450L) else perMin
+        } else {
+            val facilityEst = uiState.businesses.sumOf { b -> ((b.level * 1850L) * (1f - b.wearLevel)).toLong() }
+            val depositInterestEst = (player.depositBalance * 0.0005).toLong()
+            (facilityEst + depositInterestEst).coerceAtLeast(12450L)
+        }
+    }
+
+    val totalBusinesses = uiState.businesses.size
+    val activeBusinesses = uiState.businesses.count { !it.isUpgrading && it.wearLevel < 0.90f }
+    val avgHealthPct = if (totalBusinesses > 0) {
+        ((1f - uiState.businesses.map { it.wearLevel }.average().toFloat()) * 100f).toInt().coerceIn(0, 100)
+    } else 100
+    val deliveriesCount = uiState.inventoryState.activeDeliveries.size
+
+    var showAssetAllocationDialog by remember { mutableStateOf(false) }
+
+    if (showAssetAllocationDialog) {
+        AssetAllocationDetailDialog(
+            player = player,
+            uiState = uiState,
+            cashAndDeposit = cashAndDeposit,
+            facilityVal = facilityVal,
+            invVal = invVal,
+            rdVal = rdVal,
+            otherVal = otherVal,
+            totalNetWorth = netWorth,
+            pctCash = pctCash,
+            pctFac = pctFac,
+            pctInv = pctInv,
+            pctRd = pctRd,
+            pctOther = (100 - (pctCash + pctFac + pctInv + pctRd)).coerceAtLeast(0),
+            isEng = isEng,
+            onDismiss = { showAssetAllocationDialog = false },
+            onBalanceSheetClick = {
+                showAssetAllocationDialog = false
+                onBalanceSheetClick()
+            }
+        )
+    }
+
+    PlayerDashboardCard(
+        playerName = player.name.ifBlank { "Kumcu" },
+        playerLevel = effectiveLevel,
+        traderTitle = title,
+        dayText = dateText,
+        xpCurrentText = formatCompactNumber(xpInLevel),
+        xpTargetText = formatCompactNumber(xpNeeded),
+        xpPercent = (progressRatio * 100).toInt().coerceIn(0, 100),
+        netWorthText = formatCredit(netWorth),
+        growthRateText = "${if (isPositiveTrend) "+" else ""}${String.format(java.util.Locale.US, "%.1f%%", momentumPct)}",
+        incomePerMinText = "+₳ ${formatCompactNumber(cashflowVelocity)} / ${tr("dk", "m", isEng)}",
+        dailyIncomeText = "${tr("Günlük", "Daily", isEng)}: +₳ ${formatCredit(dailyIncome)}",
+        cashText = "${formatCompactNumber(cashAndDeposit)} (%$pctCash)",
+        facilityValueText = "${formatCompactNumber(facilityVal)} (%$pctFac)",
+        depotValueText = "${formatCompactNumber(invVal)} (%$pctInv)",
+        rdValueText = "${formatCompactNumber(rdVal)} (%$pctRd)",
+        capacityText = "$activeBusinesses/$totalBusinesses ${tr("Kapasite", "Capacity", isEng)} (%$avgHealthPct)",
+        reactorEfficiencyText = "%${avgHealthPct}",
+        reactorStockText = "${uiState.businesses.count { it.type.contains("mine", ignoreCase = true) || it.type.contains("plant", ignoreCase = true) }}",
+        fleetCountText = "$deliveriesCount",
+        onAvatarClick = onProfileClick,
+        onBalanceSheetClick = onBalanceSheetClick,
+        onNetWorthClick = { showAssetAllocationDialog = true },
+        onCashClick = { showAssetAllocationDialog = true },
+        onFacilityClick = { showAssetAllocationDialog = true },
+        onDepotClick = { showAssetAllocationDialog = true },
+        onRdClick = { showAssetAllocationDialog = true },
+        onCapacityClick = { showAssetAllocationDialog = true },
+        onReactorClick = { showAssetAllocationDialog = true },
+        onFleetClick = { showAssetAllocationDialog = true },
+        onResearchIncentiveClick = { showAssetAllocationDialog = true },
+        onCardClick = onBalanceSheetClick
+    )
 }
 
 @Composable

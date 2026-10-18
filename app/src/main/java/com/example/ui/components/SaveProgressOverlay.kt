@@ -150,7 +150,17 @@ fun SaveProgressOverlay(
         )
 
         // 6. Sıfır bekleme: %100 olduğu an oyunu anında sonlandır!
-        (context as? Activity)?.finishAffinity()
+        delay(350L)
+        val activity = (context as? Activity) ?: com.example.MainActivity.currentActivity
+        try {
+            activity?.finishAffinity()
+            activity?.finishAndRemoveTask()
+        } catch (_: Throwable) {}
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                kotlin.system.exitProcess(0)
+            } catch (_: Throwable) {}
+        }, 150L)
     }
 
     val currentPercent = (progressAnim.value * 100).toInt().coerceIn(1, 100)

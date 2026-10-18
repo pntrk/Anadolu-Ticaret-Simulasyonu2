@@ -1207,11 +1207,18 @@ fun MarketScreen(
             macroState = macroState,
             bulletinOpportunities = uiState.bulletinOpportunities,
             ownedFacilities = uiState.businesses,
+            playerGems = player?.gems ?: 0,
             onClaimReward = { oppId ->
                 onIntent(com.example.viewmodel.GameIntent.ClaimBulletinOpportunityReward(oppId))
             },
             onQuickProduce = { oppId ->
                 onIntent(com.example.viewmodel.GameIntent.QuickProduceForBulletinOpportunity(oppId))
+            },
+            onQuickSell = { oppId ->
+                onIntent(com.example.viewmodel.GameIntent.QuickSellForBulletinOpportunity(oppId))
+            },
+            onSyncProgress = {
+                onIntent(com.example.viewmodel.GameIntent.SyncBulletinProgressFromInventory)
             },
             onNavigateToFacility = { prodId, cityId ->
                 showNewsBulletinDialog = false

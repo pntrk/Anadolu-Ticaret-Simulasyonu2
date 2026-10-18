@@ -56,6 +56,8 @@ sealed interface GameIntent {
     data class SkipResearchWithGems(val techId: String) : GameIntent
     data class ClaimBulletinOpportunityReward(val opportunityId: String) : GameIntent
     data class QuickProduceForBulletinOpportunity(val opportunityId: String) : GameIntent
+    data class QuickSellForBulletinOpportunity(val opportunityId: String) : GameIntent
+    object SyncBulletinProgressFromInventory : GameIntent
 
     
     // Facility Warehouse Intents

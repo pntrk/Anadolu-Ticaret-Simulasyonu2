@@ -17,6 +17,7 @@ import androidx.compose.animation.*
 import androidx.compose.ui.res.stringResource
 import com.example.R
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,8 +41,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -49,6 +52,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.constraintlayout.compose.ConstraintLayout
+import androidx.constraintlayout.compose.Dimension
 import com.example.data.InventoryEntity
 import com.example.data.ItemQuality
 import com.example.data.Product
@@ -58,6 +63,7 @@ import com.example.ui.components.InventoryScreenSkeleton
 import com.example.ui.components.QualityBadge
 import com.example.ui.components.NotificationType
 import com.example.ui.components.ParticleManager
+import com.example.ui.components.ProductDrawables
 import com.example.ui.components.SmartNotificationManager
 import com.example.ui.components.TurkishLiraIcon
 import com.example.ui.components.formatMoney
@@ -143,7 +149,10 @@ fun InventoryScreen(
                 (basePrice * item.quality.priceMultiplier * item.quantity).toLong()
             }
 
-            val filtered = act.filter { item ->
+            // ONLY show products present in the player's warehouse (depoda yer alan ürünler)
+            val baseSource = act
+
+            val filtered = baseSource.filter { item ->
                 val product = Product.values().find { it.id == item.baseProductId }
                 val matchesTier = selectedFilterTier == null || product?.tier == selectedFilterTier
                 val matchesSearch = searchQuery.isEmpty() || item.itemId.contains(searchQuery, ignoreCase = true) || product?.getDisplayName()?.contains(searchQuery, ignoreCase = true) == true
@@ -158,8 +167,11 @@ fun InventoryScreen(
 
                 when (sortBy) {
                     "VALUE_DESC" -> valB.compareTo(valA)
-                    "QTY_DESC" -> b.quantity.compareTo(a.quantity)
-                    else -> a.itemId.compareTo(b.itemId)
+                    "QTY_DESC" -> {
+                        if (b.quantity != a.quantity) b.quantity.compareTo(a.quantity)
+                        else (productA?.name ?: "").compareTo(productB?.name ?: "")
+                    }
+                    else -> (productA?.getDisplayName() ?: a.itemId).compareTo(productB?.getDisplayName() ?: b.itemId)
                 }
             }
 
@@ -897,8 +909,10 @@ fun InventoryScreen(
                         item {
                             com.example.ui.components.GameChip(
                                 selected = selectedFilterTier == null,
-                                text = tr("Tümü", "All") + " (${activeItems.size})",
-                                onClick = { selectedFilterTier = null }
+                                text = "📦 " + tr("Tüm Depo", "All Depot") + " (${activeItems.size})",
+                                onClick = {
+                                    selectedFilterTier = null
+                                }
                             )
                         }
 
@@ -1013,6 +1027,7 @@ fun InventoryScreen(
                         val brandColor = if (product != null) Color(product.colorTint) else ThemeNeonCyan
 
                         CommodityStockCard(
+                            productId = baseProductId,
                             product = product,
                             itemName = itemName,
                             itemIcon = itemIcon,
@@ -1025,13 +1040,28 @@ fun InventoryScreen(
                             isUsd = isUsd,
                             quality = quality,
                             onListOnMarket = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                selectedItemForSale = item
+                                if (item.quantity > 0) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    selectedItemForSale = item
+                                } else {
+                                    SmartNotificationManager.show(
+                                        if (isEnglish) "No stock in depot for this product!" else "Bu üründen deponuzda stok bulunmuyor!",
+                                        NotificationType.ALERT
+                                    )
+                                }
                             },
                             onInstantSell = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                viewModel.handleIntent(com.example.viewmodel.GameIntent.SellToBorsa(item.itemId, item.quantity))
-                                SmartNotificationManager.show("${item.quantity} " + tr("Ton", "Tons", isEnglish) + " [${quality.starsText}] $itemName " + tr("spot fiyattan (", "sold at spot price (", isEnglish) + formatCredit(totalValuationItem) + tr(") satıldı!", ")!", isEnglish), NotificationType.SUCCESS)
+                                if (item.quantity > 0) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.handleIntent(com.example.viewmodel.GameIntent.SellToBorsa(item.itemId, item.quantity))
+                                    val msg = "${item.quantity} " + (if (isEnglish) "Tons" else "Ton") + " [${quality.starsText}] $itemName " + (if (isEnglish) "sold at spot price (" else "spot fiyattan (") + formatCredit(totalValuationItem) + ")!"
+                                    SmartNotificationManager.show(msg, NotificationType.SUCCESS)
+                                } else {
+                                    SmartNotificationManager.show(
+                                        if (isEnglish) "No stock available to sell!" else "Satılacak stok bulunmuyor!",
+                                        NotificationType.ALERT
+                                    )
+                                }
                             }
                         )
                     }
@@ -1078,11 +1108,12 @@ fun InventoryScreen(
 }
 
 // ==========================================
-// COMPONENT: COMMODITY STOCK CARD
+// COMPONENT: COMMODITY STOCK CARD (MERKEZ DEPO ŞABLONU)
 // ==========================================
 @Composable
 fun CommodityStockCard(
     product: Product?,
+    productId: String = product?.id ?: "",
     itemName: String,
     itemIcon: androidx.compose.ui.graphics.vector.ImageVector,
     quantity: Int,
@@ -1104,295 +1135,375 @@ fun CommodityStockCard(
         else -> "T1"
     }
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(4.dp),
-        color = Color(0xFF121824),
-        border = BorderStroke(1.dp, brandColor.copy(alpha = 0.4f))
+    val tierColor = when (product?.tier) {
+        ProductTier.TIER_1 -> Color(0xFF00E676)
+        ProductTier.TIER_2 -> ThemeNeonCyan
+        ProductTier.TIER_3 -> Color(0xFFE040FB)
+        ProductTier.TIER_4 -> Color(0xFFFFD700)
+        else -> ThemeNeonCyan
+    }
+
+    val isEnglish = isEnglishLanguage()
+
+    val drawableRes = remember(productId) {
+        if (productId.isNotEmpty()) {
+            ProductDrawables.getProductDrawableResId(productId)
+        } else {
+            0
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(2016f / 2122f)
+            .clip(RoundedCornerShape(8.dp))
     ) {
-        Column(modifier = Modifier.padding(if (compact) 6.dp else 8.dp)) {
-            // Header Row: Quantity Pill + Reserved Badge + Tier Badge
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // 1. Sleek Background Template Image (app/src/main/res/drawable/depo_urun.webp)
+        Image(
+            painter = painterResource(id = R.drawable.depo_urun),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds
+        )
+
+        // 2. Mathematically Aligned ConstraintLayout
+        ConstraintLayout(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val (headerRow, tierBox, showcaseBox, starsBox, titleBox, statsBox, btnLeft, btnRight) = createRefs()
+
+            // Strict Guidelines mapped from 2016x2122 template
+            // Top-left Ton/Quantity empty cyber frame in depo_urun.webp (X: 0.065f..0.340f, Y: 0.040f..0.118f)
+            val glTopTonFrame = createGuidelineFromTop(0.040f)
+            val glBottomTonFrame = createGuidelineFromTop(0.118f)
+            val glStartTonFrame = createGuidelineFromStart(0.065f)
+            val glEndTonFrame = createGuidelineFromStart(0.340f)
+
+            // Top-right shield / crest (arma) slot (X: 0.835f..0.950f, Y: 0.040f..0.140f)
+            val glTopShield = createGuidelineFromTop(0.040f)
+            val glBottomShield = createGuidelineFromTop(0.140f)
+            val glStartShield = createGuidelineFromStart(0.835f)
+            val glEndShield = createGuidelineFromStart(0.950f)
+
+            // Exact inner dimensions of the square frame in depo_urun.webp (X: 0.360f..0.640f, Y: 0.125f..0.315f)
+            val glTopShowcase = createGuidelineFromTop(0.125f)
+            val glBottomShowcase = createGuidelineFromTop(0.315f)
+            val glStartShowcase = createGuidelineFromStart(0.360f)
+            val glEndShowcase = createGuidelineFromStart(0.640f)
+
+            // Quality Stars strip strictly within the template's star slot (X: 0.394f..0.618f, Y: 0.332f..0.360f)
+            val glTopStars = createGuidelineFromTop(0.332f)
+            val glBottomStars = createGuidelineFromTop(0.360f)
+            val glStartStars = createGuidelineFromStart(0.394f)
+            val glEndStars = createGuidelineFromStart(0.618f)
+
+            // Product Name / Title
+            val glTopTitle = createGuidelineFromTop(0.375f)
+            val glBottomTitle = createGuidelineFromTop(0.445f)
+
+            // Stats info
+            val glTopStats = createGuidelineFromTop(0.455f)
+            val glBottomStats = createGuidelineFromTop(0.715f)
+
+            // Action Buttons (directly over the painted "İLAN VER" & "SAT" buttons in depo_urun.webp)
+            val glTopButtons = createGuidelineFromTop(0.725f)
+            val glBottomButtons = createGuidelineFromTop(0.930f)
+
+            val glStartCard = createGuidelineFromStart(0.055f)
+            val glEndCard = createGuidelineFromEnd(0.055f)
+
+            val glStartLeftBtn = createGuidelineFromStart(0.045f)
+            val glEndLeftBtn = createGuidelineFromStart(0.485f)
+
+            val glStartRightBtn = createGuidelineFromStart(0.515f)
+            val glEndRightBtn = createGuidelineFromEnd(0.045f)
+
+            // A1. TON QUANTITY BADGE (Centered strictly inside the top-left empty cyber frame)
+            Box(
+                modifier = Modifier
+                    .constrainAs(headerRow) {
+                        top.linkTo(glTopTonFrame)
+                        bottom.linkTo(glBottomTonFrame)
+                        start.linkTo(glStartTonFrame)
+                        end.linkTo(glEndTonFrame)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = brandColor.copy(alpha = 0.15f),
-                    border = BorderStroke(0.5.dp, brandColor.copy(alpha = 0.5f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(horizontal = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(4.dp)
-                                .clip(CircleShape)
-                                .background(brandColor)
-                        )
+                    Box(
+                        modifier = Modifier
+                            .size(if (compact) 4.5.dp else 5.dp)
+                            .clip(CircleShape)
+                            .background(if (quantity > 0) Color(0xFF10B981) else Color.Gray)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                    CurrencyText(
+                        text = "$quantity T",
+                        fontSize = if (compact) 9.5.sp else 11.sp,
+                        fontWeight = FontWeight.Black,
+                        fontFamily = RobotoMonoFontFamily,
+                        color = if (quantity > 0) Color(0xFF34D399) else Color.LightGray,
+                        maxLines = 1
+                    )
+
+                    if (reservedQuantity > 0) {
                         Spacer(modifier = Modifier.width(3.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.Lock,
+                            contentDescription = null,
+                            tint = ThemeGold,
+                            modifier = Modifier.size(if (compact) 8.dp else 9.dp)
+                        )
+                        Spacer(modifier = Modifier.width(1.dp))
                         CurrencyText(
-                            text = "$quantity T",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = RobotoMonoFontFamily,
-                            color = brandColor,
-                            fontSize = if (compact) 8.5.sp else 9.5.sp,
+                            text = "${reservedQuantity}T",
+                            fontSize = if (compact) 7.5.sp else 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ThemeGold,
                             maxLines = 1
                         )
                     }
                 }
+            }
 
-                if (reservedQuantity > 0) {
-                    Surface(
-                        shape = RoundedCornerShape(2.dp),
-                        color = ThemeGold.copy(alpha = 0.2f),
-                        border = BorderStroke(0.5.dp, ThemeGold)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Lock,
-                                contentDescription = null,
-                                tint = ThemeGold,
-                                modifier = Modifier.size(9.dp)
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            CurrencyText(
-                                text = "${reservedQuantity}T",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 8.sp,
-                                color = ThemeGold,
-                                maxLines = 1
-                            )
-                        }
+            // A2. TIER BADGE (Precisely placed inside the top-right shield / arma in depo_urun.webp)
+            Box(
+                modifier = Modifier
+                    .constrainAs(tierBox) {
+                        top.linkTo(glTopShield)
+                        bottom.linkTo(glBottomShield)
+                        start.linkTo(glStartShield)
+                        end.linkTo(glEndShield)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                CurrencyText(
+                    text = tierText,
+                    fontSize = if (compact) 11.5.sp else 13.sp,
+                    fontFamily = RobotoMonoFontFamily,
+                    fontWeight = FontWeight.Black,
+                    color = tierColor,
+                    maxLines = 1
+                )
+            }
+
+            // B. PRODUCT VISUAL SHOWCASE (Real product drawable image from res/drawable)
+            Box(
+                modifier = Modifier
+                    .constrainAs(showcaseBox) {
+                        top.linkTo(glTopShowcase)
+                        bottom.linkTo(glBottomShowcase)
+                        start.linkTo(glStartShowcase)
+                        end.linkTo(glEndShowcase)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
                     }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFF1E283A)
-                ) {
-                    CurrencyText(
-                        text = tierText,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontSize = 8.sp,
-                        fontFamily = RobotoMonoFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.LightGray,
-                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
-                        maxLines = 1
+                    .padding(2.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (drawableRes != 0) {
+                    Image(
+                        painter = painterResource(id = drawableRes),
+                        contentDescription = itemName,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                } else if (product != null) {
+                    Icon(
+                        imageVector = product.icon,
+                        contentDescription = itemName,
+                        tint = Color(product.colorTint),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = itemIcon,
+                        contentDescription = itemName,
+                        tint = brandColor,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(4.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(if (compact) 4.dp else 6.dp))
-
-            // Icon + Title Block
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // C1. QUALITY STARS (Positioned strictly inside the template's star indicator slot, no overflow)
+            Row(
+                modifier = Modifier
+                    .constrainAs(starsBox) {
+                        top.linkTo(glTopStars)
+                        bottom.linkTo(glBottomStars)
+                        start.linkTo(glStartStars)
+                        end.linkTo(glEndStars)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                if (product != null) {
-                    com.example.ui.components.ProductIconBadge(
-                        product = product,
-                        size = if (compact) 34.dp else 40.dp,
-                        showSectorBadge = false
+                val starCount = quality.starsText.count { it == '★' }
+                repeat(5) { i ->
+                    Icon(
+                        imageVector = Icons.Rounded.Star,
+                        contentDescription = null,
+                        tint = if (i < starCount) Color(0xFFFFD700) else Color(0xFF64748B).copy(alpha = 0.35f),
+                        modifier = Modifier.fillMaxHeight()
                     )
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = brandColor.copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, brandColor.copy(alpha = 0.4f)),
-                        modifier = Modifier.size(if (compact) 32.dp else 38.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = itemIcon,
-                                contentDescription = null,
-                                tint = brandColor,
-                                modifier = Modifier.size(if (compact) 18.dp else 20.dp)
-                            )
-                        }
-                    }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(3.dp))
-
+            // C2. PRODUCT NAME / TITLE
+            Box(
+                modifier = Modifier
+                    .constrainAs(titleBox) {
+                        top.linkTo(glTopTitle)
+                        bottom.linkTo(glBottomTitle)
+                        start.linkTo(glStartCard)
+                        end.linkTo(glEndCard)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    },
+                contentAlignment = Alignment.Center
+            ) {
                 CurrencyText(
                     text = itemName,
                     style = MaterialTheme.typography.titleSmall,
-                    fontSize = if (compact) 10.5.sp else 11.5.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = if (compact) 10.sp else 11.5.sp,
+                    fontWeight = FontWeight.Black,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-
-                // Kalite Rozeti
-                QualityBadge(
-                    quality = quality.toProductQuality(),
-                    size = 9.dp,
-                    showLabel = true,
-                    fontSize = 8,
-                    modifier = Modifier.padding(vertical = 1.dp)
-                )
-
-                CurrencyText(
-                    text = "Birim: ".trAuto() + formatCredit(spotPrice),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontSize = 8.5.sp,
-                    color = Color.Gray,
-                    fontFamily = RobotoMonoFontFamily,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Total Value Display Box
+            // D. STATS BOX (Birim Spot & Toplam Değer)
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(2.dp),
-                color = Color(0xFF182030),
-                border = BorderStroke(0.5.dp, ThemeBorder)
+                modifier = Modifier
+                    .constrainAs(statsBox) {
+                        top.linkTo(glTopStats)
+                        bottom.linkTo(glBottomStats)
+                        start.linkTo(glStartCard)
+                        end.linkTo(glEndCard)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    },
+                shape = RoundedCornerShape(4.dp),
+                color = Color(0xFF0C1322),
+                border = BorderStroke(0.8.dp, Color(0xFF1E293B))
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    if (!compact) {
-                        CurrencyText(
-                            text = "${stringResource(R.string.inv_stock_value)}:",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = 8.5.sp,
-                            color = Color.Gray,
-                            maxLines = 1
-                        )
-                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (compact) Arrangement.Center else Arrangement.End,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         CurrencyText(
-                            text = formatCredit(totalValuation),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = if (compact) 8.5.sp else 9.5.sp,
+                            text = tr("Birim Spot:", "Spot Price:", isEnglish),
+                            fontSize = if (compact) 7.5.sp else 8.5.sp,
+                            color = Color(0xFF94A3B8),
+                            maxLines = 1
+                        )
+                        CurrencyText(
+                            text = formatCredit(spotPrice),
+                            fontSize = if (compact) 8.sp else 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = RobotoMonoFontFamily,
+                            color = Color(0xFF38BDF8),
+                            maxLines = 1
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CurrencyText(
+                            text = tr("Toplam Değer:", "Total Value:", isEnglish),
+                            fontSize = if (compact) 7.5.sp else 8.5.sp,
+                            color = Color(0xFF94A3B8),
+                            maxLines = 1
+                        )
+                        CurrencyText(
+                            text = if (quantity > 0) formatCredit(totalValuation) else "0 ₳",
+                            fontSize = if (compact) 8.sp else 9.5.sp,
                             fontWeight = FontWeight.Black,
                             fontFamily = RobotoMonoFontFamily,
-                            color = ThemeGold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            color = if (quantity > 0) ThemeGold else Color.Gray,
+                            maxLines = 1
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            // E. LEFT BUTTON (İLAN VER - Native click area mapped directly to visual button in depo_urun.webp)
+            Box(
+                modifier = Modifier
+                    .constrainAs(btnLeft) {
+                        top.linkTo(glTopButtons)
+                        bottom.linkTo(glBottomButtons)
+                        start.linkTo(glStartLeftBtn)
+                        end.linkTo(glEndLeftBtn)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
+                    }
+                    .clip(RoundedCornerShape(6.dp))
+                    .then(
+                        if (quantity <= 0) {
+                            Modifier.background(Color.Black.copy(alpha = 0.55f))
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .clickable(
+                        enabled = quantity > 0,
+                        onClick = onListOnMarket
+                    )
+            )
 
-            // Action Buttons Row (Pazara İlan Ver & Anında Sat)
-            if (compact) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    AppButton(
-                        onClick = onListOnMarket,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(2.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ThemeNeonCyan,
-                            contentColor = Color(0xFF002026)
-                        ),
-                        contentPadding = PaddingValues(vertical = 2.dp, horizontal = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Sell,
-                            contentDescription = null,
-                            modifier = Modifier.size(11.dp)
-                        )
+            // F. RIGHT BUTTON (SAT - Native click area mapped directly to visual button in depo_urun.webp)
+            Box(
+                modifier = Modifier
+                    .constrainAs(btnRight) {
+                        top.linkTo(glTopButtons)
+                        bottom.linkTo(glBottomButtons)
+                        start.linkTo(glStartRightBtn)
+                        end.linkTo(glEndRightBtn)
+                        width = Dimension.fillToConstraints
+                        height = Dimension.fillToConstraints
                     }
-
-                    OutlinedButton(
-                        onClick = onInstantSell,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(2.dp),
-                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.6f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ThemeGold),
-                        contentPadding = PaddingValues(vertical = 2.dp, horizontal = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FlashOn,
-                            contentDescription = null,
-                            modifier = Modifier.size(11.dp)
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    AppButton(
-                        onClick = onListOnMarket,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(2.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ThemeNeonCyan,
-                            contentColor = Color(0xFF002026)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Sell,
-                            contentDescription = null,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        CurrencyText(
-                            text = tr("İlan Ver", "List"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 9.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    OutlinedButton(
-                        onClick = onInstantSell,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(2.dp),
-                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.6f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ThemeGold),
-                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FlashOn,
-                            contentDescription = null,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Spacer(modifier = Modifier.width(2.dp))
-                        CurrencyText(
-                            text = tr("Sat", "Sell"),
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 9.5.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
+                    .clip(RoundedCornerShape(6.dp))
+                    .then(
+                        if (quantity <= 0) {
+                            Modifier.background(Color.Black.copy(alpha = 0.55f))
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .clickable(
+                        enabled = quantity > 0,
+                        onClick = onInstantSell
+                    )
+            )
         }
     }
 }
@@ -1427,13 +1538,13 @@ fun ListingCreationDialog(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    shape = RoundedCornerShape(2.dp),
+                    shape = RoundedCornerShape(6.dp),
                     color = brandColor.copy(alpha = 0.2f),
                     border = BorderStroke(1.dp, brandColor.copy(alpha = 0.5f)),
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(46.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        if(product!=null) UniversalProductIcon(product, 18.dp, brandColor) else Icon(Icons.Rounded.Inventory2, null, tint=brandColor, modifier=Modifier.size(18.dp))
+                        if(product!=null) UniversalProductIcon(product, 32.dp, brandColor) else Icon(Icons.Rounded.Inventory2, null, tint=brandColor, modifier=Modifier.size(30.dp))
                     }
                 }
                 Spacer(modifier = Modifier.width(10.dp))
@@ -2117,13 +2228,13 @@ fun InventoryDeliveriesView(
                                     shape = RoundedCornerShape(8.dp),
                                     color = brandColor.copy(alpha = 0.18f),
                                     border = BorderStroke(1.2.dp, brandColor.copy(alpha = 0.6f)),
-                                    modifier = Modifier.size(42.dp)
+                                    modifier = Modifier.size(48.dp)
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         if (prod != null) {
-                                            UniversalProductIcon(product = prod, size = 26.dp, tint = brandColor)
+                                            UniversalProductIcon(product = prod, size = 34.dp, tint = brandColor)
                                         } else {
-                                            UniversalProductIcon(productId = baseProdId, size = 26.dp, tint = brandColor)
+                                            UniversalProductIcon(productId = baseProdId, size = 34.dp, tint = brandColor)
                                         }
                                     }
                                 }

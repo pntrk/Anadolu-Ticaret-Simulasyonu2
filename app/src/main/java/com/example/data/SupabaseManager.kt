@@ -1107,7 +1107,7 @@ object SupabaseManager {
             val httpUrl = ("$SUPABASE_URL/rest/v1/players").toHttpUrlOrNull()?.newBuilder()
                 ?.addQueryParameter(column, "$op.$value")
                 ?.addQueryParameter("select", "*")
-                ?.addQueryParameter("limit", "10")
+                ?.addQueryParameter("limit", "2")
                 ?.build() ?: return emptyList()
 
             val request = Request.Builder()

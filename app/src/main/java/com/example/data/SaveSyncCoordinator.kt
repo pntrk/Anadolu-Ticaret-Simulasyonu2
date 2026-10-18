@@ -69,7 +69,7 @@ object SaveSyncCoordinator {
             val repo = repositoryRef?.get()
             if (vm != null) {
                 vm.saveEconomicDataToDataStore(immediate = true)
-                vm.forceSyncCloudSaveToSupabase(immediate = true)
+                vm.syncCloudSaveToSupabase(force = false, immediate = true, isManual = false)
                 val p = vm.player.value
                 if (p != null && repo != null) {
                     val netWorth = p.money + p.depositBalance

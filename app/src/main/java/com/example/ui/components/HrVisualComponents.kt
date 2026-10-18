@@ -552,301 +552,118 @@ fun ExecutiveDirectorCard(
 ) {
     val haptic = LocalHapticFeedback.current
     val isEng = isEnglishLanguage()
-
-    val specialtyIcon = when (manager.specialty) {
-        "production" -> Icons.Rounded.Factory
-        "logistics" -> Icons.Rounded.LocalShipping
-        "maintenance" -> Icons.Rounded.Build
-        "contracts" -> Icons.Rounded.Description
-        "rd" -> Icons.Rounded.Science
-        "borsa" -> Icons.Rounded.ShowChart
-        "hr" -> Icons.Rounded.Group
-        else -> Icons.Rounded.AccountBalance
-    }
-
-    val localizedTitle = if (isEng) manager.title.trAuto() else (if (manager.titleRes != 0) androidx.compose.ui.res.stringResource(id = manager.titleRes) else manager.title)
-
-    val (hierarchyTag, hierarchyColor) = when (manager.id) {
-        "mgr_treasury" -> ("👑 " + tr("Hiyerarşi #1 (Finans)", "Hierarchy #1 (Finance)")) to ThemeGold
-        "mgr_contracts" -> ("🥈 " + tr("Hiyerarşi #2 (Tedarik)", "Hierarchy #2 (Procurement)")) to ThemeNeonCyan
-        "mgr_borsa" -> ("🥉 " + tr("Hiyerarşi #3 (Borsa)", "Hierarchy #3 (Exchange)")) to Color(0xFFFFB74D)
-        "mgr_logistics" -> ("🚚 " + tr("Hiyerarşi #4 (Lojistik)", "Hierarchy #4 (Logistics)")) to Color(0xFF81C784)
-        "mgr_hr" -> ("👥 " + tr("Hiyerarşi #5 (İK)", "Hierarchy #5 (HR)")) to Color(0xFFCE93D8)
-        else -> ("🛠️ " + tr("Hiyerarşi #5 (Operasyon)", "Hierarchy #5 (Operations)")) to Color(0xFF64B5F6)
-    }
-
     val isHired = manager.isHired
-    val containerColor = if (isHired) Color(0xFF101B2E) else Color(0xFF0A1220)
 
-    Surface(
+    Column(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = containerColor,
-        border = BorderStroke(if (isHired) 1.2.dp else 1.dp, if (isHired) hierarchyColor.copy(alpha = 0.7f) else Color(0xFF1E2D4A))
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        // 1. Manager Profile Plate Card (ConstraintLayout over static template)
+        ManagerProfileCard(
+            manager = manager,
+            player = player,
+            onClick = onClick,
+            onHire = onHire,
+            onFire = onFire,
+            onUpgrade = onUpgrade,
+            onToggleActive = onToggleActive
+        )
+
+        // 2. Action Controls Bar (Sleek and transparently attached)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Header Row: Avatar + Name/Title + Level / Status
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            if (!isHired) {
+                val hireGemCost = manager.hireGemCost
+                val hasEnoughGems = player.gems >= hireGemCost
+
+                AppButton(
+                    onClick = onClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B), contentColor = Color.White),
+                    modifier = Modifier.weight(0.85f).height(32.dp)
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (isHired) hierarchyColor.copy(alpha = 0.18f) else Color(0xFF1E293B),
-                        border = BorderStroke(1.dp, if (isHired) hierarchyColor.copy(alpha = 0.8f) else Color(0xFF334155)),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (isHired) specialtyIcon else Icons.Rounded.PersonOutline,
-                                contentDescription = null,
-                                tint = if (isHired) hierarchyColor else Color.Gray,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            CurrencyText(
-                                text = if (isHired && manager.name.isNotBlank()) manager.name else tr("AÇIK POZİSYON", "VACANT POSITION"),
-                                color = if (isHired) Color.White else ThemeGold,
-                                fontWeight = FontWeight.Black,
-                                fontSize = 13.5.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        CurrencyText(
-                            text = localizedTitle,
-                            color = if (isHired) hierarchyColor else Color.LightGray,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    Icon(Icons.Rounded.Description, contentDescription = null, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(3.dp))
+                    CurrencyText(tr("Detaylar", "Details"), fontSize = 9.sp)
                 }
 
-                if (isHired) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        // Level Stars
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFF0B1424),
-                            border = BorderStroke(0.8.dp, Color(0xFF2E3E5C))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                repeat(manager.level.coerceIn(1, 5)) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(10.dp))
-                                }
-                            }
-                        }
-
-                        // Duty Toggle Switch
-                        Surface(
-                            onClick = onToggleActive,
-                            shape = RoundedCornerShape(6.dp),
-                            color = if (manager.isActive) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFEF4444).copy(alpha = 0.2f),
-                            border = BorderStroke(1.dp, if (manager.isActive) Color(0xFF34D399) else Color(0xFFEF4444))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(if (manager.isActive) Color(0xFF34D399) else Color(0xFFEF4444))
-                                )
-                                CurrencyText(
-                                    text = if (manager.isActive) tr("GÖREVDE", "ACTIVE") else tr("İZİNLİ", "LEAVE"),
-                                    color = if (manager.isActive) Color(0xFF34D399) else Color(0xFFFCA5A5),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                            }
-                        }
-                    }
-                } else {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF1E293B),
-                        border = BorderStroke(1.dp, Color(0xFF334155))
-                    ) {
-                        CurrencyText(
-                            text = tr("Kadro Boş", "Vacant"),
-                            color = Color.LightGray,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                AppButton(
+                    onClick = onHire,
+                    enabled = hasEnoughGems,
+                    colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
+                    modifier = Modifier.weight(1.15f).height(32.dp)
+                ) {
+                    Icon(Icons.Default.Diamond, contentDescription = null, modifier = Modifier.size(13.dp), tint = if (hasEnoughGems) Color.Black else ThemeNeonCyan)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CurrencyText(tr("İşe Al", "Hire") + " ($hireGemCost 💎)", fontWeight = FontWeight.Black, fontSize = 9.5.sp)
                 }
-            }
-
-            // Key Economics Strip
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF080F1D))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    CurrencyText(
-                        text = if (isHired) tr("Günlük Bordro (Maaş)", "Daily Salary") else tr("Başlangıç Maaşı", "Starting Salary"),
-                        color = Color.Gray,
-                        fontSize = 8.5.sp
-                    )
-                    CurrencyText(
-                        text = formatCurrency(manager.dailySalary, isEng),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 11.sp
-                    )
-                }
-
-                Column(horizontalAlignment = Alignment.End) {
-                    if (!isHired) {
-                        CurrencyText(tr("Transfer Ücreti", "Hiring Fee"), color = ThemeNeonCyan, fontSize = 8.5.sp)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Diamond, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(11.dp))
-                            Spacer(modifier = Modifier.width(2.dp))
-                            CurrencyText("${manager.hireGemCost} 💎", color = ThemeNeonCyan, fontWeight = FontWeight.Black, fontSize = 11.5.sp)
-                        }
-                    } else {
-                        val effectText = when (manager.specialty) {
-                            "production" -> tr("Üretim Hızı", "Production Speed") + " +%${manager.level * 25}"
-                            "logistics" -> tr("Nakliye İndirimi", "Logistics Discount") + " %${(manager.level * 15).coerceAtMost(75)}"
-                            "maintenance" -> tr("Bakım İndirimi", "Maintenance Discount") + " %${(manager.level * 15).coerceAtMost(75)}"
-                            "treasury" -> tr("Nakit Rezerv Koruma", "Cash Reserve Protection") + " %${20 + (manager.level * 10)}"
-                            "rd" -> tr("Ar-Ge Hızı", "R&D Speed") + " +%${manager.level * 20}"
-                            "contracts" -> tr("B2B İhale Verimi", "B2B Tender Efficiency") + " +%${manager.level * 10}"
-                            "hr" -> tr("Oto-Terfi & Koçluk", "Auto-Promote & Coach")
-                            else -> tr("Oto-Borsa Alımı", "Auto-Stock Buying")
-                        }
-                        CurrencyText(hierarchyTag, color = hierarchyColor, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                        CurrencyText(effectText, color = ThemeGold, fontSize = 10.5.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-            }
-
-            // Live Recent Action Badge
-            if (isHired && manager.actionLogs.isNotEmpty()) {
-                val latestLog = manager.actionLogs.first()
-                val logTimeStr = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(latestLog.timestampMs))
+            } else {
+                // Duty Status Toggle
                 Surface(
+                    onClick = onToggleActive,
                     shape = RoundedCornerShape(6.dp),
-                    color = Color(0xFF060B14),
-                    border = BorderStroke(0.8.dp, hierarchyColor.copy(alpha = 0.35f)),
-                    modifier = Modifier.fillMaxWidth()
+                    color = if (manager.isActive) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFEF4444).copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, if (manager.isActive) Color(0xFF34D399) else Color(0xFFEF4444)),
+                    modifier = Modifier.height(32.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(hierarchyColor))
-                        CurrencyText(
-                            text = "⚡ ${latestLog.description.trAuto(isEng)}",
-                            color = Color(0xFFE2E8F0),
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (manager.isActive) Color(0xFF34D399) else Color(0xFFEF4444))
                         )
-                        CurrencyText(text = logTimeStr, color = Color(0xFF64748B), fontSize = 8.sp, fontFamily = RobotoMonoFontFamily)
+                        CurrencyText(
+                            text = if (manager.isActive) tr("GÖREVDE", "ACTIVE") else tr("İZİNLİ", "LEAVE"),
+                            color = if (manager.isActive) Color(0xFF34D399) else Color(0xFFFCA5A5),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black
+                        )
                     }
                 }
-            }
 
-            // Action Buttons Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (!isHired) {
-                    val hireGemCost = manager.hireGemCost
-                    val hasEnoughGems = player.gems >= hireGemCost
+                // View Dossier & Logs Button
+                AppButton(
+                    onClick = onClick,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B), contentColor = ThemeNeonCyan),
+                    border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.5f)),
+                    modifier = Modifier.weight(1f).height(32.dp)
+                ) {
+                    Icon(Icons.Rounded.History, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    CurrencyText(tr("Sicil", "Dossier") + " (${manager.actionLogs.size})", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
 
-                    AppButton(
-                        onClick = onClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B), contentColor = Color.White),
-                        modifier = Modifier.weight(0.8f).height(32.dp)
-                    ) {
-                        Icon(Icons.Rounded.Description, contentDescription = null, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(3.dp))
-                        CurrencyText(tr("Görev Tanımı", "Job Role"), fontSize = 9.sp)
-                    }
+                // Promote Button
+                if (manager.level < 5) {
+                    val upgradeCost = manager.dailySalary * 5 * manager.level
+                    val canAfford = player.money >= upgradeCost
 
                     AppButton(
-                        onClick = onHire,
-                        enabled = hasEnoughGems,
+                        onClick = onUpgrade,
+                        enabled = canAfford,
                         colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
-                        modifier = Modifier.weight(1.2f).height(32.dp)
-                    ) {
-                        Icon(Icons.Default.Diamond, contentDescription = null, modifier = Modifier.size(13.dp), tint = if (hasEnoughGems) Color.Black else ThemeNeonCyan)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        CurrencyText(tr("İşe Al", "Hire") + " ($hireGemCost 💎)", fontWeight = FontWeight.Black, fontSize = 9.5.sp)
-                    }
-                } else {
-                    // View Dossier & Logs Button
-                    AppButton(
-                        onClick = onClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B), contentColor = ThemeNeonCyan),
-                        border = BorderStroke(1.dp, ThemeNeonCyan.copy(alpha = 0.5f)),
                         modifier = Modifier.weight(1f).height(32.dp)
                     ) {
-                        Icon(Icons.Rounded.History, contentDescription = null, tint = ThemeNeonCyan, modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        CurrencyText(tr("Sicil & Loglar", "Dossier & Logs") + " (${manager.actionLogs.size})", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Rounded.Upgrade, contentDescription = null, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
+                        CurrencyText(tr("Terfi", "Promote") + " (${formatCredit(upgradeCost)})", fontSize = 9.sp, fontWeight = FontWeight.Black)
                     }
-
-                    // Promote Button
-                    if (manager.level < 5) {
-                        val upgradeCost = manager.dailySalary * 5 * manager.level
-                        val canAfford = player.money >= upgradeCost
-
-                        AppButton(
-                            onClick = onUpgrade,
-                            enabled = canAfford,
-                            colors = ButtonDefaults.buttonColors(containerColor = ThemeGold, contentColor = Color.Black),
-                            modifier = Modifier.weight(1f).height(32.dp)
-                        ) {
-                            Icon(Icons.Rounded.Upgrade, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(modifier = Modifier.width(3.dp))
-                            CurrencyText(tr("Terfi", "Promote") + " (${formatCredit(upgradeCost)})", fontSize = 9.sp, fontWeight = FontWeight.Black)
-                        }
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = ThemeGold.copy(alpha = 0.15f),
-                            border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
-                            modifier = Modifier.weight(1f).height(32.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                CurrencyText(tr("⭐ Maks Seviye (Lvl 5)", "⭐ Max Level (Lvl 5)"), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ThemeGold.copy(alpha = 0.15f),
+                        border = BorderStroke(1.dp, ThemeGold.copy(alpha = 0.4f)),
+                        modifier = Modifier.weight(1f).height(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            CurrencyText(tr("⭐ Maks (Lvl 5)", "⭐ Max (Lvl 5)"), color = ThemeGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -895,40 +712,26 @@ fun ExecutiveDossierDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Surface(
-                            shape = CircleShape,
-                            color = ThemeGold.copy(alpha = 0.2f),
-                            border = BorderStroke(1.2.dp, ThemeGold),
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Rounded.AccountBox, contentDescription = null, tint = ThemeGold, modifier = Modifier.size(26.dp))
-                            }
-                        }
-
-                        Column {
-                            CurrencyText(
-                                text = titleName,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color.White
-                            )
-                            CurrencyText(
-                                text = localizedTitle,
-                                fontSize = 9.5.sp,
-                                color = ThemeGold,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
+                    CurrencyText(
+                        text = tr("YÖNETİCİ SİCİL VE KARAR DOSYASI", "EXECUTIVE DOSSIER & AUDIT FILE"),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = ThemeNeonCyan,
+                        fontFamily = RobotoMonoFontFamily,
+                        letterSpacing = 0.5.sp
+                    )
 
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Rounded.Close, contentDescription = null, tint = Color.Gray)
                     }
                 }
 
-                HorizontalDivider(color = Color(0xFF1E2D4A))
+                // Plate Template Profile Card
+                ManagerProfileCard(
+                    manager = manager,
+                    player = player,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 // Performance Scorecard Matrix
                 Row(
