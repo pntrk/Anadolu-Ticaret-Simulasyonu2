@@ -37,6 +37,11 @@ class AppExceptionHandler private constructor(
             val isRecoverable = msg.contains("BINDER", ignoreCase = true) ||
                 msg.contains("TransactionTooLarge", ignoreCase = true) ||
                 msg.contains("No space left on device", ignoreCase = true) ||
+                msg.contains("MESA", ignoreCase = true) ||
+                msg.contains("rendernode", ignoreCase = true) ||
+                msg.contains("cr_AwSupervisedUserDel", ignoreCase = true) ||
+                msg.contains("AwSupervisedUser", ignoreCase = true) ||
+                msg.contains("TimeoutException", ignoreCase = true) ||
                 msg.contains("divide by zero", ignoreCase = true) ||
                 msg.contains("/ by zero", ignoreCase = true) ||
                 msg.contains("NullPointerException", ignoreCase = true) ||
@@ -46,6 +51,7 @@ class AppExceptionHandler private constructor(
                 throwable is NullPointerException ||
                 throwable is IndexOutOfBoundsException ||
                 throwable is ConcurrentModificationException ||
+                throwable is java.util.concurrent.TimeoutException ||
                 throwable is android.os.RemoteException ||
                 throwable is android.os.DeadObjectException ||
                 throwable is android.os.TransactionTooLargeException ||
